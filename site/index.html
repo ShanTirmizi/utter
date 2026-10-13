@@ -26,7 +26,7 @@
     <meta name="theme-color" content="#faf8f5" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1e1a17" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="apple-touch-icon" href="/icon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preload" href="/fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
@@ -53,7 +53,7 @@
     <header class="top">
       <div class="wrap top-in">
         <a class="brand" href="/" aria-label="Utter, home">
-          <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+          <img class="mark" src="/icon.png" alt="" width="30" height="30" />
           <span>Utter</span>
         </a>
         <nav aria-label="Page sections">
@@ -93,7 +93,7 @@
                  the version from here when scripts are on.
                  ========================================================================== -->
             <p class="meta">
-              Version <span id="app-version">0.2.0</span>, <span id="dmg-size">3.6 MB</span>. For Apple
+              Version <span id="app-version">0.2.1</span>, <span id="dmg-size">4.5 MB</span>. For Apple
               Silicon Macs on macOS 12 or later.
             </p>
             <p class="meta">Free under the MIT licence. No account, no subscription.</p>
@@ -454,7 +454,7 @@
       <section class="show" id="more" aria-labelledby="more-h">
         <div class="wrap">
           <header class="show-head rv">
-            <p class="eyebrow">New in <span data-copy="app-version">this version</span></p>
+            <p class="eyebrow">New in 0.2</p>
             <h2 id="more-h">It does more than take dictation.</h2>
             <p>
               Change text you already wrote, talk without holding anything, teach it your
@@ -785,7 +785,7 @@ pnpm tauri build</code></pre>
     <footer class="foot">
       <div class="wrap foot-in">
         <div class="foot-brand">
-          <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+          <img class="mark" src="/icon.png" alt="" width="30" height="30" />
           <p>Utter is free software under the MIT licence.</p>
         </div>
         <ul class="foot-links">

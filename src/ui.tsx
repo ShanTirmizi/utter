@@ -1,5 +1,6 @@
 // Small building blocks shared by every screen: icons, notices, switches,
 // keycaps and the sound-wave mark. Their looks are in styles/utter.css.
+import logo from "./assets/logo.png";
 import type { ReactNode } from "react";
 import { keyParts } from "./hotkey";
 
@@ -260,29 +261,13 @@ export function Keycaps({
   );
 }
 
-/** The app mark at welcome size: five cream bars on ember, breathing. */
+/** The app's logo at welcome size. */
 export function Mark() {
-  return (
-    <span className="mark wmark" aria-hidden="true">
-      <i />
-      <i />
-      <i />
-      <i />
-      <i />
-    </span>
-  );
+  return <img className="wmark" src={logo} alt="" width={96} height={96} />;
 }
 
 export function SmallMark() {
-  return (
-    <span className="mark smark" aria-hidden="true">
-      <i />
-      <i />
-      <i />
-      <i />
-      <i />
-    </span>
-  );
+  return <img className="smark" src={logo} alt="" width={20} height={20} />;
 }
 
 /** Five flat dots: the mark at rest, for empty states. */

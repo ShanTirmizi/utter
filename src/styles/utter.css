@@ -98,16 +98,9 @@ p { margin: 0; }
 kbd.k{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;border-radius:5px;font:600 11px/1 var(--font-mono);background:var(--key-top);color:var(--ink);box-shadow:0 0 0 .5px var(--line-2),0 1.5px 0 var(--key-edge);margin:0 1px;vertical-align:1px}
 
 /* ---------- brand mark ---------- */
-.mark{display:inline-flex;align-items:center;justify-content:center;background:var(--ember);flex:none}
-.mark i{display:block;background:var(--cream);border-radius:3px}
-.wmark{width:96px;height:96px;border-radius:26px;gap:7px;box-shadow:0 14px 30px -12px rgba(194,65,12,.7),inset 0 1px 0 rgba(255,255,255,.22)}
-.wmark i{width:9px;border-radius:5px;animation:breathe 2.6s var(--ease-out) infinite}
-.wmark i:nth-child(1),.wmark i:nth-child(5){height:22px}
-.wmark i:nth-child(2),.wmark i:nth-child(4){height:40px;animation-delay:.12s}
-.wmark i:nth-child(3){height:56px;animation-delay:.24s}
-.wmark i:nth-child(4){animation-delay:.36s}.wmark i:nth-child(5){animation-delay:.48s}
-.smark{width:20px;height:20px;border-radius:6px;gap:1.5px}
-.smark i{width:2px;border-radius:1px;height:4px}.smark i:nth-child(2),.smark i:nth-child(4){height:8px}.smark i:nth-child(3){height:11px}
+/* The logo is a picture (src/assets/logo.png); these only size it. */
+.wmark{display:block;width:96px;height:96px;flex:none;filter:drop-shadow(0 12px 18px rgba(194,65,12,.45));animation:afloat 4.5s ease-in-out infinite}
+.smark{display:block;width:20px;height:20px;flex:none}
 .flat{display:flex;gap:5px;align-items:center;justify-content:center;height:24px}
 .flat i{display:block;width:5px;height:5px;border-radius:3px;background:var(--line-2)}
 .live{display:flex;align-items:center;gap:2px;height:28px}
@@ -239,10 +232,11 @@ kbd.k{display:inline-flex;align-items:center;justify-content:center;min-width:20
 .ptime{font:500 12px/1 var(--font-mono);color:var(--pill-ink-2);font-variant-numeric:tabular-nums}
 .pchip2{font:600 11px/1 var(--font-ui);padding:4px 7px;border-radius:6px;background:var(--pill-line);color:var(--pill-ink)}
 .pk{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;border-radius:5px;font:600 11px/1 var(--font-mono);background:var(--pill-key);color:var(--pill-ink);box-shadow:0 0 0 .5px var(--pill-line),0 1.5px 0 var(--pill-line);margin:0 1px;vertical-align:1px}
-.badge{width:28px;height:28px;border-radius:50%;background:var(--ember);display:inline-flex;align-items:center;justify-content:center;gap:2px;flex:none}
-.badge i{display:block;width:2.5px;border-radius:2px;background:var(--cream);height:6px;transition:height 60ms linear}
+/* The badge is the logo's glyph, alive: bar, bar, U, bar, bar. */
+.badge{width:28px;height:28px;border-radius:50%;background:var(--ember);display:inline-flex;align-items:center;justify-content:center;gap:1.5px;flex:none}
+.badge i{display:block;width:2px;border-radius:2px;background:var(--cream);height:6px;transition:height 60ms linear}
 .badge i:nth-child(2),.badge i:nth-child(4){height:11px}
-.badge i:nth-child(3){height:15px}
+.badge i:nth-child(3){box-sizing:border-box;width:8px;height:15px;background:none;border:2.5px solid var(--cream);border-top:0;border-radius:0 0 4px 4px}
 .badge.talk i{animation:talk .9s ease-in-out infinite}
 .badge.talk i:nth-child(2){animation-duration:.7s;animation-delay:-.3s}
 .badge.talk i:nth-child(3){animation-duration:1.1s;animation-delay:-.5s}
@@ -264,6 +258,7 @@ kbd.k{display:inline-flex;align-items:center;justify-content:center;min-width:20
 /* ---------- keyframes ---------- */
 @keyframes talk{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
 @keyframes travel{0%,60%,100%{transform:scaleY(.45)}30%{transform:scaleY(1.08)}}
+@keyframes afloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
 @keyframes breathe{0%,100%{transform:scaleY(1)}30%{transform:scaleY(.7)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -272,7 +267,7 @@ kbd.k{display:inline-flex;align-items:center;justify-content:center;min-width:20
 
 /* ---------- reduced motion: loops stop, movement becomes a short fade ---------- */
 @media (prefers-reduced-motion:reduce){
-  .badge i,.pw i,.wmark i,.dlw i,.live i,.spin,.state.live .dot,.key.ghost,.key.pop,.recdot::before{animation:none!important}
+  .badge i,.pw i,.wmark,.dlw i,.live i,.spin,.state.live .dot,.key.ghost,.key.pop,.recdot::before{animation:none!important}
   .pw,.live{display:none!important}
   .rmonly{display:inline!important}
   *{transition-duration:120ms!important;transition-timing-function:linear!important;transition-property:opacity,background-color,color,box-shadow!important}
@@ -298,7 +293,9 @@ kbd.k{display:inline-flex;align-items:center;justify-content:center;min-width:20
 .live.real i,.dlw i.edge.still{animation:none}
 .live.real i{transform:none;height:3px;transition:height 60ms linear}
 .badge.sm{width:22px;height:22px}
-.badge.sm i{width:2px}
+.badge.sm{gap:1px}
+.badge.sm i{width:1.5px}
+.badge.sm i:nth-child(3){width:7px;border-width:2px}
 .badge.sm i:nth-child(1),.badge.sm i:nth-child(5){height:5px}.badge.sm i:nth-child(2),.badge.sm i:nth-child(4){height:9px}.badge.sm i:nth-child(3){height:12px}
 .dot8{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
 .dot8.warn{background:var(--warn)}.dot8.bad{background:var(--bad)}.dot8.busy{background:var(--ink-3)}

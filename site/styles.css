@@ -291,32 +291,12 @@ html:not(.js) .js-only,
   color: var(--ink-2);
 }
 
-/* ---------- the mark: five bars on ember ---------- */
+/* ---------- the mark: the app's logo, as a picture ---------- */
 .mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
+  display: block;
   width: 30px;
   height: 30px;
-  border-radius: 9px;
-  background: var(--ember);
   flex: none;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-}
-.mark i {
-  display: block;
-  width: 2.5px;
-  height: 6px;
-  border-radius: 2px;
-  background: var(--cream);
-}
-.mark i:nth-child(2),
-.mark i:nth-child(4) {
-  height: 12px;
-}
-.mark i:nth-child(3) {
-  height: 17px;
 }
 
 /* ---------- keycaps ---------- */
@@ -896,12 +876,13 @@ html:not(.js) .keyboard {
   font: 500 15px/20px var(--font-ui);
   white-space: nowrap;
 }
+/* The badge is the logo's glyph, alive: bar, bar, U, bar, bar. */
 .badge {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2.5px;
+  gap: 2px;
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -909,10 +890,18 @@ html:not(.js) .keyboard {
 }
 .badge i {
   display: block;
-  width: 3px;
+  width: 2.5px;
   height: 7px;
   border-radius: 2px;
   background: var(--cream);
+}
+.badge i:nth-child(3) {
+  box-sizing: border-box;
+  width: 9px;
+  background: none;
+  border: 3px solid var(--cream);
+  border-top: 0;
+  border-radius: 0 0 4.5px 4.5px;
 }
 .badge i:nth-child(2),
 .badge i:nth-child(4) {
@@ -1687,9 +1676,16 @@ tbody td {
   height: 26px;
   gap: 2px;
 }
+.badge.sm {
+  gap: 1.5px;
+}
 .badge.sm i {
-  width: 2.5px;
+  width: 2px;
   height: 5px;
+}
+.badge.sm i:nth-child(3) {
+  width: 7px;
+  border-width: 2.2px;
 }
 .badge.sm i:nth-child(2),
 .badge.sm i:nth-child(4) {
@@ -1822,6 +1818,11 @@ tbody td {
 }
 .saidcap .k {
   color: #f1c7a6;
+}
+/* Blocks of their own, so the typing-out clip applies in every browser. */
+.saidcap .q,
+.hsearch .q {
+  display: inline-block;
 }
 .s-edit[data-step="0"] .saidcap {
   opacity: 0;

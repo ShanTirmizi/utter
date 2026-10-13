@@ -277,7 +277,7 @@ at a glance: is Utter ready, and if not, what is the one thing to do?
 
 - **The pill is one shape.** It changes width, height and corner radius between
   listening, working, a note and a problem, and its contents crossfade inside.
-  The eye never loses it. The orange badge is the app mark: its five bars
+  The eye never loses it. The orange badge is the logo's glyph (two bars, a U, two bars): its five parts
   bounce with your voice, travel while working and lie flat for a note.
 - **The waveform is real.** While recording, the backend sends the microphone
   level about twenty times a second (`audio-level`, 0 to 1 for -60 dB to
