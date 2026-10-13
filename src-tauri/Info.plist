@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Shown by macOS in the microphone permission prompt. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Utter records your voice while you hold the dictation hotkey, and turns it into text on this Mac.</string>
+</dict>
+</plist>
