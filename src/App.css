@@ -247,33 +247,3 @@ textarea {
 select {
   appearance: auto;
 }
-
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.chip {
-  border-radius: 999px;
-  padding: 4px 12px;
-}
-
-.chip-on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-@media (prefers-color-scheme: dark) {
-  .chip-on {
-    color: #1a1917;
-  }
-}
-
-.instruction {
-  border-left: 2px solid var(--line);
-  padding-left: 10px;
-  margin: 0 0 10px;
-}
