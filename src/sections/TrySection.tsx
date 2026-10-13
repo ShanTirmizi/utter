@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { PipelineUpdate } from "../api";
+import { lastDictation, type Dictation, type PipelineUpdate } from "../api";
 import { keycaps } from "../hotkey";
 
 const LABELS: Record<PipelineUpdate["phase"], string> = {
@@ -12,10 +12,17 @@ const LABELS: Record<PipelineUpdate["phase"], string> = {
 };
 
 export default function TrySection({ hotkey }: { hotkey: string }) {
-  const [update, setUpdate] = useState<PipelineUpdate>({ phase: "idle", message: null });
+  const [phase, setPhase] = useState<PipelineUpdate["phase"]>("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const [dictation, setDictation] = useState<Dictation | null>(null);
 
   useEffect(() => {
-    const stop = listen<PipelineUpdate>("pipeline", (e) => setUpdate(e.payload));
+    lastDictation().then(setDictation);
+    const stop = listen<PipelineUpdate>("pipeline", (e) => {
+      setPhase(e.payload.phase);
+      setMessage(e.payload.message);
+      if (e.payload.dictation) setDictation(e.payload.dictation);
+    });
     return () => {
       stop.then((unlisten) => unlisten());
     };
@@ -24,13 +31,17 @@ export default function TrySection({ hotkey }: { hotkey: string }) {
   return (
     <section className="card">
       <h2>Try it</h2>
-      <p className="muted">
-        Hold {keycaps(hotkey).join(" ")} and say something.
-      </p>
+      <p className="muted">Hold {keycaps(hotkey).join(" ")} and say something.</p>
       <div className="row">
-        <span className={`status status-${update.phase}`}>{LABELS[update.phase]}</span>
-        {update.message && <span className="muted small">{update.message}</span>}
+        <span className={`status status-${phase}`}>{LABELS[phase]}</span>
+        {message && <span className="muted small">{message}</span>}
       </div>
+      {dictation && (
+        <div className="result">
+          <p>{dictation.text}</p>
+          <p className="muted small">Transcribed in {dictation.transcribeMs} ms</p>
+        </div>
+      )}
     </section>
   );
 }

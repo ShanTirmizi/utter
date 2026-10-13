@@ -19,10 +19,33 @@ export const setApiKey = (key: string) => invoke<void>("set_api_key", { key });
 export const deleteApiKey = () => invoke<void>("delete_api_key");
 
 // Progress reports from the dictation pipeline, sent on the "pipeline" event.
+export type Dictation = {
+  /** Exactly what the speech model heard. */
+  raw: string;
+  /** What Utter produced from it. */
+  text: string;
+  transcribeMs: number;
+};
+
 export type PipelineUpdate = {
   phase: "idle" | "recording" | "processing" | "done" | "error";
   message: string | null;
+  dictation: Dictation | null;
 };
+
+export const lastDictation = () => invoke<Dictation | null>("last_dictation");
+
+export type ModelStatus = {
+  name: string;
+  label: string;
+  note: string;
+  sizeMb: number;
+  downloaded: boolean;
+};
+export type DownloadProgress = { name: string; received: number; total: number };
+
+export const modelStatuses = () => invoke<ModelStatus[]>("model_statuses");
+export const downloadModel = (name: string) => invoke<void>("download_model", { name });
 
 export type MicStatus = "undetermined" | "granted" | "denied";
 export type PermissionStatus = { microphone: MicStatus; accessibility: boolean };

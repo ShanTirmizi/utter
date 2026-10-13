@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getSettings, saveSettings, type Settings } from "./api";
 import CleanupSection from "./sections/CleanupSection";
 import HotkeySection from "./sections/HotkeySection";
+import ModelSection from "./sections/ModelSection";
 import PermissionsSection from "./sections/PermissionsSection";
 import TrySection from "./sections/TrySection";
 import Welcome from "./Welcome";
@@ -38,6 +39,7 @@ export default function App() {
       </header>
       <TrySection hotkey={settings.hotkey} />
       <HotkeySection hotkey={settings.hotkey} onChange={(hotkey) => update({ hotkey })} />
+      <ModelSection selected={settings.model} onSelect={(model) => update({ model })} />
       <CleanupSection
         enabled={settings.cleanupEnabled}
         onToggle={(cleanupEnabled) => update({ cleanupEnabled })}

@@ -2,12 +2,14 @@
 //! app you are using. This file wires the pieces together; each piece lives in
 //! its own module.
 
-mod audio;
+pub mod audio;
 mod hotkey;
+mod models;
 mod permissions;
 mod pipeline;
 mod secrets;
 mod settings;
+pub mod transcribe;
 
 use settings::Settings;
 use tauri::{AppHandle, Manager};
@@ -29,6 +31,9 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String>
         }
     }
     settings::save(&app, &settings)?;
+    if settings.model != previous.model {
+        pipeline::preload_model(&app);
+    }
     Ok(settings)
 }
 
@@ -70,13 +75,34 @@ fn open_privacy_settings(pane: String) -> Result<(), String> {
     permissions::open_settings(&pane)
 }
 
+#[tauri::command]
+fn model_statuses(app: AppHandle) -> Vec<models::ModelStatus> {
+    models::statuses(&app)
+}
+
+/// Download a speech model; progress arrives on the `model-download` event.
+#[tauri::command]
+async fn download_model(app: AppHandle, name: String) -> Result<(), String> {
+    models::download(&app, &name).await?;
+    pipeline::preload_model(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn last_dictation(app: AppHandle) -> Option<pipeline::Dictation> {
+    app.state::<pipeline::Pipeline>().last()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            // Keep whisper.cpp's own logging out of the terminal.
+            whisper_rs::install_logging_hooks();
             app.manage(pipeline::Pipeline::new());
+            pipeline::preload_model(app.handle());
             let saved = settings::load(app.handle());
             if let Err(e) = hotkey::register(app.handle(), &saved.hotkey) {
                 eprintln!("[utter] {e}");
@@ -93,6 +119,9 @@ pub fn run() {
             request_microphone,
             request_accessibility,
             open_privacy_settings,
+            model_statuses,
+            download_model,
+            last_dictation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Utter");
