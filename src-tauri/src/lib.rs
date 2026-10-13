@@ -221,20 +221,75 @@ fn last_dictation(app: AppHandle) -> Option<pipeline::Dictation> {
 /// each is run through the pipeline shortly after launch, as if dictated.
 /// A path ending in `@rewrite` uses the rewrite hotkey's mode. Each outcome
 /// is printed as a `[pipeline]` line and left on the clipboard; nothing is
-/// pasted.
+/// pasted. `[probe]` lines show what each window displayed along the way.
 ///
 ///   ffmpeg -i clip.wav -ar 16000 -ac 1 -f f32le clip.f32
 ///   UTTER_SIMULATE=clip.f32,clip.f32@rewrite pnpm tauri dev
+/// Development aid, absent from release builds: ask each window to describe
+/// what it is showing right now (its visible text, and the box that text
+/// occupies) and print the answers as `[probe]` lines. This lets a test run
+/// check the real windows without anyone looking at the screen.
+#[cfg(debug_assertions)]
+fn probe(app: &AppHandle, moment: &str) {
+    const SCRIPT: &str = r#"(() => {
+  const opacity = (el) => {
+    let total = 1;
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const s = getComputedStyle(n);
+      if (s.display === 'none' || s.visibility === 'hidden') return 0;
+      total *= parseFloat(s.opacity);
+    }
+    return total;
+  };
+  let left = 1e9, top = 1e9, right = 0, bottom = 0, shown = 0;
+  const texts = [];
+  for (const el of document.querySelectorAll('#root *')) {
+    const box = el.getBoundingClientRect();
+    if (!box.width || !box.height || opacity(el) < 0.05) continue;
+    shown += 1;
+    left = Math.min(left, box.left); top = Math.min(top, box.top);
+    right = Math.max(right, box.right); bottom = Math.max(bottom, box.bottom);
+    if (el.children.length === 0 && el.textContent.trim()) texts.push(el.textContent.trim());
+  }
+  const report = {
+    moment: '__MOMENT__',
+    window: window.__TAURI_INTERNALS__.metadata.currentWindow.label,
+    size: [innerWidth, innerHeight],
+    shown,
+    box: shown ? [left, top, right, bottom].map(Math.round) : null,
+    text: texts.join(' | ').slice(0, 400),
+    // State that does not depend on a CSS transition having been painted,
+    // which never happens while the screen is locked or the window hidden.
+    labelled: [...document.querySelectorAll('#root [aria-label]')]
+      .map((el) => `${el.className} => ${el.getAttribute('aria-label')}`)
+      .slice(0, 6),
+    page: document.visibilityState,
+    fonts: [...new Set([...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family))],
+  };
+  window.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: 'debug-probe', payload: report });
+})();"#;
+    for label in ["main", "pill"] {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.eval(SCRIPT.replace("__MOMENT__", moment));
+        }
+    }
+}
+
 #[cfg(debug_assertions)]
 fn simulate_from_env(app: &AppHandle) {
     let Ok(list) = std::env::var("UTTER_SIMULATE") else {
         return;
     };
+    {
+        use tauri::Listener;
+        app.listen("debug-probe", |event| eprintln!("[probe] {}", event.payload()));
+    }
     let app = app.clone();
     std::thread::spawn(move || {
         use std::time::Duration;
         // Give the speech model time to load first.
         std::thread::sleep(Duration::from_secs(4));
+        probe(&app, "before any dictation");
         {
             let (reply, code) = std::sync::mpsc::channel();
             let _ = app.run_on_main_thread(move || {
@@ -264,9 +319,21 @@ fn simulate_from_env(app: &AppHandle) {
                 eprintln!("[simulate] {entry}: busy, skipped");
                 continue;
             }
+            let mut polls = 0;
             while pipeline::busy(&app) {
                 std::thread::sleep(Duration::from_millis(50));
+                polls += 1;
+                // Look at the windows shortly after the start, and again
+                // once processing has been going for a while.
+                if polls == 12 || polls == 80 {
+                    probe(&app, &format!("{:.1}s into processing", polls as f32 * 0.05));
+                }
             }
+            probe(&app, "just finished");
+            std::thread::sleep(Duration::from_millis(1500));
+            probe(&app, "1.5s after finishing");
+            std::thread::sleep(Duration::from_millis(6000));
+            probe(&app, "7.5s after finishing");
             // The outcome itself is printed by the pipeline as it finishes.
             eprintln!("[simulate] {entry} took {:.1}s", started.elapsed().as_secs_f32());
         }
