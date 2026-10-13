@@ -82,10 +82,10 @@ fn permission_status() -> permissions::PermissionStatus {
     permissions::status()
 }
 
-/// Briefly open the microphone so macOS shows its permission prompt.
+/// Ask macOS to show its microphone permission prompt.
 #[tauri::command]
-fn request_microphone(app: AppHandle) {
-    std::thread::spawn(move || app.state::<pipeline::Pipeline>().probe_microphone());
+fn request_microphone() {
+    permissions::request_microphone();
 }
 
 /// Show the system dialog that leads to the Accessibility settings pane.

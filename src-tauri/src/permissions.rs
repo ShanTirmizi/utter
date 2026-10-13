@@ -12,7 +12,11 @@ use core_foundation::{
     dictionary::{CFDictionary, CFDictionaryRef},
     string::CFString,
 };
-use objc2::{msg_send, runtime::AnyClass};
+use block2::RcBlock;
+use objc2::{
+    msg_send,
+    runtime::{AnyClass, Bool},
+};
 use objc2_foundation::NSString;
 use serde::Serialize;
 use std::process::Command;
@@ -61,6 +65,23 @@ pub fn microphone() -> MicStatus {
         0 => MicStatus::Undetermined,
         _ => MicStatus::Denied,
     }
+}
+
+/// Ask macOS to show its microphone permission dialog. The answer is picked
+/// up by the next `microphone()` check. If the user has already answered,
+/// macOS shows nothing.
+pub fn request_microphone() {
+    let Some(class) = AnyClass::get(c"AVCaptureDevice") else {
+        return;
+    };
+    let on_answer = RcBlock::new(|_granted: Bool| {});
+    let _: () = unsafe {
+        msg_send![
+            class,
+            requestAccessForMediaType: AVMediaTypeAudio,
+            completionHandler: &*on_answer
+        ]
+    };
 }
 
 pub fn accessibility() -> bool {

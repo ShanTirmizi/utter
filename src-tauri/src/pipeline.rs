@@ -81,19 +81,6 @@ impl Pipeline {
         }
     }
 
-    /// Open the microphone for a moment. The first time, this is what makes
-    /// macOS ask the user for microphone access.
-    pub fn probe_microphone(&self) {
-        let phase = self.phase.lock().unwrap();
-        if *phase != Phase::Idle {
-            return;
-        }
-        if self.recorder.start().is_ok() {
-            std::thread::sleep(std::time::Duration::from_millis(400));
-            self.recorder.stop();
-        }
-    }
-
     pub fn last(&self) -> Option<Dictation> {
         self.last.lock().unwrap().clone()
     }
