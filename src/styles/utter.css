@@ -1,7 +1,10 @@
 /* Components. Colours, type and motion come from tokens.css. */
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
-body { margin: 0; font-family: var(--font-ui); color: var(--ink); background: var(--win); -webkit-font-smoothing: antialiased; overflow: hidden; }
+/* No background until main.tsx says which window this is: the status pill's
+   window is see-through, and must never flash an opaque rectangle at launch. */
+body { margin: 0; font-family: var(--font-ui); color: var(--ink); background: transparent; -webkit-font-smoothing: antialiased; overflow: hidden; }
+html.main-window body { background: var(--win); }
 button { font: inherit; color: inherit; }
 p { margin: 0; }
 

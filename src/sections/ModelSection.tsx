@@ -103,12 +103,13 @@ export function ModelRows({ suggest = false }: { suggest?: boolean }) {
                 <button className="btn primary sm" disabled={!!progress} onClick={() => app.download(m.name)}>
                   Download
                 </button>
-              ) : selected && !progress ? (
-                <span className="chip warn">Not downloaded</span>
               ) : (
-                <button className="btn sm" disabled={!!progress} onClick={() => app.download(m.name)}>
-                  Download
-                </button>
+                <>
+                  {selected && !progress && <span className="chip warn">Not downloaded</span>}
+                  <button className="btn sm" disabled={!!progress} onClick={() => app.download(m.name)}>
+                    Download
+                  </button>
+                </>
               )}
             </div>
 

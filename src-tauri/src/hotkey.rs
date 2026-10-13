@@ -9,7 +9,7 @@ use crate::{
     pipeline::{self, Mode},
     settings::Settings,
 };
-use std::str::FromStr;
+use std::{str::FromStr, sync::Mutex};
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -19,9 +19,32 @@ pub fn parse(hotkey: &str) -> Result<Shortcut, String> {
         .map_err(|_| format!("\"{hotkey}\" is not a usable key combination."))
 }
 
+/// Shortcuts every Mac app relies on. Registering one as a global hotkey
+/// would take it away from all of them: with Cmd+V taken, nothing could paste,
+/// including Utter itself.
+fn reserved(hotkey: &str) -> Option<String> {
+    const KEYS: [&str; 14] = [
+        "KeyA", "KeyC", "KeyF", "KeyN", "KeyP", "KeyQ", "KeyS", "KeyT", "KeyV", "KeyW", "KeyX", "KeyZ",
+        "Tab", "Space",
+    ];
+    let parts: Vec<&str> = hotkey.split('+').map(str::trim).collect();
+    let (key, modifiers) = parts.split_last()?;
+    let command_only = modifiers.len() == 1
+        && matches!(modifiers[0].to_lowercase().as_str(), "super" | "cmd" | "command" | "meta");
+    (command_only && KEYS.contains(key)).then(|| {
+        let name = key.strip_prefix("Key").unwrap_or(key);
+        format!("⌘{name} is a shortcut every app uses. Pick a different combination.")
+    })
+}
+
 /// The two shortcuts described by the settings, checked for clashes. The
 /// rewrite shortcut is `None` when that feature is switched off.
 pub fn plan(settings: &Settings) -> Result<(Shortcut, Option<Shortcut>), String> {
+    for hotkey in [&settings.hotkey, &settings.rewrite_hotkey] {
+        if let Some(why) = reserved(hotkey) {
+            return Err(why);
+        }
+    }
     let dictate = parse(&settings.hotkey)?;
     let rewrite = match settings.rewrite_hotkey.trim() {
         "" => None,
@@ -31,6 +54,50 @@ pub fn plan(settings: &Settings) -> Result<(Shortcut, Option<Shortcut>), String>
         return Err("The rewrite hotkey must be different from the dictation hotkey.".into());
     }
     Ok((dictate, rewrite))
+}
+
+/// Why a hotkey is not working right now, if one is not. The window shows
+/// this, because a dead hotkey otherwise looks exactly like a working one.
+static PROBLEM: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn problem() -> Option<String> {
+    PROBLEM.lock().unwrap().clone()
+}
+
+pub fn clear_problem() {
+    *PROBLEM.lock().unwrap() = None;
+}
+
+/// Stop listening for both hotkeys, while the user records a new one. With
+/// them live, pressing an existing hotkey during recording would start a
+/// dictation instead of being captured.
+pub fn pause(app: &AppHandle) -> Result<(), String> {
+    app.global_shortcut()
+        .unregister_all()
+        .map_err(|e| e.to_string())
+}
+
+/// Register the saved hotkeys, as at launch or after `pause`. If the rewrite
+/// hotkey cannot be registered, dictation is still set up without it. Any
+/// failure is remembered for `problem`.
+pub fn restore(app: &AppHandle, settings: &Settings) {
+    let outcome = match register(app, settings) {
+        Ok(()) => None,
+        Err(first) => {
+            let dictation_only = Settings {
+                rewrite_hotkey: String::new(),
+                ..settings.clone()
+            };
+            match register(app, &dictation_only) {
+                Ok(()) => Some(format!("The rewrite hotkey is not working. {first}")),
+                Err(second) => Some(format!("The dictation hotkey is not working. {second}")),
+            }
+        }
+    };
+    if let Some(why) = &outcome {
+        eprintln!("[utter] {why}");
+    }
+    *PROBLEM.lock().unwrap() = outcome;
 }
 
 /// Make the hotkeys in `settings` the only ones Utter listens for.
@@ -98,6 +165,18 @@ mod tests {
         // Same keys written in a different order are still the same hotkey.
         assert!(plan(&settings("Control+Alt+Space", "Alt+Control+Space")).is_err());
         assert!(plan(&settings("Control+Alt+Space", "Control+Alt+KeyR")).is_ok());
+    }
+
+    #[test]
+    fn shortcuts_every_app_relies_on_are_refused() {
+        assert!(plan(&settings("Super+KeyV", "")).is_err());
+        assert!(plan(&settings("Control+Alt+Space", "Super+KeyC")).is_err());
+        assert!(plan(&settings("Super+Space", "")).is_err());
+        // The same keys with another modifier are fine.
+        assert!(plan(&settings("Super+Shift+KeyV", "")).is_ok());
+        assert!(plan(&settings("Control+KeyV", "")).is_ok());
+        assert!(reserved("Super+KeyV").unwrap().contains("⌘V"));
+        assert!(reserved("").is_none());
     }
 
     #[test]

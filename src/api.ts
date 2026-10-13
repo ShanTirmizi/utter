@@ -126,6 +126,13 @@ export type PermissionStatus = { microphone: MicStatus; accessibility: boolean }
 export const permissionStatus = () => invoke<PermissionStatus>("permission_status");
 export const requestMicrophone = () => invoke<void>("request_microphone");
 export const requestAccessibility = () => invoke<boolean>("request_accessibility");
+/** Stop the global hotkeys while a new one is being recorded. */
+export const pauseHotkeys = () => invoke<void>("pause_hotkeys");
+/** Start them again from the saved settings. Resolves to a problem, if any. */
+export const resumeHotkeys = () => invoke<string | null>("resume_hotkeys");
+/** Why a hotkey is not working right now, or null when both are. */
+export const hotkeyProblem = () => invoke<string | null>("hotkey_problem");
+
 /** Clears a stale Accessibility entry for Utter and asks macOS again. */
 export const resetAccessibility = () => invoke<void>("reset_accessibility");
 export const openPrivacySettings = (pane: "microphone" | "accessibility") =>

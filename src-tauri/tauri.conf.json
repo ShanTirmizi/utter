@@ -21,13 +21,13 @@
         "minHeight": 520,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 20, "y": 24 }
+        "trafficLightPosition": { "x": 20, "y": 28 }
       },
       {
         "label": "pill",
         "title": "Utter status",
-        "width": 360,
-        "height": 72,
+        "width": 400,
+        "height": 112,
         "decorations": false,
         "transparent": true,
         "shadow": false,

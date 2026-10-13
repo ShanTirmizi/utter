@@ -16,6 +16,7 @@
 //   ?cleanup=off      cleanup switched off
 //   ?empty            no last dictation
 //   ?fail=cleanup|test|download|hotkey   make that step fail
+//   ?fail=startup-hotkey   macOS refused the hotkey at launch
 //   ?pill=listen|transcribe|tidy|rewrite|note|note2|paste|blocked
 //                     hold the pill (open /#pill) in one state
 import { emit } from "@tauri-apps/api/event";
@@ -314,6 +315,13 @@ export function installMock() {
         case "delete_api_key":
           keys.delete(payload?.provider as string);
           return;
+        case "pause_hotkeys":
+          return;
+        case "resume_hotkeys":
+        case "hotkey_problem":
+          return query.get("fail") === "startup-hotkey"
+            ? "The dictation hotkey is not working. Another app may be using it."
+            : null;
         case "rewrite_styles":
           return styles;
         case "test_rewrite":

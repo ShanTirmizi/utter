@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   deleteApiKey,
@@ -16,7 +16,8 @@ import { cleanupGap } from "../readiness";
 import { shortName, useApp } from "../state";
 import { IconLock, Notice, seconds, Switch } from "../ui";
 
-type Result = { tone: "ok" | "bad" | "info"; title: string; body: string } | null;
+/** `fromTest` marks the result of the Test button, which is about cleanup itself. */
+type Result = { tone: "ok" | "bad" | "info"; title: string; body: string; fromTest?: boolean } | null;
 
 /** "https://api.example.com/v1" -> "api.example.com" */
 function host(url: string): string {
@@ -56,10 +57,17 @@ export default function CleanupSection() {
   const model = settings.cleanupModel || provider?.defaultModel || "";
   const gap = cleanupGap(app);
 
+  // The provider on screen now. An answer that comes back after the user has
+  // switched provider belongs to the old one and is dropped.
+  const shown = useRef(settings.provider);
+  shown.current = settings.provider;
+
   const refreshModels = useCallback(async (announce: boolean) => {
+    const asked = shown.current;
     if (announce) setBusy("list");
     try {
       const found = await listCleanupModels();
+      if (shown.current !== asked) return;
       setModels(found);
       if (announce) {
         setResult({
@@ -69,10 +77,12 @@ export default function CleanupSection() {
         });
       }
     } catch (err) {
+      if (shown.current !== asked) return;
       setModels([]);
       if (announce) setResult({ tone: "bad", title: "Couldn’t list models.", body: String(err) });
+    } finally {
+      if (announce) setBusy(null);
     }
-    if (announce) setBusy(null);
   }, []);
 
   // Each provider has its own key, model and model list.
@@ -80,7 +90,13 @@ export default function CleanupSection() {
     setKeyDraft("");
     setModels([]);
     setResult(null);
-    setModelDraft(settings.cleanupModel);
+    setBusy(null);
+  }, [settings.provider]);
+
+  // Follow the saved model when it changes from elsewhere, without disturbing
+  // what is being typed: a save of the text in the box changes nothing here.
+  useEffect(() => {
+    setModelDraft((draft) => (draft.trim() === settings.cleanupModel ? draft : settings.cleanupModel));
   }, [settings.provider, settings.cleanupModel]);
 
   // Offer the provider's models as soon as it can be asked for them.
@@ -92,8 +108,10 @@ export default function CleanupSection() {
   const name = shortName(provider.label);
 
   const saveKey = async () => {
+    const asked = provider.id;
     try {
-      await setApiKey(provider.id, keyDraft);
+      await setApiKey(asked, keyDraft);
+      if (shown.current !== asked) return;
       // Drop the key from the page as soon as it is in the Keychain.
       setKeyDraft("");
       setHasKey(true);
@@ -105,15 +123,28 @@ export default function CleanupSection() {
   };
 
   const removeKey = async () => {
-    await deleteApiKey(provider.id);
-    setHasKey(false);
-    setModels([]);
-    setResult(null);
+    const asked = provider.id;
+    try {
+      await deleteApiKey(asked);
+      if (shown.current !== asked) return;
+      setHasKey(false);
+      setModels([]);
+      setResult(null);
+    } catch (err) {
+      setResult({ tone: "bad", title: "The key was not removed.", body: String(err) });
+    }
   };
 
   const saveModel = async (value: string) => {
     const next = value.trim();
-    if (next !== settings.cleanupModel) await update({ cleanupModel: next });
+    if (next === settings.cleanupModel) return;
+    try {
+      await update({ cleanupModel: next });
+      // A failed test described the old model.
+      setCleanupFault(null);
+    } catch (err) {
+      setResult({ tone: "bad", title: "The model was not saved.", body: String(err) });
+    }
   };
 
   const saveUrl = async () => {
@@ -121,6 +152,7 @@ export default function CleanupSection() {
     try {
       await update({ baseUrl: urlDraft.trim() });
       setResult(null);
+      setCleanupFault(null);
       // A key belongs to the host it was saved for; a new host starts without one.
       setHasKey(await hasApiKey(provider.id));
     } catch (err) {
@@ -129,11 +161,13 @@ export default function CleanupSection() {
   };
 
   const test = async () => {
+    const asked = provider.id;
     setBusy("test");
     setResult(null);
     const started = performance.now();
     try {
       const sample = await testCleanup();
+      if (shown.current !== asked) return;
       setCleanupFault(null);
       setResult({
         tone: "ok",
@@ -141,10 +175,12 @@ export default function CleanupSection() {
         body: `${name} tidied a test sentence in ${seconds(performance.now() - started)}: “${sample}”`,
       });
     } catch (err) {
+      if (shown.current !== asked) return;
       setCleanupFault(String(err));
-      setResult({ tone: "bad", title: "The test failed.", body: String(err) });
+      setResult({ tone: "bad", title: "The test failed.", body: String(err), fromTest: true });
+    } finally {
+      if (shown.current === asked) setBusy(null);
     }
-    setBusy(null);
   };
 
   return (
@@ -296,7 +332,7 @@ export default function CleanupSection() {
           {result ? (
             <Notice tone={result.tone}>
               <b>{result.title}</b> {result.body}
-              {result.tone === "bad" && settings.cleanupEnabled && " Until this works, dictations go in raw."}
+              {result.fromTest && settings.cleanupEnabled && " Until this works, dictations go in raw."}
             </Notice>
           ) : (
             settings.cleanupEnabled &&

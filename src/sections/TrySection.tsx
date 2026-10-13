@@ -24,14 +24,15 @@ export default function TrySection() {
   const { live, settings, dictation } = app;
   const hotkey = live.mode === "rewrite" && settings.rewriteHotkey ? settings.rewriteHotkey : settings.hotkey;
 
+  const recent = useRecent(live);
   const chip =
     live.phase === "recording"
       ? { tone: "accent", text: "Listening" }
       : live.phase === "processing"
         ? { tone: "plain", text: "Working" }
-        : live.phase === "error"
+        : recent && live.phase === "error"
           ? { tone: "warn", text: "Problem" }
-          : live.phase === "done"
+          : recent && live.phase === "done"
             ? { tone: "ok", text: "Done" }
             : dictationBlocked(app)
               ? { tone: "warn", text: "Not ready" }
@@ -147,10 +148,8 @@ function workingText(app: AppState): string {
   return live.mode === "rewrite" ? "Rewriting" : "Working";
 }
 
-/** The strip when nothing is being recorded or processed. */
-function RestingStrip({ app, readyText }: { app: AppState; readyText?: string }) {
-  const { live, dictation, settings, fresh } = app;
-  // "Done" and "Problem" give way to "Ready" after a few seconds.
+/** True for a few seconds after a dictation ends; then "Done" and "Problem" give way to "Ready". */
+function useRecent(live: AppState["live"]): boolean {
   const [recent, setRecent] = useState(false);
   useEffect(() => {
     if (live.phase !== "done" && live.phase !== "error") return setRecent(false);
@@ -158,6 +157,13 @@ function RestingStrip({ app, readyText }: { app: AppState; readyText?: string })
     const timer = setTimeout(() => setRecent(false), 8000);
     return () => clearTimeout(timer);
   }, [live]);
+  return recent;
+}
+
+/** The strip when nothing is being recorded or processed. */
+function RestingStrip({ app, readyText }: { app: AppState; readyText?: string }) {
+  const { live, dictation, settings, fresh } = app;
+  const recent = useRecent(live);
 
   let dot: "" | "warn" | "bad" | "busy" = "";
   let text: ReactNode;
@@ -207,7 +213,7 @@ function RestingStrip({ app, readyText }: { app: AppState; readyText?: string })
 
 /** The last dictation: what went in, what was heard, and where the time went. */
 function LastDictation({ dictation }: { dictation: Dictation }) {
-  const { setTab } = useApp();
+  const { setTab, settings } = useApp();
   const rewritten = dictation.mode === "rewrite";
   const [show, setShow] = useState<Show>(rewritten ? "written" : "changes");
   // A new dictation starts on the view that suits it.
@@ -218,7 +224,14 @@ function LastDictation({ dictation }: { dictation: Dictation }) {
 
   const meta = [
     dictation.app.name || null,
-    dictation.cleaned ? (rewritten ? "rewritten" : `${dictation.app.category} style`) : "as heard",
+    // "other" is the backend's word for an app it has no particular style for.
+    dictation.cleaned
+      ? rewritten
+        ? "rewritten"
+        : dictation.app.category === "other"
+          ? "tidied"
+          : `${dictation.app.category} style`
+      : "as heard",
     dictation.finishedAt
       ? new Date(dictation.finishedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase()
       : null,
@@ -244,7 +257,10 @@ function LastDictation({ dictation }: { dictation: Dictation }) {
             </button>
           }
         >
-          <b>{what} failed.</b> {reason(dictation.note)} The text was inserted as heard.
+          <b>{what} failed.</b> {reason(dictation.note)}{" "}
+          {dictation.inserted
+            ? "The text was inserted as heard."
+            : "The text was copied as heard. Press ⌘V to paste it."}
         </Notice>
       )}
       {!failed && dictation.note && <Notice tone="warn">{dictation.note}</Notice>}
@@ -285,7 +301,13 @@ function LastDictation({ dictation }: { dictation: Dictation }) {
           {failed ? (
             <dd className="bad">failed</dd>
           ) : (
-            <dd>{dictation.cleanupMs !== null ? seconds(dictation.cleanupMs) : "off"}</dd>
+            <dd>
+              {dictation.cleanupMs !== null
+                ? seconds(dictation.cleanupMs)
+                : rewritten || settings.cleanupEnabled
+                  ? "not run"
+                  : "off"}
+            </dd>
           )}
         </div>
         <div>

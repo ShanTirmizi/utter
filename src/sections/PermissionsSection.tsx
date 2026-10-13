@@ -39,6 +39,7 @@ export function PermissionCards({ firstRun = false }: { firstRun?: boolean }) {
   const accessibility = permissions?.accessibility ?? false;
   // Once System Settings has been opened, the card says it is waiting.
   const [askedAccessibility, setAskedAccessibility] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   const openAccessibility = async () => {
     setAskedAccessibility(true);
@@ -157,8 +158,14 @@ export function PermissionCards({ firstRun = false }: { firstRun?: boolean }) {
                   <button
                     className="link"
                     onClick={async () => {
-                      await resetAccessibility();
-                      await openPrivacySettings("accessibility");
+                      try {
+                        await resetAccessibility();
+                        setResetError(null);
+                      } catch (err) {
+                        setResetError(String(err));
+                      }
+                      // Open the pane either way; the switch can be set by hand.
+                      await openPrivacySettings("accessibility").catch(() => undefined);
                     }}
                   >
                     Reset it
@@ -168,6 +175,12 @@ export function PermissionCards({ firstRun = false }: { firstRun?: boolean }) {
                   macOS may be matching the switch to an older build of Utter. Reset removes that entry; then
                   turn Utter on again.
                 </p>
+                {resetError && (
+                  <p className="hint" style={{ color: "var(--bad)" }}>
+                    The reset did not work ({resetError}). In System Settings, select Utter in the list, remove
+                    it with the minus button, then add it again.
+                  </p>
+                )}
               </>
             )}
           </div>

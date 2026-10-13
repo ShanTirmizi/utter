@@ -23,9 +23,10 @@ use tauri::{
 };
 
 /// Size of the status pill window, matching `tauri.conf.json`.
-const PILL_SIZE: (f64, f64) = (360.0, 72.0);
-/// Gap between the pill and the bottom of the screen, clear of the Dock.
-const PILL_BOTTOM_MARGIN: f64 = 96.0;
+const PILL_SIZE: (f64, f64) = (400.0, 112.0);
+/// Gap between the pill's window and the bottom of the screen. The pill sits
+/// in the middle of its window, which puts it clear of the Dock.
+const PILL_BOTTOM_MARGIN: f64 = 76.0;
 
 #[tauri::command]
 fn get_settings(app: AppHandle) -> Settings {
@@ -48,14 +49,16 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String>
         // If the system refuses a hotkey, keep the old ones working and
         // leave the saved settings untouched.
         if let Err(e) = hotkey::register(&app, &settings) {
-            let _ = hotkey::register(&app, &previous);
+            hotkey::restore(&app, &previous);
             return Err(e);
         }
+        // Both registered: whatever was wrong before no longer is.
+        hotkey::clear_problem();
     }
     if let Err(e) = settings::save(&app, &settings) {
         // What is live must match what is on disk.
         if hotkeys_changed {
-            let _ = hotkey::register(&app, &previous);
+            hotkey::restore(&app, &previous);
         }
         return Err(e);
     }
@@ -191,6 +194,25 @@ fn reset_accessibility(app: AppHandle) -> Result<(), String> {
     permissions::reset_accessibility(&app.config().identifier)?;
     permissions::prompt_accessibility();
     Ok(())
+}
+
+/// Stop listening for the hotkeys while the user records a new one.
+#[tauri::command]
+fn pause_hotkeys(app: AppHandle) -> Result<(), String> {
+    hotkey::pause(&app)
+}
+
+/// Listen for the saved hotkeys again once recording is over.
+#[tauri::command]
+fn resume_hotkeys(app: AppHandle) -> Option<String> {
+    hotkey::restore(&app, &settings::load(&app));
+    hotkey::problem()
+}
+
+/// Why a hotkey is not working, if one is not.
+#[tauri::command]
+fn hotkey_problem() -> Option<String> {
+    hotkey::problem()
 }
 
 #[tauri::command]
@@ -406,17 +428,7 @@ pub fn run() {
             place_pill(app.handle());
             build_tray(app.handle())?;
             let saved = settings::load(app.handle());
-            if let Err(e) = hotkey::register(app.handle(), &saved) {
-                eprintln!("[utter] {e}");
-                // Dictation must work even if the rewrite hotkey is unusable.
-                let dictation_only = Settings {
-                    rewrite_hotkey: String::new(),
-                    ..saved.clone()
-                };
-                if let Err(e) = hotkey::register(app.handle(), &dictation_only) {
-                    eprintln!("[utter] {e}");
-                }
-            }
+            hotkey::restore(app.handle(), &saved);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -434,6 +446,9 @@ pub fn run() {
             request_microphone,
             request_accessibility,
             reset_accessibility,
+            pause_hotkeys,
+            resume_hotkeys,
+            hotkey_problem,
             open_privacy_settings,
             model_statuses,
             download_model,

@@ -22,8 +22,8 @@ type View =
   | { kind: "work"; label: string; chip: string | null }
   | ({ kind: "note" } & Note);
 
-// The pill is at most 344 x 56 inside its 360 x 72 window, so its shadow is
-// never clipped. The badge takes the first 46 px; text ends 18 px from the edge.
+// The pill is at most 344 x 56 inside its 400 x 112 window, which leaves room
+// all round for its shadow and for the width animation to overshoot. The badge takes the first 46 px; text ends 18 px from the edge.
 const MAX_WIDTH = 344;
 const BADGE = 46;
 const TAIL = 18;

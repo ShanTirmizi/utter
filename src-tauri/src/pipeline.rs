@@ -360,13 +360,7 @@ async fn process(
 
     let target = app.state::<Pipeline>().target.lock().unwrap().clone();
     let mode = *app.state::<Pipeline>().mode.lock().unwrap();
-    // The tidy hotkey only calls the language model when cleanup is on.
-    if mode == Mode::Rewrite {
-        emit_stage(app, "rewriting");
-    } else if settings.cleanup_enabled {
-        emit_stage(app, "tidying");
-    }
-    let tidied = improve(&raw, &target, &settings, mode).await;
+    let tidied = improve(app, &raw, &target, &settings, mode).await;
     let (inserted, delivery_note) = deliver(app, &tidied.text, delivery).await?;
 
     Ok(Some(Dictation {
@@ -403,7 +397,13 @@ struct Tidied {
 /// Run the language-model step for `mode`. Whatever goes wrong, the raw
 /// transcript comes back, so a dictation is never lost to a network or API
 /// problem.
-async fn improve(raw: &str, target: &AppContext, settings: &Settings, mode: Mode) -> Tidied {
+async fn improve(
+    app: &AppHandle,
+    raw: &str,
+    target: &AppContext,
+    settings: &Settings,
+    mode: Mode,
+) -> Tidied {
     let untouched = |note: Option<String>, ms: Option<u64>| Tidied {
         text: raw.to_string(),
         cleaned: false,
@@ -441,6 +441,9 @@ async fn improve(raw: &str, target: &AppContext, settings: &Settings, mode: Mode
         Err(e) => return untouched(Some(format!("{what} skipped: {e}")), None),
     };
 
+    // Only now is a model really about to be asked, so only now say so. With
+    // no key set up, the pill must not claim to be tidying.
+    emit_stage(app, if mode == Mode::Rewrite { "rewriting" } else { "tidying" });
     let started = Instant::now();
     let result = cleanup::run(raw, target, &endpoint, &task).await;
     let ms = Some(started.elapsed().as_millis() as u64);

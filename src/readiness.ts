@@ -18,7 +18,8 @@ export function cleanupGap(app: AppState): string | null {
   const { settings, provider, hasKey } = app;
   if (!provider) return null;
   if (provider.id === "custom" && !settings.baseUrl) return "a URL";
-  if (provider.needsKey && !hasKey) return "a key";
+  // `hasKey` is null while the Keychain is still being asked: not a gap yet.
+  if (provider.needsKey && hasKey === false) return "a key";
   if (!(settings.cleanupModel || provider.defaultModel)) return "a model";
   return null;
 }
@@ -46,6 +47,9 @@ export function readiness(app: AppState): Readiness {
   // Then the first of these that applies.
   if (permissions && permissions.microphone !== "granted") {
     return { tone: "bad", text: "Allow the microphone", go: "Fix", tab: "permissions" };
+  }
+  if (app.hotkeyProblem) {
+    return { tone: "bad", text: "A hotkey isn't working", go: "Fix", tab: "hotkey" };
   }
   const model = selectedModel(app);
   if (progress) {
@@ -76,6 +80,7 @@ export function tabFlags(app: AppState): Partial<Record<TabId, "flag" | "flagbad
   const { permissions, settings } = app;
   if (permissions && permissions.microphone !== "granted") flags.permissions = "flagbad";
   else if (permissions && !permissions.accessibility) flags.permissions = "flag";
+  if (app.hotkeyProblem) flags.hotkey = "flagbad";
   const model = selectedModel(app);
   if (model && !model.downloaded && !app.progress) flags.model = "flag";
   if (settings.cleanupEnabled && (cleanupGap(app) || app.cleanupFault || lastCleanupFailed(app))) {

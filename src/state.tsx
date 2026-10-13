@@ -6,9 +6,12 @@ import {
   downloadModel,
   getSettings,
   hasApiKey,
+  hotkeyProblem as loadHotkeyProblem,
   lastDictation,
   modelStatuses,
+  pauseHotkeys,
   permissionStatus,
+  resumeHotkeys,
   providers as loadProviders,
   saveSettings,
   type AppContext,
@@ -53,8 +56,11 @@ export type AppState = {
 
   catalog: Provider[];
   provider: Provider | undefined;
-  /** Whether a key is stored for the chosen provider. Never the key itself. */
-  hasKey: boolean;
+  /**
+   * Whether a key is stored for the chosen provider: null until the Keychain
+   * has answered. Never the key itself.
+   */
+  hasKey: boolean | null;
   setHasKey: (has: boolean) => void;
   /** Why the last cleanup test failed, until one passes or the setup changes. */
   cleanupFault: string | null;
@@ -64,6 +70,9 @@ export type AppState = {
   dictation: Dictation | null;
   /** True once a dictation has finished while this window was open. */
   fresh: boolean;
+
+  /** Why a hotkey is not working, when macOS refused to register one. */
+  hotkeyProblem: string | null;
 
   /** Which hotkey is being re-recorded, if any. */
   capturing: Mode | null;
@@ -96,13 +105,19 @@ export function useAppState(): AppState | null {
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [downloadFault, setDownloadFault] = useState<DownloadFault | null>(null);
   const [catalog, setCatalog] = useState<Provider[]>([]);
-  const [hasKey, setHasKey] = useState(false);
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [hotkeyProblem, setHotkeyProblem] = useState<string | null>(null);
   const [cleanupFault, setCleanupFault] = useState<string | null>(null);
   const [live, setLive] = useState<Live>(IDLE);
   const [dictation, setDictation] = useState<Dictation | null>(null);
   const [fresh, setFresh] = useState(false);
   const [capturing, setCapturing] = useState<Mode | null>(null);
-  const [tab, setTab] = useState<TabId>(firstTab);
+  const [tab, setTabNow] = useState<TabId>(firstTab);
+  // Leaving a section abandons a hotkey recording begun there.
+  const setTab = useCallback((next: TabId) => {
+    setCapturing(null);
+    setTabNow(next);
+  }, []);
   const lastProgress = useRef<DownloadProgress | null>(null);
   // The model being downloaded, so a late progress event cannot look like a new download.
   const downloading = useRef<string | null>(null);
@@ -118,6 +133,7 @@ export function useAppState(): AppState | null {
       setSettings(loaded);
     });
     loadProviders().then(setCatalog);
+    loadHotkeyProblem().then(setHotkeyProblem);
     lastDictation().then(setDictation);
     refreshModels();
 
@@ -137,6 +153,8 @@ export function useAppState(): AppState | null {
       if (payload.dictation) {
         setDictation(payload.dictation);
         setFresh(true);
+        // Cleanup just worked, so an earlier failed test no longer describes it.
+        if (payload.dictation.cleaned) setCleanupFault(null);
       }
     });
     const stopDownload = listen<DownloadProgress>("model-download", ({ payload }) => {
@@ -167,15 +185,43 @@ export function useAppState(): AppState | null {
   useEffect(() => {
     if (!providerId) return;
     setCleanupFault(null);
-    hasApiKey(providerId).then(setHasKey);
+    // Unknown until the Keychain answers; not "no key".
+    setHasKey(null);
+    let current = true;
+    hasApiKey(providerId).then((has) => current && setHasKey(has));
+    return () => {
+      current = false;
+    };
   }, [providerId]);
+
+  // While a new hotkey is being recorded the existing ones are switched off.
+  // Otherwise pressing one would start a dictation instead of being captured.
+  const recordingHotkey = capturing !== null;
+  useEffect(() => {
+    if (!recordingHotkey) return;
+    pauseHotkeys().catch(() => undefined);
+    // Clicking away from the window abandons the recording.
+    const cancel = () => setCapturing(null);
+    window.addEventListener("blur", cancel);
+    return () => {
+      window.removeEventListener("blur", cancel);
+      resumeHotkeys().then(setHotkeyProblem, () => undefined);
+    };
+  }, [recordingHotkey]);
 
   const update = useCallback((change: Partial<Settings>) => {
     const save = async () => {
       if (!latest.current) return;
-      const stored = await saveSettings({ ...latest.current, ...change });
-      latest.current = stored;
-      setSettings(stored);
+      try {
+        const stored = await saveSettings({ ...latest.current, ...change });
+        latest.current = stored;
+        setSettings(stored);
+      } finally {
+        // A save may have changed which hotkeys are live, or failed to.
+        if ("hotkey" in change || "rewriteHotkey" in change) {
+          loadHotkeyProblem().then(setHotkeyProblem, () => undefined);
+        }
+      }
     };
     // Wait for any save already under way, whether it worked or not.
     const done = saving.current.then(save, save);
@@ -195,9 +241,11 @@ export function useAppState(): AppState | null {
         const reached = lastProgress.current ?? { received: 0, total: 0 };
         setDownloadFault({ name, message: String(err), received: reached.received, total: reached.total });
       }
+      // Learn that the model is there before dropping the progress bar, so the
+      // window never flashes "Download a speech model" in between.
+      await refreshModels().catch(() => undefined);
       downloading.current = null;
       setProgress(null);
-      await refreshModels();
     },
     [refreshModels],
   );
@@ -218,6 +266,7 @@ export function useAppState(): AppState | null {
     setHasKey,
     cleanupFault,
     setCleanupFault,
+    hotkeyProblem,
     live,
     dictation,
     fresh,

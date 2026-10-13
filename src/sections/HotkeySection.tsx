@@ -31,13 +31,19 @@ function useHeldKeys(): Set<string> {
 }
 
 export default function HotkeySection() {
-  const { settings } = useApp();
+  const app = useApp();
+  const { settings } = app;
   const held = useHeldKeys();
   return (
     <>
       <div className="sechead">
         <h2 className="h">Hotkey</h2>
       </div>
+      {app.hotkeyProblem && !app.capturing && (
+        <Notice tone="bad">
+          <b>A hotkey isn’t working.</b> {app.hotkeyProblem} Record a different combination below.
+        </Notice>
+      )}
       <HotkeyStage which="tidy" held={held} />
       <HotkeyStage which="rewrite" held={held} />
       <ul className="rules">
@@ -228,7 +234,7 @@ function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
               <button className="btn" onClick={() => app.setCapturing(null)}>
                 Cancel
               </button>
-              <span className="hint">{hotkeyLabel(hotkey)} keeps working until a new hotkey is saved.</span>
+              <span className="hint">Both hotkeys are paused while you record.</span>
             </>
           ) : (
             <>

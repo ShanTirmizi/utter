@@ -34,9 +34,10 @@ export default function Welcome() {
     if (model && !model.downloaded && !progress) app.download(model.name);
     setStep(1);
   };
+  const [finishError, setFinishError] = useState<string | null>(null);
   const finish = (openCleanup = false) => {
     if (openCleanup) app.setTab("cleanup");
-    app.update({ onboarded: true });
+    app.update({ onboarded: true }).catch((err) => setFinishError(String(err)));
   };
 
   // Keys light up on the practice step while the hotkey is held.
@@ -49,11 +50,15 @@ export default function Welcome() {
           Boolean,
         ) as string[],
       );
+    // Switching apps with a key held never sends its key-up here.
+    const clear = () => setModifiers([]);
     window.addEventListener("keydown", read);
     window.addEventListener("keyup", read);
+    window.addEventListener("blur", clear);
     return () => {
       window.removeEventListener("keydown", read);
       window.removeEventListener("keyup", read);
+      window.removeEventListener("blur", clear);
     };
   }, []);
 
@@ -179,7 +184,7 @@ export default function Welcome() {
                     ? dictation.totalMs
                       ? `The text arrived ${seconds(dictation.totalMs, 1)} after you let go.`
                       : "Your words arrived."
-                    : "The text is on your clipboard, because Accessibility is off. Press ⌘V in the box to paste it."
+                    : "Utter could not paste for you, so the text is on your clipboard. Press ⌘V in the box to paste it."
                   : holding
                     ? "Keep holding while you talk. Let go when you’re done."
                     : "Click the box, hold the keys, say a sentence, then let go."}
@@ -234,6 +239,11 @@ export default function Welcome() {
             {steps}
             {ticker}
             <span className="spacer" />
+            {finishError && (
+              <span className="hint" style={{ color: "var(--bad)" }}>
+                Could not save: {finishError}
+              </span>
+            )}
             {worked ? (
               <button className="btn primary lg" onClick={() => finish()}>
                 Finish

@@ -20,7 +20,7 @@ async function start() {
   const isPill = inApp
     ? getCurrentWindow().label === "pill"
     : window.location.hash === "#pill";
-  if (isPill) document.documentElement.classList.add("pill-window");
+  document.documentElement.classList.add(isPill ? "pill-window" : "main-window");
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>{isPill ? <Pill /> : <App />}</React.StrictMode>,
