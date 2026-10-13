@@ -125,20 +125,34 @@ pub enum NotReady {
 /// A base URL is acceptable if it is HTTPS, or plain HTTP to this Mac only.
 /// A key must never travel over the network unencrypted.
 pub fn check_base_url(url: &str) -> Result<String, String> {
-    let url = url.trim().trim_end_matches('/');
-    let local = ["http://localhost", "http://127.0.0.1", "http://[::1]"]
-        .iter()
-        .any(|prefix| {
-            url.strip_prefix(prefix)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with(':') || rest.starts_with('/'))
-        });
-    if url.starts_with("https://") && url.len() > "https://".len() || local {
-        Ok(url.to_string())
-    } else if url.is_empty() {
-        Err("Enter the service's base URL, for example https://api.example.com/v1".into())
-    } else {
-        Err("The base URL must start with https:// (plain http is allowed only for localhost).".into())
+    let url = url.trim();
+    if url.is_empty() {
+        return Err("Enter the service's base URL, for example https://api.example.com/v1".into());
     }
+    let wrong = "The base URL must start with https:// (plain http is allowed only for localhost).";
+    // Parse rather than compare prefixes: "http://localhost:x@evil.example"
+    // starts like a local address but is not one.
+    let parsed = reqwest::Url::parse(url).map_err(|_| wrong.to_string())?;
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("The base URL must not contain a user name or password.".into());
+    }
+    let host = parsed.host_str().unwrap_or("");
+    let local = matches!(host, "localhost" | "127.0.0.1" | "[::1]");
+    match parsed.scheme() {
+        "https" if !host.is_empty() => {}
+        "http" if local => {}
+        _ => return Err(wrong.to_string()),
+    }
+    Ok(parsed.as_str().trim_end_matches('/').to_string())
+}
+
+/// The host a base URL points at, for telling when a custom provider has
+/// been repointed somewhere else. Empty if the URL does not parse.
+pub fn host_of(url: &str) -> String {
+    reqwest::Url::parse(url.trim())
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_lowercase))
+        .unwrap_or_default()
 }
 
 /// Turn settings into a usable endpoint, without touching the Keychain. The
@@ -226,6 +240,15 @@ mod tests {
         assert!(check_base_url("http://127.0.0.1:8080").is_ok());
         assert!(check_base_url("http://api.example.com/v1").is_err());
         assert!(check_base_url("http://localhost.evil.com/v1").is_err());
+        // Looks local, but everything before the @ is a user name.
+        assert!(check_base_url("http://localhost:x@evil.example/v1").is_err());
+        assert!(check_base_url("http://127.0.0.1:1@evil.example").is_err());
+        assert!(check_base_url("https://user:pw@api.example.com/v1").is_err());
+        assert!(check_base_url("HTTPS://api.example.com/v1").is_ok());
+        assert!(check_base_url("http://[::1]:8080/v1").is_ok());
+        assert!(check_base_url("ftp://api.example.com").is_err());
+        assert_eq!(host_of("https://API.example.com/v1"), "api.example.com");
+        assert_eq!(host_of("not a url"), "");
         assert!(check_base_url("").is_err());
         assert!(check_base_url("https://").is_err());
     }

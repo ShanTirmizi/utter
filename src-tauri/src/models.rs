@@ -3,7 +3,14 @@
 
 use futures_util::StreamExt;
 use serde::Serialize;
-use std::{fs, io::Write, path::PathBuf};
+use std::{
+    collections::HashSet,
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::Mutex,
+    time::Duration,
+};
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -103,9 +110,35 @@ pub async fn download(app: &AppHandle, name: &str) -> Result<(), String> {
     if target.is_file() {
         return Ok(());
     }
+    // Two downloads of one model would write over each other's partial file.
+    let _claim = Claim::take(name).ok_or("That model is already downloading.")?;
     let partial = target.with_extension("bin.part");
 
-    let response = reqwest::Client::new()
+    let result = fetch(app, name, &partial).await;
+    match result {
+        Ok(received) => {
+            fs::rename(&partial, &target).map_err(|e| e.to_string())?;
+            let _ = app.emit("model-download", Progress { name, received, total: received });
+            Ok(())
+        }
+        Err(e) => {
+            // Never leave a half-written file behind, whatever went wrong.
+            let _ = fs::remove_file(&partial);
+            Err(e)
+        }
+    }
+}
+
+/// Give up if the server sends nothing for this long, rather than waiting
+/// forever on a stalled connection.
+const STALL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Stream the model into `partial`, returning the number of bytes written.
+async fn fetch(app: &AppHandle, name: &str, partial: &Path) -> Result<u64, String> {
+    let response = reqwest::Client::builder()
+        .connect_timeout(STALL_TIMEOUT)
+        .build()
+        .map_err(|e| e.to_string())?
         .get(url(name))
         .send()
         .await
@@ -113,17 +146,19 @@ pub async fn download(app: &AppHandle, name: &str) -> Result<(), String> {
         .map_err(|e| format!("Download failed: {e}"))?;
     let total = response.content_length().unwrap_or(0);
 
-    let mut file = fs::File::create(&partial).map_err(|e| e.to_string())?;
+    let mut file = fs::File::create(partial).map_err(|e| e.to_string())?;
     let mut received: u64 = 0;
     let mut last_reported: u64 = 0;
     let mut stream = response.bytes_stream();
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| {
-            let _ = fs::remove_file(&partial);
-            format!("Download interrupted: {e}")
-        })?;
-        file.write_all(&chunk).map_err(|e| e.to_string())?;
+    loop {
+        let next = tokio::time::timeout(STALL_TIMEOUT, stream.next())
+            .await
+            .map_err(|_| "The download stalled. Check your connection and try again.".to_string())?;
+        let Some(chunk) = next else { break };
+        let chunk = chunk.map_err(|e| format!("Download interrupted: {e}"))?;
+        file.write_all(&chunk)
+            .map_err(|e| format!("Could not save the model: {e}"))?;
         received += chunk.len() as u64;
         // Report roughly every megabyte; more often just floods the UI.
         if received - last_reported >= 1_000_000 {
@@ -132,15 +167,35 @@ pub async fn download(app: &AppHandle, name: &str) -> Result<(), String> {
         }
     }
     file.flush().map_err(|e| e.to_string())?;
-    drop(file);
 
     if total > 0 && received != total {
-        let _ = fs::remove_file(&partial);
         return Err("Download ended early. Please try again.".into());
     }
-    fs::rename(&partial, &target).map_err(|e| e.to_string())?;
-    let _ = app.emit("model-download", Progress { name, received, total: received });
-    Ok(())
+    Ok(received)
+}
+
+/// Models being downloaded right now.
+static IN_PROGRESS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+/// Marks a model as downloading for as long as it is held.
+struct Claim(String);
+
+impl Claim {
+    fn take(name: &str) -> Option<Self> {
+        let mut active = IN_PROGRESS.lock().unwrap();
+        active
+            .get_or_insert_with(HashSet::new)
+            .insert(name.to_string())
+            .then(|| Self(name.to_string()))
+    }
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        if let Some(active) = IN_PROGRESS.lock().unwrap().as_mut() {
+            active.remove(&self.0);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -151,6 +206,16 @@ mod tests {
     fn english_models_pin_the_language() {
         assert_eq!(language("base.en"), "en");
         assert_eq!(language("large-v3-turbo-q5_0"), "auto");
+    }
+
+    #[test]
+    fn a_model_can_only_be_downloading_once_at_a_time() {
+        let first = Claim::take("test-model");
+        assert!(first.is_some());
+        assert!(Claim::take("test-model").is_none());
+        assert!(Claim::take("another-model").is_some());
+        drop(first);
+        assert!(Claim::take("test-model").is_some());
     }
 
     #[test]

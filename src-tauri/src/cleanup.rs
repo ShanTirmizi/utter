@@ -22,9 +22,12 @@ use std::time::Duration;
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// Give up and use the raw transcript if the model is slower than this.
-/// Rewriting produces more new text than tidying, so it is given longer.
+/// Rewriting produces more new text than tidying, so it is given longer. A
+/// model on this Mac may first have to be loaded into memory, and is slower
+/// on long dictations, so it is given longer still.
 const TIDY_TIMEOUT: Duration = Duration::from_secs(12);
 const REWRITE_TIMEOUT: Duration = Duration::from_secs(25);
+const LOCAL_EXTRA: Duration = Duration::from_secs(25);
 const LIST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Instructions shared by every destination.
@@ -167,8 +170,19 @@ pub fn rewrite_instruction(style_id: &str, custom: &str) -> String {
 pub enum Task {
     /// Clean it up without changing the wording.
     Tidy,
-    /// Say it better, following this instruction.
-    Rewrite { instruction: String },
+    /// Say it better, following this instruction. `freeform` is set when
+    /// the instruction is the user's own: it may ask for anything (a
+    /// translation, an expansion), so the reply is not held to resembling
+    /// the dictation.
+    Rewrite { instruction: String, freeform: bool },
+}
+
+/// The rewrite task for a saved style choice.
+pub fn rewrite_task(style_id: &str, custom: &str) -> Task {
+    Task::Rewrite {
+        instruction: rewrite_instruction(style_id, custom),
+        freeform: style_id == "custom" && !custom.trim().is_empty(),
+    }
 }
 
 /// The full system prompt for a dictation going into `app`.
@@ -180,7 +194,7 @@ pub fn system_prompt(app: &AppContext, task: &Task) -> String {
     );
     match task {
         Task::Tidy => format!("{BASE_PROMPT}\n\n{destination}"),
-        Task::Rewrite { instruction } => format!(
+        Task::Rewrite { instruction, .. } => format!(
             "{REWRITE_PROMPT}\n\nHow to write it: {instruction}\n\n{destination}\n\
              Where the two disagree, the instruction under \"How to write it\" wins."
         ),
@@ -214,37 +228,72 @@ fn words(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Does this text put spaces between words? Chinese, Japanese, Thai and a few
+/// other scripts do not, so they cannot be compared word by word.
+fn uses_spaces(text: &str) -> bool {
+    !text.chars().any(|c| {
+        matches!(c as u32,
+            0x0E00..=0x0EFF      // Thai, Lao
+            | 0x1000..=0x109F    // Myanmar
+            | 0x1780..=0x17FF    // Khmer
+            | 0x3040..=0x30FF    // Japanese kana
+            | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF // Chinese characters
+        )
+    })
+}
+
 /// Is `reply` a tidied version of `transcript`, rather than something else
 /// the model decided to say?
 ///
 /// Tidying removes and re-punctuates words; it adds almost none. So nearly
-/// every word of an honest reply already appears in the transcript, and the
-/// reply is not drastically shorter. A model that answers the dictation, or
-/// talks about its instructions, fails both tests.
+/// every word of an honest reply already appears in the transcript, the reply
+/// does not open or close with new material, and it is not drastically
+/// shorter. A model that answers the dictation, talks about its instructions,
+/// or wraps the text in a remark of its own fails one of those tests.
 fn is_faithful(reply: &str, transcript: &str) -> bool {
-    let said = words(transcript);
-    let written = words(reply);
-
-    let known: std::collections::HashSet<&String> = said.iter().collect();
-    let new_words = written.iter().filter(|w| !known.contains(w)).count();
-
-    // A dictation of one or two words: the reply must be about as short and
-    // made of the same words. Languages written without spaces also look like
-    // "one or two words" here, and for those there is nothing reliable to
-    // compare, so they are let through.
-    if said.len() < 3 {
-        return !transcript.is_ascii() || (written.len() <= said.len() + 1 && new_words <= 1);
-    }
-    if said.iter().any(|w| w.chars().count() > 30) {
+    if !uses_spaces(transcript) {
         return true;
     }
-    // Allow a few: a corrected mishearing, or "three" written as "3".
-    let allowed = (written.len() * 3 / 10).max(1);
-    if new_words > allowed {
+    let said = words(transcript);
+    let written = words(reply);
+    let known: std::collections::HashSet<&str> = said.iter().map(String::as_str).collect();
+    // Two or three neighbouring words run together: spoken "user id" may be
+    // written as userId or user_id, which reads back as "userid".
+    let joined: std::collections::HashSet<String> = said
+        .windows(2)
+        .chain(said.windows(3))
+        .map(|run| run.concat())
+        .collect();
+    // A reply word is "the speaker's" if they said it, if it is a number
+    // (spoken "three thirty" is written "3:30"), or if it is their own
+    // neighbouring words run together.
+    let is_new = |word: &String| {
+        !(known.contains(word.as_str())
+            || word.chars().any(|c| c.is_ascii_digit())
+            || joined.contains(word))
+    };
+    let new_words = written.iter().filter(|w| is_new(w)).count();
+
+    // A dictation of one or two words: the reply must be about as short and
+    // made of the same words.
+    if said.len() < 3 {
+        return written.len() <= said.len() + 1 && new_words <= 1;
+    }
+    // Allow a few genuinely new words, such as a corrected mishearing.
+    if new_words > (said.len() / 10).clamp(1, 6) {
         return false;
     }
-    // Fillers and false starts go, but not most of what was said.
-    !(said.len() >= 12 && written.len() * 100 < said.len() * 35)
+    // New words bunched at the start or the end are a preamble ("Sure, here
+    // is the text:") or an added remark or answer, not tidying.
+    if written.len() >= 8 {
+        let opening = written[..6].iter().filter(|w| is_new(w)).count();
+        let closing = written[written.len() - 6..].iter().filter(|w| is_new(w)).count();
+        if opening >= 3 || closing >= 3 {
+            return false;
+        }
+    }
+    // Fillers and false starts go, but not nearly everything that was said.
+    !(said.len() >= 12 && written.len() * 100 < said.len() * 20)
 }
 
 /// Is `reply` plausibly a rewrite of `transcript`?
@@ -255,6 +304,9 @@ fn is_faithful(reply: &str, transcript: &str) -> bool {
 /// that chats about its instructions, or answers the dictation, shares almost
 /// none of them.
 fn is_plausible_rewrite(reply: &str, transcript: &str) -> bool {
+    if !uses_spaces(transcript) {
+        return true;
+    }
     // Compare the first five letters of each longer word, so that "problem"
     // and "problems", or "arrive" and "arrived", count as the same.
     let stems = |text: &str| -> std::collections::HashSet<String> {
@@ -266,12 +318,22 @@ fn is_plausible_rewrite(reply: &str, transcript: &str) -> bool {
     };
     let said = stems(transcript);
     let written = stems(reply);
-    // Too little to judge, including languages written without spaces.
-    if said.len() < 4 || written.len() < 4 {
-        return true;
+    if said.len() >= 4 && written.len() >= 4 {
+        let shared = written.intersection(&said).count();
+        return shared * 100 >= written.len() * 20 && shared * 100 >= said.len() * 15;
     }
-    let shared = written.intersection(&said).count();
-    shared * 100 >= written.len() * 20 && shared * 100 >= said.len() * 15
+
+    // A short dictation has too few long words to compare. Fall back to all
+    // of its words: a rewrite of a short sentence reuses many of them and
+    // stays short, while an answer to it does neither.
+    let said = words(transcript);
+    let written = words(reply);
+    if written.is_empty() {
+        return false;
+    }
+    let known: std::collections::HashSet<&str> = said.iter().map(String::as_str).collect();
+    let shared = written.iter().filter(|w| known.contains(w.as_str())).count();
+    shared * 100 >= written.len() * 40 && written.len() <= said.len() * 2 + 4
 }
 
 /// Final checks shared by every provider.
@@ -281,6 +343,14 @@ fn accept(text: &str, transcript: &str, task: &Task) -> Result<String, String> {
     let text = text.trim();
     if text.is_empty() {
         return Err("The reply was empty.".into());
+    }
+    // The user's own rewrite instruction may ask for anything, so only a
+    // runaway reply is refused.
+    if let Task::Rewrite { freeform: true, .. } = task {
+        if text.chars().count() > transcript.chars().count() * 6 + 600 {
+            return Err("The reply was far longer than the dictation.".into());
+        }
+        return Ok(text.to_string());
     }
     // Tidying shortens text or keeps it about the same. A much longer reply
     // means the model answered the dictation instead of tidying it.
@@ -309,10 +379,13 @@ pub async fn run(
 ) -> Result<String, String> {
     let system = system_prompt(app, task);
     let user = user_message(transcript, task);
-    let timeout = match task {
+    let mut timeout = match task {
         Task::Tidy => TIDY_TIMEOUT,
         Task::Rewrite { .. } => REWRITE_TIMEOUT,
     };
+    if endpoint.local {
+        timeout += LOCAL_EXTRA;
+    }
     let reply = match endpoint.protocol {
         Protocol::Anthropic => anthropic::ask(&user, &system, endpoint, timeout).await,
         Protocol::OpenAi => openai::ask(&user, &system, endpoint, timeout).await,
@@ -339,7 +412,7 @@ pub async fn warm_up(endpoint: &Endpoint) {
 /// Ask the provider which models the key can use, for the model picker.
 pub async fn list_models(endpoint: &Endpoint) -> Result<Vec<String>, String> {
     let request = reqwest::Client::new()
-        .get(format!("{}/models", endpoint.base_url))
+        .get(format!("{}/models?limit=1000", endpoint.base_url))
         .timeout(LIST_TIMEOUT);
     let body = send(authorise(request, endpoint)).await?;
 
@@ -591,7 +664,7 @@ mod tests {
     }
 
     fn rewrite() -> Task {
-        Task::Rewrite { instruction: rewrite_instruction("clear", "") }
+        rewrite_task("clear", "")
     }
 
     #[test]
@@ -771,6 +844,66 @@ mod tests {
     }
 
     #[test]
+    fn remarks_wrapped_around_the_text_are_rejected() {
+        let said = "so um I was thinking that we should probably move the launch to next thursday \
+            because the design review is not done yet and I do not want to rush it you know can \
+            you let the team know and ask sarah to update the calendar invite and also check with \
+            finance about the budget for the event space we talked about last week thanks";
+        let tidy = "I was thinking that we should probably move the launch to next Thursday because \
+            the design review is not done yet and I do not want to rush it. Can you let the team \
+            know and ask Sarah to update the calendar invite, and also check with finance about \
+            the budget for the event space we talked about last week? Thanks.";
+        assert!(tidy_ok(tidy, said).is_ok());
+        assert!(tidy_ok(&format!("Sure! Here is the tidied text:\n\n{tidy}"), said).is_err());
+        assert!(tidy_ok(&format!("{tidy}\n\n(Note: I removed the filler words.)"), said).is_err());
+        assert!(tidy_ok(&format!("{tidy} Happy to help with anything else!"), said).is_err());
+    }
+
+    #[test]
+    fn tidying_the_prompt_asks_for_is_not_mistaken_for_new_words() {
+        // Identifiers written in the casing the speaker named.
+        assert!(tidy_ok("Rename userId to accountId.", "rename camel case user id to camel case account id").is_ok());
+        // Numbers, times and dates written as digits.
+        assert!(tidy_ok("Meet at 3:30 PM tomorrow.", "Meet at 3.30pm tomorrow.").is_ok());
+        assert!(tidy_ok("Let's meet at 3:30 on January 25th.", "lets meet at three thirty on january twenty fifth").is_ok());
+        assert!(tidy_ok("Call me on 555-1234.", "call me on five five five one two three four").is_ok());
+        // A long false start reduced to what the speaker settled on.
+        let said = "so the meeting is on uh no actually scrap that um let me think okay the meeting is on friday";
+        assert!(tidy_ok("The meeting is on Friday.", said).is_ok());
+    }
+
+    #[test]
+    fn short_dictations_in_other_languages_are_still_checked() {
+        assert!(tidy_ok("¡Claro! Estoy muy bien, gracias por preguntar.", "¿Qué tal?").is_err());
+        assert!(tidy_ok("¿Qué tal?", "que tal").is_ok());
+    }
+
+    #[test]
+    fn a_short_dictation_cannot_be_answered_in_rewrite_mode() {
+        let answer = "I don't have access to your calendar, so I can't tell you what time the call with Sam is.";
+        assert!(accept(answer, "what time is the call with sam", &rewrite()).is_err());
+        assert!(accept("Roses are red, my cat is asleep, she dreams of fish.", "write a poem about my cat", &rewrite()).is_err());
+        assert!(accept("Sure! Please provide the transcript you would like me to rewrite.", "send it over", &rewrite()).is_err());
+        // Real short rewrites still pass.
+        assert!(accept("Could you send the report?", "um can you like send the report", &rewrite()).is_ok());
+        assert!(accept("Sounds good, see you then.", "yeah sounds good see you then", &rewrite()).is_ok());
+    }
+
+    #[test]
+    fn your_own_rewrite_instruction_may_change_everything() {
+        let custom = rewrite_task("custom", "Translate into French.");
+        let said = "can you send me the budget spreadsheet before wednesday please";
+        let french = "Peux-tu m'envoyer la feuille de calcul du budget avant mercredi, s'il te plaît ?";
+        assert_eq!(accept(french, said, &custom).unwrap(), french);
+        // The presets are still held to resembling what was said.
+        assert!(accept(french, said, &rewrite()).is_err());
+        // An empty custom instruction falls back to a preset and its checks.
+        assert_eq!(rewrite_task("custom", "  "), rewrite_task("clear", ""));
+        // Even freeform has a ceiling.
+        assert!(accept(&"mot ".repeat(400), said, &custom).is_err());
+    }
+
+    #[test]
     fn text_without_spaces_between_words_is_not_judged_by_word_overlap() {
         assert!(tidy_ok("今日は会議があります。", "今日は会議があります").is_ok());
     }
@@ -898,7 +1031,7 @@ mod tests {
         let endpoint = endpoint(Protocol::OpenAi, base_url, Some("test-key"));
         let models = tauri::async_runtime::block_on(list_models(&endpoint)).unwrap();
         assert_eq!(models, ["alpha-chat", "zeta-chat"]);
-        assert!(server.join().unwrap().starts_with("GET /models "));
+        assert!(server.join().unwrap().starts_with("GET /models?limit=1000 "));
     }
 
     #[test]

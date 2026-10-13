@@ -18,8 +18,9 @@ use std::{
 };
 
 pub const TARGET_RATE: u32 = 16_000;
-/// Stop buffering after this long so a stuck key cannot eat memory.
-const MAX_SECONDS: usize = 300;
+/// Longest single recording. Buffering stops here so a stuck key cannot eat
+/// memory, and the pipeline abandons a recording that reaches it.
+pub const MAX_SECONDS: usize = 300;
 
 enum Command {
     Start(Sender<Result<(), String>>),
@@ -107,7 +108,10 @@ fn open_stream() -> Result<Active, String> {
     let limit = rate as usize * MAX_SECONDS;
     let on_error = |e| eprintln!("[utter] microphone stream error: {e}");
 
-    // Each callback delivers interleaved frames; average the channels to mono.
+    // Each callback delivers interleaved frames. Take the loudest channel
+    // rather than averaging them: on an interface with several inputs the
+    // microphone is on one of them, and averaging it with the silent ones
+    // would make it that many times quieter.
     macro_rules! build {
         ($sample:ty, $to_f32:expr) => {{
             let sink = samples.clone();
@@ -118,10 +122,15 @@ fn open_stream() -> Result<Active, String> {
                     if buffer.len() >= limit {
                         return;
                     }
-                    for frame in data.chunks(channels) {
-                        let sum: f32 = frame.iter().map(|s| $to_f32(*s)).sum();
-                        buffer.push(sum / channels as f32);
+                    let mut energy = [0.0_f32; MAX_CHANNELS];
+                    for frame in data.chunks_exact(channels) {
+                        for (total, s) in energy.iter_mut().zip(frame) {
+                            let s = $to_f32(*s);
+                            *total += s * s;
+                        }
                     }
+                    let loudest = loudest_channel(&energy[..channels.min(MAX_CHANNELS)]);
+                    buffer.extend(data.chunks_exact(channels).map(|frame| $to_f32(frame[loudest])));
                 },
                 on_error,
                 None,
@@ -147,6 +156,20 @@ fn open_stream() -> Result<Active, String> {
         samples,
         rate,
     })
+}
+
+/// More input channels than this are not examined when picking the loudest.
+const MAX_CHANNELS: usize = 32;
+
+/// Index of the channel with the most energy; the first one on a tie.
+fn loudest_channel(energy: &[f32]) -> usize {
+    let mut best = 0;
+    for (i, e) in energy.iter().enumerate() {
+        if *e > energy[best] {
+            best = i;
+        }
+    }
+    best
 }
 
 /// Convert between sample rates by averaging the source samples that fall
@@ -196,6 +219,10 @@ pub fn has_speech(samples: &[f32]) -> bool {
     let mut loudness: Vec<f32> = samples
         .chunks_exact(FRAME)
         .map(|frame| (frame.iter().map(|s| s * s).sum::<f32>() / FRAME as f32).sqrt())
+        // A wireless microphone delivers exact zeros while it connects.
+        // Those are not the room's background and must not be taken for it,
+        // or any steady noise after them would look like speech.
+        .filter(|level| *level > 1e-6)
         .collect();
     // Too short to judge; let the speech model decide.
     if loudness.len() < 8 {
@@ -266,6 +293,21 @@ mod tests {
             clip.extend(noise(8_000, 0.01));
         }
         assert!(has_speech(&clip));
+    }
+
+    #[test]
+    fn dead_silence_at_the_start_does_not_make_noise_look_like_speech() {
+        // Half a second of exact zeros (a headset connecting), then steady noise.
+        let mut clip = vec![0.0_f32; 8_000];
+        clip.extend(noise(32_000, 0.05));
+        assert!(!has_speech(&clip));
+    }
+
+    #[test]
+    fn the_loudest_channel_is_chosen() {
+        assert_eq!(loudest_channel(&[0.0, 0.0, 4.0, 0.1]), 2);
+        assert_eq!(loudest_channel(&[1.0, 1.0]), 0);
+        assert_eq!(loudest_channel(&[0.0]), 0);
     }
 
     #[test]

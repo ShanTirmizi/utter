@@ -35,18 +35,37 @@ fn get_settings(app: AppHandle) -> Settings {
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
     let previous = settings::load(&app);
-    if settings.hotkey != previous.hotkey || settings.rewrite_hotkey != previous.rewrite_hotkey {
-        // Try the new hotkeys first; if the system refuses one, keep the old
-        // ones working and leave the saved settings untouched.
+
+    // Check everything that can be checked before changing anything.
+    hotkey::plan(&settings)?;
+    if settings.provider == "custom" && !settings.base_url.trim().is_empty() {
+        providers::check_base_url(&settings.base_url)?;
+    }
+
+    let hotkeys_changed =
+        settings.hotkey != previous.hotkey || settings.rewrite_hotkey != previous.rewrite_hotkey;
+    if hotkeys_changed {
+        // If the system refuses a hotkey, keep the old ones working and
+        // leave the saved settings untouched.
         if let Err(e) = hotkey::register(&app, &settings) {
             let _ = hotkey::register(&app, &previous);
             return Err(e);
         }
     }
-    if settings.provider == "custom" && !settings.base_url.trim().is_empty() {
-        providers::check_base_url(&settings.base_url)?;
+    if let Err(e) = settings::save(&app, &settings) {
+        // What is live must match what is on disk.
+        if hotkeys_changed {
+            let _ = hotkey::register(&app, &previous);
+        }
+        return Err(e);
     }
-    settings::save(&app, &settings)?;
+
+    // A key saved for one custom service must never be sent to another. If
+    // the custom base URL now points at a different host, forget the key.
+    let old_host = providers::host_of(&previous.base_url);
+    if !old_host.is_empty() && old_host != providers::host_of(&settings.base_url) {
+        let _ = secrets::delete("custom");
+    }
     if settings.model != previous.model {
         pipeline::preload_model(&app);
     }
@@ -65,22 +84,30 @@ fn known_provider(id: &str) -> Result<(), String> {
         .ok_or_else(|| format!("Unknown provider: {id}"))
 }
 
+/// Run Keychain work off the main thread: macOS may show a prompt, and the
+/// app must not freeze behind it.
+async fn off_main<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// The UI only ever learns whether a key exists, never the key itself.
 #[tauri::command]
-fn has_api_key(provider: String) -> bool {
-    secrets::exists(&provider)
+async fn has_api_key(provider: String) -> bool {
+    off_main(move || secrets::exists(&provider)).await.unwrap_or(false)
 }
 
 #[tauri::command]
-fn set_api_key(provider: String, key: String) -> Result<(), String> {
+async fn set_api_key(provider: String, key: String) -> Result<(), String> {
     known_provider(&provider)?;
-    secrets::set(&provider, &key)
+    off_main(move || secrets::set(&provider, &key)).await?
 }
 
 #[tauri::command]
-fn delete_api_key(provider: String) -> Result<(), String> {
+async fn delete_api_key(provider: String) -> Result<(), String> {
     known_provider(&provider)?;
-    secrets::delete(&provider)
+    off_main(move || secrets::delete(&provider)).await?
 }
 
 /// The endpoint for the current settings, or a message saying what is missing.
@@ -115,9 +142,7 @@ fn rewrite_styles() -> Vec<cleanup::RewriteStyle> {
 async fn test_rewrite(app: AppHandle) -> Result<String, String> {
     let endpoint = current_endpoint(&app).await?;
     let settings = settings::load(&app);
-    let task = cleanup::Task::Rewrite {
-        instruction: cleanup::rewrite_instruction(&settings.rewrite_style, &settings.rewrite_prompt),
-    };
+    let task = cleanup::rewrite_task(&settings.rewrite_style, &settings.rewrite_prompt);
     let sample = "um so basically I think we should like push the meeting to friday because uh \
                   half the team is out on thursday and yeah I just think it makes more sense that way";
     cleanup::run(sample, &context::AppContext::unknown(), &endpoint, &task).await
@@ -191,6 +216,64 @@ fn last_dictation(app: AppHandle) -> Option<pipeline::Dictation> {
     app.state::<pipeline::Pipeline>().last()
 }
 
+/// Development aid, absent from release builds. Set `UTTER_SIMULATE` to one
+/// or more comma-separated recordings (raw 32-bit float, 16 kHz, mono) and
+/// each is run through the pipeline shortly after launch, as if dictated.
+/// A path ending in `@rewrite` uses the rewrite hotkey's mode. Each outcome
+/// is printed as a `[pipeline]` line and left on the clipboard; nothing is
+/// pasted.
+///
+///   ffmpeg -i clip.wav -ar 16000 -ac 1 -f f32le clip.f32
+///   UTTER_SIMULATE=clip.f32,clip.f32@rewrite pnpm tauri dev
+#[cfg(debug_assertions)]
+fn simulate_from_env(app: &AppHandle) {
+    let Ok(list) = std::env::var("UTTER_SIMULATE") else {
+        return;
+    };
+    let app = app.clone();
+    std::thread::spawn(move || {
+        use std::time::Duration;
+        // Give the speech model time to load first.
+        std::thread::sleep(Duration::from_secs(4));
+        {
+            let (reply, code) = std::sync::mpsc::channel();
+            let _ = app.run_on_main_thread(move || {
+                let _ = reply.send(insert::paste_key_code());
+            });
+            if let Ok(code) = code.recv() {
+                eprintln!("[simulate] paste key code for this keyboard layout: {code}");
+            }
+        }
+        for entry in list.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+            let (path, mode) = match entry.strip_suffix("@rewrite") {
+                Some(path) => (path, pipeline::Mode::Rewrite),
+                None => (entry, pipeline::Mode::Tidy),
+            };
+            let samples: Vec<f32> = match std::fs::read(path) {
+                Ok(bytes) => bytes
+                    .chunks_exact(4)
+                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                    .collect(),
+                Err(e) => {
+                    eprintln!("[simulate] {path}: {e}");
+                    continue;
+                }
+            };
+            let started = std::time::Instant::now();
+            if !pipeline::simulate(&app, samples, mode) {
+                eprintln!("[simulate] {entry}: busy, skipped");
+                continue;
+            }
+            while pipeline::busy(&app) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            // The outcome itself is printed by the pipeline as it finishes.
+            eprintln!("[simulate] {entry} took {:.1}s", started.elapsed().as_secs_f32());
+        }
+        eprintln!("[simulate] finished");
+    });
+}
+
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -251,11 +334,21 @@ pub fn run() {
             whisper_rs::install_logging_hooks();
             app.manage(pipeline::Pipeline::new());
             pipeline::preload_model(app.handle());
+            #[cfg(debug_assertions)]
+            simulate_from_env(app.handle());
             place_pill(app.handle());
             build_tray(app.handle())?;
             let saved = settings::load(app.handle());
             if let Err(e) = hotkey::register(app.handle(), &saved) {
                 eprintln!("[utter] {e}");
+                // Dictation must work even if the rewrite hotkey is unusable.
+                let dictation_only = Settings {
+                    rewrite_hotkey: String::new(),
+                    ..saved.clone()
+                };
+                if let Err(e) = hotkey::register(app.handle(), &dictation_only) {
+                    eprintln!("[utter] {e}");
+                }
             }
             Ok(())
         })

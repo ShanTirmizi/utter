@@ -4,7 +4,7 @@
 use std::{path::Path, sync::Mutex};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use crate::audio::TARGET_RATE;
+use crate::audio::{self, TARGET_RATE};
 
 /// The model rejects very short clips, so shorter recordings are padded with
 /// silence up to this length.
@@ -25,7 +25,10 @@ pub struct Transcriber {
 impl Transcriber {
     /// Load `name` from `path` unless it is already the model in memory.
     pub fn ensure_loaded(&self, name: &str, path: &Path) -> Result<(), String> {
-        let mut loaded = self.loaded.lock().unwrap();
+        Self::load(&mut self.loaded.lock().unwrap(), name, path)
+    }
+
+    fn load(loaded: &mut Option<Loaded>, name: &str, path: &Path) -> Result<(), String> {
         if loaded.as_ref().is_some_and(|l| l.name == name) {
             return Ok(());
         }
@@ -43,37 +46,150 @@ impl Transcriber {
     /// or "auto" to detect it.
     pub fn transcribe(&self, samples: &[f32], language: &str) -> Result<String, String> {
         let loaded = self.loaded.lock().unwrap();
-        let loaded = loaded.as_ref().ok_or("No speech model is loaded.")?;
+        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language)
+    }
 
-        let mut audio = samples.to_vec();
-        if audio.len() < MIN_SAMPLES {
-            audio.resize(MIN_SAMPLES, 0.0);
-        }
+    /// Make sure `name` is the loaded model, then transcribe with it. Both
+    /// happen under one lock, so a model change in settings part-way through
+    /// cannot swap the model out from under a dictation.
+    pub fn transcribe_with(
+        &self,
+        name: &str,
+        path: &Path,
+        samples: &[f32],
+        language: &str,
+    ) -> Result<String, String> {
+        let mut loaded = self.loaded.lock().unwrap();
+        Self::load(&mut loaded, name, path)?;
+        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language)
+    }
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_language(Some(language));
-        params.set_n_threads(threads());
-        // Each dictation stands alone; do not let one bleed into the next.
-        params.set_no_context(true);
-        params.set_suppress_blank(true);
-        params.set_suppress_nst(true);
-        params.set_no_timestamps(true);
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
+    fn run(loaded: &Loaded, samples: &[f32], language: &str) -> Result<String, String> {
 
         let mut state = loaded
             .context
             .create_state()
             .map_err(|e| format!("Could not start transcription: {e}"))?;
-        state
-            .full(params, &audio)
-            .map_err(|e| format!("Transcription failed: {e}"))?;
 
-        let text: String = state.as_iter().map(|segment| segment.to_string()).collect();
-        Ok(tidy(&text))
+        // The model reads audio in 30-second windows. Left to walk through a
+        // long recording by itself it drops words where windows meet and can
+        // get stuck repeating a phrase. So a long recording is cut at natural
+        // pauses into pieces that each fit one window, and every piece is
+        // transcribed as its own short dictation.
+        let mut pieces = Vec::new();
+        for piece in split_at_pauses(samples) {
+            if audio::peak(piece) < PIECE_SILENCE_PEAK {
+                continue;
+            }
+            let mut audio = piece.to_vec();
+            if audio.len() < MIN_SAMPLES {
+                audio.resize(MIN_SAMPLES, 0.0);
+            }
+
+            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+            params.set_language(Some(language));
+            params.set_n_threads(threads());
+            // Each piece stands alone; do not let one bleed into the next.
+            params.set_no_context(true);
+            params.set_no_timestamps(true);
+            params.set_suppress_blank(true);
+            params.set_suppress_nst(true);
+            params.set_print_special(false);
+            params.set_print_progress(false);
+            params.set_print_realtime(false);
+            params.set_print_timestamps(false);
+
+            state
+                .full(params, &audio)
+                .map_err(|e| format!("Transcription failed: {e}"))?;
+            let text: String = state.as_iter().map(|segment| segment.to_string()).collect();
+            let text = tidy(&text);
+            if !text.is_empty() {
+                pieces.push(text);
+            }
+        }
+        Ok(collapse_repeats(&pieces.join(" ")))
     }
+}
+
+/// Longest piece of audio given to the model in one go, safely inside its
+/// 30-second window.
+const MAX_PIECE: usize = TARGET_RATE as usize * 27;
+/// A cut is never made earlier than this, so pieces stay long enough for the
+/// model to have context.
+const MIN_PIECE: usize = TARGET_RATE as usize * 12;
+/// A piece quieter than this holds no speech and is skipped.
+const PIECE_SILENCE_PEAK: f32 = 0.003;
+
+/// Cut a recording into pieces of at most `MAX_PIECE`, each cut placed at the
+/// quietest moment available, which in speech is a pause between phrases.
+/// Recordings that already fit are returned whole.
+pub fn split_at_pauses(samples: &[f32]) -> Vec<&[f32]> {
+    let mut pieces = Vec::new();
+    let mut rest = samples;
+    while rest.len() > MAX_PIECE {
+        let cut = MIN_PIECE + quietest_point(&rest[MIN_PIECE..MAX_PIECE]);
+        pieces.push(&rest[..cut]);
+        rest = &rest[cut..];
+    }
+    if !rest.is_empty() {
+        pieces.push(rest);
+    }
+    pieces
+}
+
+/// The middle of the quietest 200 ms stretch in `window`.
+fn quietest_point(window: &[f32]) -> usize {
+    const FRAME: usize = TARGET_RATE as usize / 5; // 200 ms
+    const STEP: usize = TARGET_RATE as usize / 20; // 50 ms
+    let mut best = (f32::MAX, window.len() / 2);
+    let mut start = 0;
+    while start + FRAME <= window.len() {
+        let energy: f32 = window[start..start + FRAME].iter().map(|s| s * s).sum();
+        if energy < best.0 {
+            best = (energy, start + FRAME / 2);
+        }
+        start += STEP;
+    }
+    best.1
+}
+
+/// Speech models sometimes get stuck and emit the same sentence over and
+/// over. Nobody dictates one sentence three times running, so a run of three
+/// or more identical sentences is reduced to one.
+pub fn collapse_repeats(text: &str) -> String {
+    let normalise = |s: &str| -> String {
+        s.to_lowercase().chars().filter(|c| c.is_alphanumeric() || *c == ' ').collect::<String>().trim().to_string()
+    };
+    // Split after sentence-ending punctuation, keeping it with its sentence.
+    let mut sentences: Vec<&str> = Vec::new();
+    let mut start = 0;
+    let bytes = text.as_bytes();
+    for (i, c) in text.char_indices() {
+        if matches!(c, '.' | '!' | '?') && bytes.get(i + 1).is_none_or(|b| *b == b' ') {
+            sentences.push(text[start..=i].trim());
+            start = i + 1;
+        }
+    }
+    if start < text.len() && !text[start..].trim().is_empty() {
+        sentences.push(text[start..].trim());
+    }
+
+    let mut out: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while i < sentences.len() {
+        let key = normalise(sentences[i]);
+        let mut run = 1;
+        while i + run < sentences.len() && normalise(sentences[i + run]) == key {
+            run += 1;
+        }
+        // Only whole sentences count; "No. No. No." is a person, not a loop.
+        let is_loop = run >= 3 && key.split(' ').count() >= 3;
+        let keep = if is_loop { 1 } else { run };
+        out.extend(&sentences[i..i + keep]);
+        i += run;
+    }
+    out.join(" ")
 }
 
 fn threads() -> i32 {
@@ -107,7 +223,7 @@ pub fn tidy(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::tidy;
+    use super::*;
 
     #[test]
     fn strips_bracketed_annotations() {
@@ -119,6 +235,47 @@ mod tests {
     fn drops_a_lone_parenthesised_remark_but_keeps_real_parentheses() {
         assert_eq!(tidy("(silence)"), "");
         assert_eq!(tidy("Call me (after lunch) please."), "Call me (after lunch) please.");
+    }
+
+    #[test]
+    fn short_recordings_are_not_split() {
+        let clip = vec![0.1_f32; TARGET_RATE as usize * 20];
+        let pieces = split_at_pauses(&clip);
+        assert_eq!(pieces.len(), 1);
+        assert_eq!(pieces[0].len(), clip.len());
+    }
+
+    #[test]
+    fn long_recordings_are_cut_at_the_pause_and_nothing_is_lost() {
+        // 60 seconds of "speech" with a silent gap from 20.0 s to 20.5 s.
+        let rate = TARGET_RATE as usize;
+        let mut clip = vec![0.2_f32; rate * 60];
+        for s in &mut clip[rate * 20..rate * 20 + rate / 2] {
+            *s = 0.0;
+        }
+        let pieces = split_at_pauses(&clip);
+        assert!(pieces.len() >= 3);
+        // The first cut lands inside the gap.
+        let first = pieces[0].len();
+        assert!(first > rate * 20 && first < rate * 20 + rate / 2, "cut at {first}");
+        // Every piece fits the model's window, and together they are the whole clip.
+        assert!(pieces.iter().all(|p| p.len() <= MAX_PIECE));
+        assert_eq!(pieces.iter().map(|p| p.len()).sum::<usize>(), clip.len());
+    }
+
+    #[test]
+    fn a_stuck_model_loop_is_reduced_to_one_sentence() {
+        let looped = "Send it today. I think it's a good idea. I think it's a good idea. \
+                      I think it's a good idea. I think it's a good idea. Thanks!";
+        assert_eq!(collapse_repeats(looped), "Send it today. I think it's a good idea. Thanks!");
+    }
+
+    #[test]
+    fn ordinary_repetition_is_left_alone() {
+        assert_eq!(collapse_repeats("No. No. No. Stop."), "No. No. No. Stop.");
+        assert_eq!(collapse_repeats("I said it twice. I said it twice."), "I said it twice. I said it twice.");
+        assert_eq!(collapse_repeats("Version 3.5 is out. It works"), "Version 3.5 is out. It works");
+        assert_eq!(collapse_repeats(""), "");
     }
 
     #[test]

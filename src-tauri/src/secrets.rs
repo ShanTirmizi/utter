@@ -40,15 +40,28 @@ pub fn set(provider: &str, key: &str) -> Result<(), String> {
 }
 
 pub fn get(provider: &str) -> Option<String> {
-    if let Some(known) = CACHE.lock().unwrap().as_ref().and_then(|m| m.get(provider)) {
+    // Hold the lock across the read so a key saved at the same moment cannot
+    // be overwritten by a stale "absent".
+    let mut cache = CACHE.lock().unwrap();
+    let cache = cache.get_or_insert_with(HashMap::new);
+    if let Some(known) = cache.get(provider) {
         return known.clone();
     }
-    let found = get_generic_password(SERVICE, &account(provider))
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .filter(|k| !k.is_empty());
-    remember(provider, found.clone());
-    found
+    match get_generic_password(SERVICE, &account(provider)) {
+        Ok(bytes) => {
+            let key = String::from_utf8(bytes).ok().filter(|k| !k.is_empty());
+            cache.insert(provider.to_string(), key.clone());
+            key
+        }
+        Err(e) if e.code() == NOT_FOUND => {
+            cache.insert(provider.to_string(), None);
+            None
+        }
+        // Any other failure (the Keychain is locked, or the user dismissed
+        // macOS's access prompt) is not remembered, so the next attempt asks
+        // again instead of behaving as if there were no key until relaunch.
+        Err(_) => None,
+    }
 }
 
 pub fn exists(provider: &str) -> bool {
