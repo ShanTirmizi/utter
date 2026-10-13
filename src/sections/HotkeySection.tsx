@@ -7,6 +7,17 @@ type Props = {
 };
 
 export default function HotkeySection({ hotkey, onChange }: Props) {
+  return (
+    <section className="card">
+      <h2>Hotkey</h2>
+      <p className="muted">Hold it while you speak. Let go to finish.</p>
+      <HotkeyField hotkey={hotkey} onChange={onChange} />
+    </section>
+  );
+}
+
+/** Shows a hotkey as keycaps, with a button to record a new one. */
+export function HotkeyField({ hotkey, onChange }: Props) {
   const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,22 +42,22 @@ export default function HotkeySection({ hotkey, onChange }: Props) {
   }, [capturing, onChange]);
 
   return (
-    <section className="card">
-      <h2>Hotkey</h2>
-      <p className="muted">Hold it while you speak. Let go to finish.</p>
+    <>
       <div className="row">
         <div className="keycaps" aria-label={`Current hotkey: ${hotkey}`}>
           {capturing ? (
             <span className="muted">Press the new combination… (Esc to cancel)</span>
-          ) : (
+          ) : hotkey ? (
             keycaps(hotkey).map((cap, i) => <kbd key={i}>{cap}</kbd>)
+          ) : (
+            <span className="muted">Not set</span>
           )}
         </div>
         <button onClick={() => setCapturing((c) => !c)}>
-          {capturing ? "Cancel" : "Change"}
+          {capturing ? "Cancel" : hotkey ? "Change" : "Set"}
         </button>
       </div>
       {error && <p className="error">{error}</p>}
-    </section>
+    </>
   );
 }

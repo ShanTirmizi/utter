@@ -3,7 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import type { PipelineUpdate } from "./api";
 import "./Pill.css";
 
-type View = { kind: "hidden" } | { kind: "recording" } | { kind: "working" } | { kind: "note"; text: string; bad: boolean };
+type View =
+  | { kind: "hidden" }
+  | { kind: "recording"; rewrite: boolean }
+  | { kind: "working"; rewrite: boolean }
+  | { kind: "note"; text: string; bad: boolean };
 
 /**
  * The small status indicator at the bottom of the screen. Its window is always
@@ -24,10 +28,10 @@ export default function Pill() {
       clearTimeout(hideTimer);
       switch (payload.phase) {
         case "recording":
-          setView({ kind: "recording" });
+          setView({ kind: "recording", rewrite: payload.mode === "rewrite" });
           break;
         case "processing":
-          setView({ kind: "working" });
+          setView({ kind: "working", rewrite: payload.mode === "rewrite" });
           break;
         case "done":
           // Stay quiet on success unless there is something to say, such as
@@ -61,13 +65,13 @@ export default function Pill() {
             <span className="bars" aria-hidden="true">
               <i /><i /><i /><i /><i />
             </span>
-            <span>Listening</span>
+            <span>{view.rewrite ? "Listening · rewrite" : "Listening"}</span>
           </>
         )}
         {view.kind === "working" && (
           <>
             <span className="spinner" aria-hidden="true" />
-            <span>Working</span>
+            <span>{view.rewrite ? "Rewriting" : "Working"}</span>
           </>
         )}
         {view.kind === "note" && <span className="pill-text">{view.text}</span>}

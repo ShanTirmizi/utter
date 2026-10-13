@@ -4,6 +4,7 @@ import CleanupSection from "./sections/CleanupSection";
 import HotkeySection from "./sections/HotkeySection";
 import ModelSection from "./sections/ModelSection";
 import PermissionsSection from "./sections/PermissionsSection";
+import RewriteSection from "./sections/RewriteSection";
 import TrySection from "./sections/TrySection";
 import Welcome from "./Welcome";
 import "./App.css";
@@ -41,6 +42,7 @@ export default function App() {
       <HotkeySection hotkey={settings.hotkey} onChange={(hotkey) => update({ hotkey })} />
       <ModelSection selected={settings.model} onSelect={(model) => update({ model })} />
       <CleanupSection settings={settings} update={update} />
+      <RewriteSection settings={settings} update={update} />
       <PermissionsSection />
     </main>
   );

@@ -3,7 +3,7 @@
 // answer. This file is never loaded inside the real app or in production
 // builds (see main.tsx).
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { Dictation, ModelStatus, PermissionStatus, Provider, Settings } from "./api";
+import type { Dictation, ModelStatus, PermissionStatus, Provider, RewriteStyle, Settings } from "./api";
 
 let settings: Settings = {
   hotkey: "Control+Alt+Space",
@@ -11,6 +11,9 @@ let settings: Settings = {
   provider: "anthropic",
   cleanupModel: "",
   baseUrl: "",
+  rewriteHotkey: "Control+Alt+KeyR",
+  rewriteStyle: "clear",
+  rewritePrompt: "",
   model: "base.en",
   // Open the page with "?welcome" to preview the first-run screen.
   onboarded: !window.location.search.includes("welcome"),
@@ -24,6 +27,13 @@ const catalog: Provider[] = [
   { id: "custom", label: "Other (OpenAI-compatible)", protocol: "openai", baseUrl: "", defaultModel: "", needsKey: true, keyUrl: "" },
 ];
 
+const styles: RewriteStyle[] = [
+  { id: "clear", label: "Clearer", instruction: "Make it clear and easy to follow. Plain words, short sentences, the main point first. Keep the speaker's own tone." },
+  { id: "concise", label: "Shorter", instruction: "Make it as short as it can be without losing a point. Cut anything that repeats or adds no information." },
+  { id: "professional", label: "Professional", instruction: "Make it polished and professional, fit for a colleague or a client. Courteous and direct, with no slang and no stiffness." },
+  { id: "friendly", label: "Friendly", instruction: "Make it warm and friendly, the way you would write to someone you like. Relaxed and natural, without gushing." },
+];
+
 const permissions: PermissionStatus = { microphone: "granted", accessibility: false };
 
 const models: ModelStatus[] = [
@@ -35,6 +45,7 @@ const models: ModelStatus[] = [
 const sample: Dictation = {
   raw: "um so can you send me the like the budget spreadsheet before wednesday",
   text: "Can you send me the budget spreadsheet before Wednesday?",
+  mode: "tidy",
   cleaned: true,
   inserted: true,
   note: null,
@@ -64,6 +75,10 @@ export function installMock() {
         case "delete_api_key":
           keys.delete(payload?.provider as string);
           return;
+        case "rewrite_styles":
+          return styles;
+        case "test_rewrite":
+          return "I think we should move the meeting to Friday, since half the team is out on Thursday.";
         case "list_cleanup_models":
           return ["example-fast-model", "example-large-model"];
         case "test_cleanup":

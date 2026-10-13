@@ -11,6 +11,12 @@ export type Settings = {
   cleanupModel: string;
   /** Used only by the "custom" provider. */
   baseUrl: string;
+  /** Second hotkey: hold it to have the dictation rewritten. Empty = off. */
+  rewriteHotkey: string;
+  /** A preset id from `rewriteStyles()`, or "custom". */
+  rewriteStyle: string;
+  /** The user's own rewrite instruction, used when the style is "custom". */
+  rewritePrompt: string;
   /** Speech model. */
   model: string;
   onboarded: boolean;
@@ -40,6 +46,12 @@ export const setApiKey = (provider: string, key: string) =>
 export const deleteApiKey = (provider: string) => invoke<void>("delete_api_key", { provider });
 /** Runs one fixed sentence through cleanup and returns the result. */
 export const testCleanup = () => invoke<string>("test_cleanup");
+export type RewriteStyle = { id: string; label: string; instruction: string };
+/** The ready-made rewrite styles. */
+export const rewriteStyles = () => invoke<RewriteStyle[]>("rewrite_styles");
+/** Rewrites one fixed, rambling sentence with the current style. */
+export const testRewrite = () => invoke<string>("test_rewrite");
+
 /** Models the chosen provider offers for the saved key. */
 export const listCleanupModels = () => invoke<string[]>("list_cleanup_models");
 
@@ -49,6 +61,8 @@ export type Dictation = {
   raw: string;
   /** What Utter produced from it. */
   text: string;
+  /** Which hotkey was used. */
+  mode: Mode;
   /** True when the text went through the cleanup model. */
   cleaned: boolean;
   /** True when pasted for you; false when only copied to the clipboard. */
@@ -65,8 +79,12 @@ export type AppContext = {
   category: "chat" | "email" | "code" | "notes" | "assistant" | "other";
 };
 
+/** Tidy keeps your wording; rewrite says it better. One hotkey each. */
+export type Mode = "tidy" | "rewrite";
+
 export type PipelineUpdate = {
   phase: "idle" | "recording" | "processing" | "done" | "error";
+  mode: Mode;
   message: string | null;
   dictation: Dictation | null;
 };
