@@ -113,12 +113,58 @@ permission, and maps it to one of six kinds:
 Only the app's name and kind are sent with the transcript. Utter does not read
 the text already in the field or the window's contents.
 
+### Rewrite mode
+
+A second hotkey runs the same pipeline with a different instruction: say the
+same thing better, rather than keep the wording. It is a separate hotkey, not
+a setting, because the choice is made per sentence: you tidy a quick reply and
+rewrite a rambling one, seconds apart.
+
+- **Styles** are short instructions appended to a shared rewrite prompt: four
+  presets, or the user's own text.
+- **The rewrite hotkey ignores the cleanup on/off switch.** Pressing it is an
+  explicit request for the model.
+- **The same limits apply as for tidying** with the presets: keep every point,
+  add nothing, never answer the dictation.
+
+### Checking the reply
+
+The model's reply is typed into someone's document unseen, so it is checked
+first, and anything that fails falls back to the raw transcript.
+
+| Job | A reply is accepted when |
+| --- | --- |
+| Tidy | Nearly every word in it was spoken (numbers, and spoken words run together into an identifier, count as spoken), it does not open or close with new material, and most of what was said survives. |
+| Rewrite, preset style | The longer words mostly carry over in both directions; for a short dictation, it reuses many of its words and stays short. |
+| Rewrite, your own instruction | It is not wildly longer than the dictation. The instruction may ask for a translation or an expansion, so resemblance is not required. |
+
+These checks exist because small models do sometimes reply to their
+instructions, answer the dictation, or wrap the text in a remark. They are
+heuristics: they catch chatter and answers, not a subtly wrong word.
+
+### Long dictations
+
+The speech model reads audio in 30-second windows. Left to walk through a long
+recording by itself it drops words where windows meet and can get stuck
+repeating a phrase. Utter instead cuts a long recording at the quietest moment
+it can find between 12 and 27 seconds, which in speech is a pause, and
+transcribes each piece as its own short dictation. On a 95-second test
+monologue this recovered 97.7% of the words.
+
+### Local models
+
+With Ollama, Utter asks the server to load the model as soon as the key goes
+down, so the load happens while the user is still speaking. Requests to a
+local model are also given longer before Utter gives up and uses the raw text.
+
 ## The API key
 
 - Entered in settings, saved to the macOS Keychain (`secrets.rs`), one entry
   per provider.
 - Never written to a file, a log, or the settings JSON.
 - The UI can ask "is there a key?" but has no way to read it back.
+- The key for a custom service is forgotten if its base URL is changed to a
+  different host, so it can never be sent somewhere it was not meant for.
 - Sent only in a request header, and only to the provider it belongs to.
 
 ## Hotkey and permissions
@@ -144,6 +190,8 @@ Monitoring as not required so nobody goes looking for it.
 
 Utter pastes rather than types:
 
+0. Find the key that types "v" on the current keyboard layout. Apps match
+   `⌘V` by letter, so the QWERTY position is wrong on Dvorak and others.
 1. Save everything on the clipboard (text, images, files).
 2. Put the dictated text on the clipboard, marked so that clipboard managers
    which follow the nspasteboard.org convention do not record it.
@@ -179,5 +227,6 @@ a download work on the first double-click and keep permissions across updates.
 - Reading the browser's current site to choose a style.
 - A personal dictionary for names and jargon.
 - Keeping the microphone warm so the first word is never clipped.
+- Starting a new dictation while the previous one is still being processed.
 - A history window.
 - Windows and Linux.

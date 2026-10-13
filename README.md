@@ -11,6 +11,8 @@ cleaned-up text appears in whatever app is focused.
   these, Utter inserts the raw transcription.
 - **Fits the app you are in.** A chat message, an email and a code comment each
   get a different writing style.
+- **Tidy or rewrite.** One hotkey keeps your wording and cleans it up. A second
+  one rewrites what you said so it reads better, in a style you choose.
 
 Inspired by voice dictation tools. MIT licensed.
 
@@ -28,12 +30,14 @@ flowchart LR
     F -. "any error" .-> G
 ```
 
-1. **Hotkey.** `⌃ ⌥ Space` by default. Change it in settings.
+1. **Hotkey.** `⌃ ⌥ Space` to dictate, `⌃ ⌥ R` to dictate and rewrite. Change
+   either in settings.
 2. **Record.** The microphone is open only while the key is held.
 3. **Transcribe.** A Whisper model runs on your Mac, using the GPU through Metal.
 4. **Clean up (optional).** The transcript goes to the model you chose, with a
    prompt that removes filler words, fixes punctuation, and matches the app you
-   are typing in. If this step fails for any reason, the raw transcript is used.
+   are typing in. With the rewrite hotkey, the prompt asks for better wording
+   instead. If this step fails for any reason, the raw transcript is used.
 5. **Insert.** Utter puts the text on the clipboard, presses `⌘V`, and then puts
    your previous clipboard back.
 
@@ -111,6 +115,26 @@ dictation costs a fraction of a cent.
 To dictate without cleanup, switch off **Clean up dictations** or simply do not
 add a key.
 
+## Rewrite (optional)
+
+Tidying keeps your words. Sometimes you want the opposite: say it roughly, and
+have it written well. Hold the rewrite hotkey (`⌃ ⌥ R`) instead of the
+dictation hotkey and Utter rewrites what you said before inserting it.
+
+- **Styles.** Clearer, Shorter, Professional or Friendly, or "Your own": an
+  instruction you write yourself, such as "Reply as a short, upbeat message" or
+  "Translate into French".
+- **What it keeps.** With the built-in styles, every point, name and number you
+  said, and nothing you did not say. Your own instruction can ask for anything.
+- **What it needs.** A cleanup model, set up as above. It works even when
+  "Clean up dictations" is switched off, since pressing the rewrite hotkey is
+  an explicit request.
+- **If it goes wrong.** You get your raw words and a note saying why. The
+  menu-bar icon can copy the last dictation again.
+
+Press **Test** in the Rewrite section to see what a style does to a sample
+sentence. To switch the feature off, turn the rewrite hotkey off there.
+
 ## Permissions
 
 | Permission | Needed | Why |
@@ -144,8 +168,15 @@ under "Why not just download it?".
 - The first word can be clipped if you start speaking the instant you press the
   key; the microphone takes a moment to open.
 - Pasting does not work in fields that block `⌘V`.
-- If the pill ever stays on "Listening" after you let go, tap the hotkey once
-  to reset it.
+- If the pill ever stays on "Listening" after you let go, tap the same hotkey
+  once to reset it. A recording that is never released is closed and discarded
+  after five minutes.
+- While one dictation is still being processed, a new one cannot start; the
+  pill says so.
+- Small local models make mistakes when tidying and rewriting: they can miss a
+  self-correction or drop a detail. Utter checks that a reply is a version of
+  what you said and falls back to your raw words if not, but it cannot catch
+  every slip. A hosted model is faster and more accurate.
 
 ## Development
 
@@ -156,6 +187,15 @@ cd src-tauri && cargo test     # unit tests
 cargo run --example transcribe -- model.bin audio.wav   # transcribe a file
 ```
 
+To test the whole pipeline without speaking, a debug build can take recordings
+from disk and process them as if dictated. Results are printed and left on the
+clipboard; nothing is pasted. Add `@rewrite` to a path to use rewrite mode.
+
+```bash
+ffmpeg -i clip.wav -ar 16000 -ac 1 -f f32le clip.f32
+UTTER_SIMULATE=clip.f32,clip.f32@rewrite pnpm tauri dev
+```
+
 When run with `pnpm tauri dev`, macOS attributes the permission prompts to your
 terminal app rather than to Utter.
 
@@ -164,11 +204,11 @@ The code is laid out as one file per stage of the pipeline, in
 
 | File | Job |
 | --- | --- |
-| `hotkey.rs` | Register the push-to-talk hotkey |
+| `hotkey.rs` | Register the two push-to-talk hotkeys |
 | `audio.rs` | Record the microphone, convert to 16 kHz mono |
 | `transcribe.rs`, `models.rs` | Run whisper.cpp, download models |
 | `context.rs` | Work out which app is focused and what kind it is |
-| `cleanup.rs` | The cleanup prompt and the two API formats |
+| `cleanup.rs` | The tidy and rewrite prompts, the two API formats, reply checks |
 | `providers.rs` | The list of cleanup providers |
 | `insert.rs` | Clipboard save, paste, restore |
 | `pipeline.rs` | Runs the stages in order |
