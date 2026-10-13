@@ -49,3 +49,127 @@ h1 {
 .muted {
   color: var(--muted);
 }
+
+h2 {
+  font-size: 15px;
+  margin: 0 0 2px;
+}
+
+h3 {
+  font-size: 13px;
+  margin: 16px 0 6px;
+}
+
+p {
+  margin: 0 0 10px;
+}
+
+a {
+  color: var(--accent);
+}
+
+.small {
+  font-size: 12.5px;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.error {
+  color: #dc2626;
+}
+
+header {
+  margin-bottom: 16px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.toggle {
+  cursor: pointer;
+}
+
+button {
+  font: inherit;
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  button.primary {
+    color: #1a1917;
+  }
+}
+
+input[type="password"],
+input[type="text"],
+select,
+textarea {
+  font: inherit;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+}
+
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.keycaps {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+kbd {
+  font: inherit;
+  font-weight: 600;
+  min-width: 28px;
+  text-align: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  background: var(--bg);
+}
