@@ -17,3 +17,9 @@ export const saveSettings = (settings: Settings) =>
 export const hasApiKey = () => invoke<boolean>("has_api_key");
 export const setApiKey = (key: string) => invoke<void>("set_api_key", { key });
 export const deleteApiKey = () => invoke<void>("delete_api_key");
+
+// Progress reports from the dictation pipeline, sent on the "pipeline" event.
+export type PipelineUpdate = {
+  phase: "idle" | "recording" | "processing" | "done" | "error";
+  message: string | null;
+};

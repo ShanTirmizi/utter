@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getSettings, saveSettings, type Settings } from "./api";
 import CleanupSection from "./sections/CleanupSection";
 import HotkeySection from "./sections/HotkeySection";
+import TrySection from "./sections/TrySection";
 import "./App.css";
 
 export default function App() {
@@ -28,6 +29,7 @@ export default function App() {
         <h1>Utter</h1>
         <p className="muted">Hold a hotkey, speak, release.</p>
       </header>
+      <TrySection hotkey={settings.hotkey} />
       <HotkeySection hotkey={settings.hotkey} onChange={(hotkey) => update({ hotkey })} />
       <CleanupSection
         enabled={settings.cleanupEnabled}

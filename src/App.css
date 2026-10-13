@@ -173,3 +173,19 @@ kbd {
   border-bottom-width: 2px;
   background: var(--bg);
 }
+
+.status {
+  font-weight: 600;
+}
+
+.status-recording {
+  color: var(--accent);
+}
+
+.status-error {
+  color: #dc2626;
+}
+
+.status-done {
+  color: var(--ok);
+}
