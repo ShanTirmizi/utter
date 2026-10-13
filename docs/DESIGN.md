@@ -6,7 +6,7 @@ what it does.
 ## Goals
 
 - Hold a key, speak, release, and get good text in any app.
-- Free to use. At most one API key, and usable with none.
+- Free to use. At most one API key, from any provider, and usable with none.
 - Private by default: audio stays on the Mac.
 - Small enough that one person can read all of it.
 
@@ -18,7 +18,7 @@ flowchart LR
     B --> C["Release hotkey"]
     C --> D["Transcribe<br/>on device"]
     D --> E{"Cleanup on<br/>and key saved?"}
-    E -- yes --> F["Clean up<br/>Claude API"]
+    E -- yes --> F["Clean up<br/>chosen provider"]
     E -- no --> G["Insert"]
     F --> G
     F -. "any error" .-> G
@@ -43,7 +43,7 @@ cloud speech-to-text API.
 
 | | Local whisper.cpp | Cloud speech API |
 | --- | --- | --- |
-| Keys needed | None | A second key. The Claude API does not transcribe audio, so this cannot share the cleanup key. |
+| Keys needed | None | Often a second key: not every model provider also transcribes audio, so it may not share the cleanup key. |
 | Cost | Free | Paid per minute |
 | Privacy | Audio stays on the Mac | Audio is uploaded |
 | Works offline | Yes | No |
@@ -64,8 +64,25 @@ these speeds.
 
 ## Cleanup: optional and never in the way
 
-Cleanup is one Messages API request to the fastest current Claude model,
-`claude-haiku-5-5`, at low effort.
+Cleanup is one request to a language model of the user's choosing.
+
+### Any provider
+
+Two wire formats cover practically everything: Anthropic's Messages API, and
+the OpenAI-style chat completions API that OpenAI, Google Gemini, Groq,
+OpenRouter, Ollama and most others speak. `providers.rs` is a short table of
+name, base URL and format; `cleanup.rs` has one small module per format.
+
+- **Anthropic** defaults to the fastest current Claude model,
+  `claude-haiku-5-5`, at low effort.
+- **Everyone else** gets a request with only `model` and `messages`. Optional
+  settings such as token limits are named differently, or rejected, from one
+  provider and model to the next, so none are sent.
+- **Model names are not hard-coded** for other providers, because they change
+  too often. The app asks the provider for its current list instead.
+- **A custom base URL must be HTTPS**, or plain HTTP to localhost, so a key
+  never crosses the network unencrypted.
+- **Ollama needs no key**, which gives a fully local, fully free setup.
 
 - **The prompt is in `cleanup.rs`.** A shared part says what to fix (fillers,
   self-corrections, punctuation, misheard words, spoken formatting commands) and
@@ -98,10 +115,11 @@ the text already in the field or the window's contents.
 
 ## The API key
 
-- Entered once in settings, saved to the macOS Keychain (`secrets.rs`).
+- Entered in settings, saved to the macOS Keychain (`secrets.rs`), one entry
+  per provider.
 - Never written to a file, a log, or the settings JSON.
 - The UI can ask "is there a key?" but has no way to read it back.
-- Sent only in the `x-api-key` header to `api.anthropic.com`.
+- Sent only in a request header, and only to the provider it belongs to.
 
 ## Hotkey and permissions
 
@@ -147,7 +165,9 @@ Utter is not signed with an Apple Developer ID, so:
 
 - Gatekeeper blocks a downloaded copy until the user allows it by hand.
 - The Accessibility grant is tied to the signature and must be re-granted after
-  each update.
+  each update. System Settings keeps showing the old switch as on, which is
+  confusing, so the permissions list has a "Reset it" link that clears the stale
+  entry and asks again.
 
 Building from source avoids the first problem entirely, so that is the
 recommended install route for now. An unsigned release can be offered alongside

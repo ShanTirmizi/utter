@@ -97,6 +97,24 @@ pub fn prompt_accessibility() -> bool {
     unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) != 0 }
 }
 
+/// Remove every Accessibility entry macOS holds for this app.
+///
+/// macOS ties the permission to the app's code signature. An app without a
+/// Developer ID gets a new signature on every build, so after an update the
+/// switch can show as on in System Settings while the running app is still
+/// refused. Clearing the entry lets the user grant it afresh.
+pub fn reset_accessibility(bundle_id: &str) -> Result<(), String> {
+    let status = Command::new("/usr/bin/tccutil")
+        .args(["reset", "Accessibility", bundle_id])
+        .status()
+        .map_err(|e| format!("Could not run tccutil: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("macOS would not reset the permission.".into())
+    }
+}
+
 /// True while a password field (or similar) has locked keyboard input. Utter
 /// does not paste in that state.
 pub fn secure_input_active() -> bool {

@@ -4,6 +4,7 @@ import {
   permissionStatus,
   requestAccessibility,
   requestMicrophone,
+  resetAccessibility,
   type PermissionStatus,
 } from "./api";
 
@@ -55,6 +56,23 @@ export default function PermissionList({ status }: { status: PermissionStatus | 
             To press ⌘V for you in the app you are typing in. Without it, Utter copies the
             text to your clipboard and you paste it yourself.
           </p>
+          {!accessibility && (
+            <p className="muted small">
+              Already switched on in System Settings? macOS is matching it to an older
+              build.{" "}
+              <a
+                href="#"
+                onClick={async (e) => {
+                  e.preventDefault();
+                  await resetAccessibility();
+                  await openPrivacySettings("accessibility");
+                }}
+              >
+                Reset it
+              </a>
+              , then switch Utter on again.
+            </p>
+          )}
         </div>
         {accessibility ? (
           <span className="ok">Allowed</span>

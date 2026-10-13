@@ -40,10 +40,7 @@ export default function App() {
       <TrySection hotkey={settings.hotkey} />
       <HotkeySection hotkey={settings.hotkey} onChange={(hotkey) => update({ hotkey })} />
       <ModelSection selected={settings.model} onSelect={(model) => update({ model })} />
-      <CleanupSection
-        enabled={settings.cleanupEnabled}
-        onToggle={(cleanupEnabled) => update({ cleanupEnabled })}
-      />
+      <CleanupSection settings={settings} update={update} />
       <PermissionsSection />
     </main>
   );

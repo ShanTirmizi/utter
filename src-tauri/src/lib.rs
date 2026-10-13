@@ -10,6 +10,7 @@ mod insert;
 mod models;
 mod permissions;
 mod pipeline;
+mod providers;
 mod secrets;
 mod settings;
 pub mod transcribe;
@@ -42,6 +43,9 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String>
             return Err(e);
         }
     }
+    if settings.provider == "custom" && !settings.base_url.trim().is_empty() {
+        providers::check_base_url(&settings.base_url)?;
+    }
     settings::save(&app, &settings)?;
     if settings.model != previous.model {
         pipeline::preload_model(&app);
@@ -49,32 +53,72 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String>
     Ok(settings)
 }
 
+/// The cleanup providers offered in settings.
+#[tauri::command]
+fn providers() -> Vec<providers::Provider> {
+    providers::CATALOG.to_vec()
+}
+
+fn known_provider(id: &str) -> Result<(), String> {
+    providers::find(id)
+        .map(|_| ())
+        .ok_or_else(|| format!("Unknown provider: {id}"))
+}
+
 /// The UI only ever learns whether a key exists, never the key itself.
 #[tauri::command]
-fn has_api_key() -> bool {
-    secrets::exists()
+fn has_api_key(provider: String) -> bool {
+    secrets::exists(&provider)
 }
 
 #[tauri::command]
-fn set_api_key(key: String) -> Result<(), String> {
-    secrets::set(&key)
+fn set_api_key(provider: String, key: String) -> Result<(), String> {
+    known_provider(&provider)?;
+    secrets::set(&provider, &key)
 }
 
 #[tauri::command]
-fn delete_api_key() -> Result<(), String> {
-    secrets::delete()
+fn delete_api_key(provider: String) -> Result<(), String> {
+    known_provider(&provider)?;
+    secrets::delete(&provider)
 }
 
-/// Send one fixed sentence through cleanup to confirm the stored key works.
-#[tauri::command]
-async fn test_cleanup() -> Result<String, String> {
-    let key = tauri::async_runtime::spawn_blocking(secrets::get)
+/// The endpoint for the current settings, or a message saying what is missing.
+async fn current_endpoint(app: &AppHandle) -> Result<providers::Endpoint, String> {
+    let settings = settings::load(app);
+    tauri::async_runtime::spawn_blocking(move || providers::resolve(&settings))
         .await
-        .ok()
-        .flatten()
-        .ok_or("Add an API key first.")?;
+        .map_err(|e| e.to_string())?
+        .map_err(|not_ready| match not_ready {
+            providers::NotReady::NoKey => "Add an API key first.".to_string(),
+            providers::NotReady::Problem(text) => text,
+        })
+}
+
+/// Send one fixed sentence through cleanup to confirm the setup works.
+#[tauri::command]
+async fn test_cleanup(app: AppHandle) -> Result<String, String> {
+    let endpoint = current_endpoint(&app).await?;
     let sample = "um so this is like a quick test of the the cleanup step";
-    cleanup::clean(sample, &context::AppContext::unknown(), &key).await
+    cleanup::clean(sample, &context::AppContext::unknown(), &endpoint).await
+}
+
+/// Models the chosen provider offers for the saved key.
+#[tauri::command]
+async fn list_cleanup_models(app: AppHandle) -> Result<Vec<String>, String> {
+    // Listing needs a provider and key but not a chosen model yet.
+    let mut settings = settings::load(&app);
+    if settings.cleanup_model.trim().is_empty() {
+        settings.cleanup_model = "-".into();
+    }
+    let endpoint = tauri::async_runtime::spawn_blocking(move || providers::resolve(&settings))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|not_ready| match not_ready {
+            providers::NotReady::NoKey => "Add an API key first.".to_string(),
+            providers::NotReady::Problem(text) => text,
+        })?;
+    cleanup::list_models(&endpoint).await
 }
 
 #[tauri::command]
@@ -92,6 +136,16 @@ fn request_microphone() {
 #[tauri::command]
 fn request_accessibility() -> bool {
     permissions::prompt_accessibility()
+}
+
+/// Forget any Accessibility decision macOS holds for Utter, then ask again.
+/// This is the way out when the switch is on in System Settings but macOS is
+/// matching it against an older build of the app.
+#[tauri::command]
+fn reset_accessibility(app: AppHandle) -> Result<(), String> {
+    permissions::reset_accessibility(&app.config().identifier)?;
+    permissions::prompt_accessibility();
+    Ok(())
 }
 
 #[tauri::command]
@@ -188,13 +242,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
+            providers,
             has_api_key,
             set_api_key,
             delete_api_key,
             test_cleanup,
+            list_cleanup_models,
             permission_status,
             request_microphone,
             request_accessibility,
+            reset_accessibility,
             open_privacy_settings,
             model_statuses,
             download_model,

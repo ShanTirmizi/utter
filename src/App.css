@@ -262,3 +262,7 @@ textarea {
   resize: vertical;
   margin-bottom: 10px;
 }
+
+select {
+  appearance: auto;
+}

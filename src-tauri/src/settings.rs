@@ -10,8 +10,14 @@ use tauri::{AppHandle, Manager};
 pub struct Settings {
     /// Key combination to hold while speaking, e.g. "Control+Alt+Space".
     pub hotkey: String,
-    /// Run the transcript through the cleanup model when a key is available.
+    /// Run the transcript through the cleanup model when one is set up.
     pub cleanup_enabled: bool,
+    /// Which service runs cleanup; an id from `providers::CATALOG`.
+    pub provider: String,
+    /// Model to ask for. Empty means the provider's default, if it has one.
+    pub cleanup_model: String,
+    /// Base URL, used only by the "custom" provider.
+    pub base_url: String,
     /// Which speech model to use; a name from `models::CATALOG`.
     pub model: String,
     /// Set once the first-run permissions screen has been completed.
@@ -23,6 +29,9 @@ impl Default for Settings {
         Self {
             hotkey: "Control+Alt+Space".into(),
             cleanup_enabled: true,
+            provider: "anthropic".into(),
+            cleanup_model: String::new(),
+            base_url: String::new(),
             model: "base.en".into(),
             onboarded: false,
         }
@@ -63,6 +72,8 @@ mod tests {
         assert_eq!(parsed.hotkey, "Alt+KeyD");
         assert_eq!(parsed.model, Settings::default().model);
         assert!(parsed.cleanup_enabled);
+        // Settings saved before providers existed keep working with Claude.
+        assert_eq!(parsed.provider, "anthropic");
     }
 
     #[test]

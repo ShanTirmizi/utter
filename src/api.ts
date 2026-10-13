@@ -5,20 +5,43 @@ import { invoke } from "@tauri-apps/api/core";
 export type Settings = {
   hotkey: string;
   cleanupEnabled: boolean;
+  /** Which service runs cleanup; an id from `providers()`. */
+  provider: string;
+  /** Empty means the provider's default model, if it has one. */
+  cleanupModel: string;
+  /** Used only by the "custom" provider. */
+  baseUrl: string;
+  /** Speech model. */
   model: string;
   onboarded: boolean;
 };
+
+export type Provider = {
+  id: string;
+  label: string;
+  protocol: "anthropic" | "openai";
+  baseUrl: string;
+  defaultModel: string;
+  needsKey: boolean;
+  keyUrl: string;
+};
+
+export const providers = () => invoke<Provider[]>("providers");
 
 export const getSettings = () => invoke<Settings>("get_settings");
 export const saveSettings = (settings: Settings) =>
   invoke<Settings>("save_settings", { settings });
 
-// The key goes one way only: into the Keychain. It is never read back.
-export const hasApiKey = () => invoke<boolean>("has_api_key");
-export const setApiKey = (key: string) => invoke<void>("set_api_key", { key });
-export const deleteApiKey = () => invoke<void>("delete_api_key");
+// A key goes one way only: into the Keychain. It is never read back. Each
+// provider keeps its own key.
+export const hasApiKey = (provider: string) => invoke<boolean>("has_api_key", { provider });
+export const setApiKey = (provider: string, key: string) =>
+  invoke<void>("set_api_key", { provider, key });
+export const deleteApiKey = (provider: string) => invoke<void>("delete_api_key", { provider });
 /** Runs one fixed sentence through cleanup and returns the result. */
 export const testCleanup = () => invoke<string>("test_cleanup");
+/** Models the chosen provider offers for the saved key. */
+export const listCleanupModels = () => invoke<string[]>("list_cleanup_models");
 
 // Progress reports from the dictation pipeline, sent on the "pipeline" event.
 export type Dictation = {
@@ -68,5 +91,7 @@ export type PermissionStatus = { microphone: MicStatus; accessibility: boolean }
 export const permissionStatus = () => invoke<PermissionStatus>("permission_status");
 export const requestMicrophone = () => invoke<void>("request_microphone");
 export const requestAccessibility = () => invoke<boolean>("request_accessibility");
+/** Clears a stale Accessibility entry for Utter and asks macOS again. */
+export const resetAccessibility = () => invoke<void>("reset_accessibility");
 export const openPrivacySettings = (pane: "microphone" | "accessibility") =>
   invoke<void>("open_privacy_settings", { pane });

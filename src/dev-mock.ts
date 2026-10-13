@@ -3,16 +3,26 @@
 // answer. This file is never loaded inside the real app or in production
 // builds (see main.tsx).
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { Dictation, ModelStatus, PermissionStatus, Settings } from "./api";
+import type { Dictation, ModelStatus, PermissionStatus, Provider, Settings } from "./api";
 
 let settings: Settings = {
   hotkey: "Control+Alt+Space",
   cleanupEnabled: true,
+  provider: "anthropic",
+  cleanupModel: "",
+  baseUrl: "",
   model: "base.en",
   // Open the page with "?welcome" to preview the first-run screen.
   onboarded: !window.location.search.includes("welcome"),
 };
-let hasKey = false;
+const keys = new Set<string>();
+
+const catalog: Provider[] = [
+  { id: "anthropic", label: "Anthropic (Claude)", protocol: "anthropic", baseUrl: "https://api.anthropic.com/v1", defaultModel: "claude-haiku-5-5", needsKey: true, keyUrl: "https://console.anthropic.com/settings/keys" },
+  { id: "openai", label: "OpenAI", protocol: "openai", baseUrl: "https://api.openai.com/v1", defaultModel: "", needsKey: true, keyUrl: "https://platform.openai.com/api-keys" },
+  { id: "ollama", label: "Ollama (on this Mac, no key)", protocol: "openai", baseUrl: "http://localhost:11434/v1", defaultModel: "", needsKey: false, keyUrl: "https://ollama.com" },
+  { id: "custom", label: "Other (OpenAI-compatible)", protocol: "openai", baseUrl: "", defaultModel: "", needsKey: true, keyUrl: "" },
+];
 
 const permissions: PermissionStatus = { microphone: "granted", accessibility: false };
 
@@ -44,14 +54,18 @@ export function installMock() {
         case "save_settings":
           settings = payload?.settings as Settings;
           return settings;
+        case "providers":
+          return catalog;
         case "has_api_key":
-          return hasKey;
+          return keys.has(payload?.provider as string);
         case "set_api_key":
-          hasKey = true;
+          keys.add(payload?.provider as string);
           return;
         case "delete_api_key":
-          hasKey = false;
+          keys.delete(payload?.provider as string);
           return;
+        case "list_cleanup_models":
+          return ["example-fast-model", "example-large-model"];
         case "test_cleanup":
           return "This is a quick test of the cleanup step.";
         case "permission_status":

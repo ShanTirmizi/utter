@@ -5,8 +5,10 @@ cleaned-up text appears in whatever app is focused.
 
 - **Runs on your Mac.** Speech is transcribed locally with
   [whisper.cpp](https://github.com/ggml-org/whisper.cpp). Audio never leaves the machine.
-- **Bring your own key, or none.** Add an Anthropic API key to have Claude tidy
-  each dictation. Without a key, Utter inserts the raw transcription.
+- **Bring your own key, or none.** Add a key from Anthropic, OpenAI, Google,
+  Groq, OpenRouter or any OpenAI-compatible service to have a model tidy each
+  dictation. A local model through Ollama needs no key at all. Without any of
+  these, Utter inserts the raw transcription.
 - **Fits the app you are in.** A chat message, an email and a code comment each
   get a different writing style.
 
@@ -20,7 +22,7 @@ flowchart LR
     B --> C["Release hotkey"]
     C --> D["Transcribe<br/>whisper.cpp, on device"]
     D --> E{"Cleanup on<br/>and key saved?"}
-    E -- yes --> F["Clean up<br/>Claude Haiku, styled for the app"]
+    E -- yes --> F["Clean up<br/>your chosen model, styled for the app"]
     E -- no --> G["Insert<br/>paste into the focused app"]
     F --> G
     F -. "any error" .-> G
@@ -29,9 +31,9 @@ flowchart LR
 1. **Hotkey.** `⌃ ⌥ Space` by default. Change it in settings.
 2. **Record.** The microphone is open only while the key is held.
 3. **Transcribe.** A Whisper model runs on your Mac, using the GPU through Metal.
-4. **Clean up (optional).** The transcript goes to the Claude API with a prompt
-   that removes filler words, fixes punctuation, and matches the app you are
-   typing in. If this step fails for any reason, the raw transcript is used.
+4. **Clean up (optional).** The transcript goes to the model you chose, with a
+   prompt that removes filler words, fixes punctuation, and matches the app you
+   are typing in. If this step fails for any reason, the raw transcript is used.
 5. **Insert.** Utter puts the text on the clipboard, presses `⌘V`, and then puts
    your previous clipboard back.
 
@@ -85,16 +87,26 @@ consequences:
 Closing the window keeps Utter running in the menu bar. Quit from the menu-bar
 icon.
 
-## Add your API key (optional)
+## Set up cleanup (optional)
 
-1. Create a key at <https://console.anthropic.com/settings/keys>.
-2. In Utter, paste it under **Cleanup > Anthropic API key** and press Save.
-3. Press **Test** to confirm it works.
+1. Under **Cleanup**, pick a provider.
+2. Paste an API key for it and press Save. The "Get a key" link opens the
+   provider's key page.
+3. Choose a model. **List models** shows what your key can use. Pick a small,
+   fast one: cleanup is light editing, and you wait for it.
+4. Press **Test** to confirm it works.
 
-The key is stored in the macOS Keychain and nowhere else. It is not written to
-any file, not logged, and never shown again in the app. It is sent only to
-`api.anthropic.com`. Cleanup uses Claude Haiku; a typical dictation costs a
-small fraction of a cent.
+| Provider | Key | Model |
+| --- | --- | --- |
+| Anthropic (Claude) | Yes | Defaults to Claude Haiku |
+| OpenAI, Google Gemini, Groq, OpenRouter | Yes | You choose |
+| Ollama | No, runs on your Mac | You choose from the models you have pulled |
+| Other (OpenAI-compatible) | Yes | You enter the base URL and choose |
+
+Keys are stored in the macOS Keychain and nowhere else, one per provider. They
+are not written to any file, not logged, and never shown again in the app. A
+key is sent only to the provider it belongs to. With a small model, a typical
+dictation costs a fraction of a cent.
 
 To dictate without cleanup, switch off **Clean up dictations** or simply do not
 add a key.
@@ -109,11 +121,18 @@ add a key.
 
 You can change these under System Settings > Privacy & Security.
 
+**If Accessibility is switched on but Utter still says it is not allowed:**
+macOS is matching the switch to an older build of the app. In Utter, under
+**Permissions**, click **Reset it**, then switch Utter on again in System
+Settings. This happens after every rebuild or update, for the reason given
+under "Why not just download it?".
+
 ## What leaves your Mac
 
 - **Audio:** never.
-- **Text:** only when cleanup is on and a key is saved. Then the transcript and
-  the name of the focused app are sent to the Claude API.
+- **Text:** only when cleanup is set up. Then the transcript and the name of
+  the focused app are sent to the provider you chose. With Ollama, they stay on
+  your Mac.
 - **Speech models:** downloaded once from Hugging Face, on request.
 - Utter has no account, no analytics and no telemetry.
 
@@ -149,7 +168,8 @@ The code is laid out as one file per stage of the pipeline, in
 | `audio.rs` | Record the microphone, convert to 16 kHz mono |
 | `transcribe.rs`, `models.rs` | Run whisper.cpp, download models |
 | `context.rs` | Work out which app is focused and what kind it is |
-| `cleanup.rs` | The cleanup prompt and the Claude API call |
+| `cleanup.rs` | The cleanup prompt and the two API formats |
+| `providers.rs` | The list of cleanup providers |
 | `insert.rs` | Clipboard save, paste, restore |
 | `pipeline.rs` | Runs the stages in order |
 | `secrets.rs`, `settings.rs` | Keychain and preferences |

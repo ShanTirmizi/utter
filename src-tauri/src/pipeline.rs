@@ -10,7 +10,9 @@ use crate::{
     audio::{self, Recorder, TARGET_RATE},
     cleanup,
     context::{self, AppContext},
-    insert, models, permissions, secrets, settings,
+    insert, models, permissions,
+    providers::{self, NotReady},
+    settings::{self, Settings},
     transcribe::Transcriber,
 };
 use serde::Serialize;
@@ -192,7 +194,7 @@ async fn process(app: &AppHandle, samples: Vec<f32>) -> Result<Option<Dictation>
     }
 
     let target = app.state::<Pipeline>().target.lock().unwrap().clone();
-    let tidied = tidy_up(&raw, &target, settings.cleanup_enabled).await;
+    let tidied = tidy_up(&raw, &target, &settings).await;
     let (inserted, delivery_note) = deliver(app, &tidied.text).await?;
 
     Ok(Some(Dictation {
@@ -217,28 +219,32 @@ struct Tidied {
 
 /// Run the optional cleanup step. Whatever goes wrong, the raw transcript
 /// comes back, so a dictation is never lost to a network or API problem.
-async fn tidy_up(raw: &str, target: &AppContext, enabled: bool) -> Tidied {
+async fn tidy_up(raw: &str, target: &AppContext, settings: &Settings) -> Tidied {
     let untouched = |note: Option<String>, ms: Option<u64>| Tidied {
         text: raw.to_string(),
         cleaned: false,
         note,
         ms,
     };
-    if !enabled {
+    if !settings.cleanup_enabled {
         return untouched(None, None);
     }
     // Reading the Keychain can block on a system prompt; keep it off the
     // async threads.
-    let key = tauri::async_runtime::spawn_blocking(secrets::get)
-        .await
-        .ok()
-        .flatten();
-    let Some(key) = key else {
-        return untouched(None, None);
+    let for_lookup = settings.clone();
+    let resolved = tauri::async_runtime::spawn_blocking(move || providers::resolve(&for_lookup)).await;
+    let endpoint = match resolved {
+        Ok(Ok(endpoint)) => endpoint,
+        // No key yet is the ordinary "raw text" mode, not a fault.
+        Ok(Err(NotReady::NoKey)) => return untouched(None, None),
+        Ok(Err(NotReady::Problem(text))) => {
+            return untouched(Some(format!("Cleanup skipped: {text}")), None);
+        }
+        Err(e) => return untouched(Some(format!("Cleanup skipped: {e}")), None),
     };
 
     let started = Instant::now();
-    let result = cleanup::clean(raw, target, &key).await;
+    let result = cleanup::clean(raw, target, &endpoint).await;
     let ms = Some(started.elapsed().as_millis() as u64);
     match result {
         Ok(text) => Tidied {
