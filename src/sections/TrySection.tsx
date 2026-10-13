@@ -39,7 +39,17 @@ export default function TrySection({ hotkey }: { hotkey: string }) {
       {dictation && (
         <div className="result">
           <p>{dictation.text}</p>
-          <p className="muted small">Transcribed in {dictation.transcribeMs} ms</p>
+          <p className="muted small">
+            {dictation.cleaned
+              ? `Cleaned up for ${dictation.app.name} (${dictation.app.category} style)`
+              : "Raw transcription"}
+            {" · "}transcribed in {dictation.transcribeMs} ms
+            {dictation.cleanupMs !== null && ` · cleanup ${dictation.cleanupMs} ms`}
+          </p>
+          {dictation.cleaned && (
+            <p className="muted small">Heard: {dictation.raw}</p>
+          )}
+          {dictation.note && <p className="warn small">{dictation.note}</p>}
         </div>
       )}
     </section>

@@ -250,3 +250,8 @@ kbd {
   margin: 0 0 4px;
   white-space: pre-wrap;
 }
+
+.buttons {
+  display: flex;
+  gap: 6px;
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { deleteApiKey, hasApiKey, setApiKey } from "../api";
+import { deleteApiKey, hasApiKey, setApiKey, testCleanup } from "../api";
 
 type Props = {
   enabled: boolean;
@@ -23,6 +23,15 @@ export default function CleanupSection({ enabled, onToggle }: Props) {
       setDraft("");
       setHasKey(true);
       setMessage("Saved to your Keychain.");
+    } catch (err) {
+      setMessage(String(err));
+    }
+  };
+
+  const test = async () => {
+    setMessage("Testing…");
+    try {
+      setMessage(`Works. Sample came back as: “${await testCleanup()}”`);
     } catch (err) {
       setMessage(String(err));
     }
@@ -55,7 +64,10 @@ export default function CleanupSection({ enabled, onToggle }: Props) {
       {hasKey ? (
         <div className="row">
           <span className="ok">A key is stored in your Keychain.</span>
-          <button onClick={remove}>Remove</button>
+          <span className="buttons">
+            <button onClick={test}>Test</button>
+            <button onClick={remove}>Remove</button>
+          </span>
         </div>
       ) : (
         <div className="row">

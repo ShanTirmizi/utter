@@ -1,13 +1,16 @@
 //! The dictation pipeline, driven by the hotkey:
 //!
-//!   key down -> record -> key up -> transcribe -> (more stages in later steps)
+//!   key down -> note the focused app -> record
+//!   key up   -> transcribe -> clean up (optional) -> (insertion arrives next)
 //!
 //! All the state for "what is Utter doing right now" lives here, so there is
 //! exactly one place that decides what a key press means.
 
 use crate::{
     audio::{self, Recorder, TARGET_RATE},
-    models, settings,
+    cleanup,
+    context::{self, AppContext},
+    models, secrets, settings,
     transcribe::{SILENCE_PEAK, Transcriber},
 };
 use serde::Serialize;
@@ -35,7 +38,14 @@ pub struct Dictation {
     pub raw: String,
     /// What Utter produced from it.
     pub text: String,
+    /// True when `text` came from the cleanup model rather than being `raw`.
+    pub cleaned: bool,
+    /// Anything the user should know, such as why cleanup was skipped.
+    pub note: Option<String>,
+    /// The app that had focus when the hotkey went down.
+    pub app: AppContext,
     pub transcribe_ms: u64,
+    pub cleanup_ms: Option<u64>,
 }
 
 /// Sent to the UI on the `pipeline` event whenever something changes.
@@ -51,6 +61,9 @@ pub struct Pipeline {
     recorder: Recorder,
     transcriber: Arc<Transcriber>,
     phase: Mutex<Phase>,
+    /// The app to type into, captured at key-down so that a slow transcription
+    /// cannot be misdirected by the user switching apps meanwhile.
+    target: Mutex<AppContext>,
     last: Mutex<Option<Dictation>>,
 }
 
@@ -60,6 +73,7 @@ impl Pipeline {
             recorder: Recorder::spawn(),
             transcriber: Arc::new(Transcriber::default()),
             phase: Mutex::new(Phase::Idle),
+            target: Mutex::new(AppContext::unknown()),
             last: Mutex::new(None),
         }
     }
@@ -116,6 +130,7 @@ pub fn on_press(app: &AppHandle) {
         emit(app, "error", Some("Download a speech model in Utter's settings first.".into()), None);
         return;
     }
+    *pipeline.target.lock().unwrap() = context::frontmost();
     match pipeline.recorder.start() {
         Ok(()) => {
             *phase = Phase::Recording;
@@ -164,7 +179,8 @@ async fn process(app: &AppHandle, samples: Vec<f32>) -> Result<Option<Dictation>
         return Err("Heard only silence. Check which microphone macOS is using.".into());
     }
 
-    let name = settings::load(app).model;
+    let settings = settings::load(app);
+    let name = settings.model.clone();
     let path = models::path(app, &name)?;
     let transcriber = app.state::<Pipeline>().transcriber.clone();
 
@@ -181,9 +197,59 @@ async fn process(app: &AppHandle, samples: Vec<f32>) -> Result<Option<Dictation>
         return Err("No speech detected.".into());
     }
 
+    let target = app.state::<Pipeline>().target.lock().unwrap().clone();
+    let tidied = tidy_up(&raw, &target, settings.cleanup_enabled).await;
+
     Ok(Some(Dictation {
-        text: raw.clone(),
+        text: tidied.text,
+        cleaned: tidied.cleaned,
+        note: tidied.note,
+        cleanup_ms: tidied.ms,
         raw,
+        app: target,
         transcribe_ms,
     }))
+}
+
+struct Tidied {
+    text: String,
+    cleaned: bool,
+    note: Option<String>,
+    ms: Option<u64>,
+}
+
+/// Run the optional cleanup step. Whatever goes wrong, the raw transcript
+/// comes back, so a dictation is never lost to a network or API problem.
+async fn tidy_up(raw: &str, target: &AppContext, enabled: bool) -> Tidied {
+    let untouched = |note: Option<String>, ms: Option<u64>| Tidied {
+        text: raw.to_string(),
+        cleaned: false,
+        note,
+        ms,
+    };
+    if !enabled {
+        return untouched(None, None);
+    }
+    // Reading the Keychain can block on a system prompt; keep it off the
+    // async threads.
+    let key = tauri::async_runtime::spawn_blocking(secrets::get)
+        .await
+        .ok()
+        .flatten();
+    let Some(key) = key else {
+        return untouched(None, None);
+    };
+
+    let started = Instant::now();
+    let result = cleanup::clean(raw, target, &key).await;
+    let ms = Some(started.elapsed().as_millis() as u64);
+    match result {
+        Ok(text) => Tidied {
+            text,
+            cleaned: true,
+            note: None,
+            ms,
+        },
+        Err(e) => untouched(Some(format!("Cleanup skipped: {e}")), ms),
+    }
 }

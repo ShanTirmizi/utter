@@ -3,6 +3,8 @@
 //! its own module.
 
 pub mod audio;
+mod cleanup;
+mod context;
 mod hotkey;
 mod models;
 mod permissions;
@@ -51,6 +53,18 @@ fn set_api_key(key: String) -> Result<(), String> {
 #[tauri::command]
 fn delete_api_key() -> Result<(), String> {
     secrets::delete()
+}
+
+/// Send one fixed sentence through cleanup to confirm the stored key works.
+#[tauri::command]
+async fn test_cleanup() -> Result<String, String> {
+    let key = tauri::async_runtime::spawn_blocking(secrets::get)
+        .await
+        .ok()
+        .flatten()
+        .ok_or("Add an API key first.")?;
+    let sample = "um so this is like a quick test of the the cleanup step";
+    cleanup::clean(sample, &context::AppContext::unknown(), &key).await
 }
 
 #[tauri::command]
@@ -115,6 +129,7 @@ pub fn run() {
             has_api_key,
             set_api_key,
             delete_api_key,
+            test_cleanup,
             permission_status,
             request_microphone,
             request_accessibility,

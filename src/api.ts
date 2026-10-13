@@ -17,6 +17,8 @@ export const saveSettings = (settings: Settings) =>
 export const hasApiKey = () => invoke<boolean>("has_api_key");
 export const setApiKey = (key: string) => invoke<void>("set_api_key", { key });
 export const deleteApiKey = () => invoke<void>("delete_api_key");
+/** Runs one fixed sentence through cleanup and returns the result. */
+export const testCleanup = () => invoke<string>("test_cleanup");
 
 // Progress reports from the dictation pipeline, sent on the "pipeline" event.
 export type Dictation = {
@@ -24,7 +26,18 @@ export type Dictation = {
   raw: string;
   /** What Utter produced from it. */
   text: string;
+  /** True when the text went through the cleanup model. */
+  cleaned: boolean;
+  note: string | null;
+  app: AppContext;
   transcribeMs: number;
+  cleanupMs: number | null;
+};
+
+export type AppContext = {
+  name: string;
+  bundleId: string;
+  category: "chat" | "email" | "code" | "notes" | "assistant" | "other";
 };
 
 export type PipelineUpdate = {
