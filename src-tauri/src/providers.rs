@@ -105,6 +105,8 @@ pub fn find(id: &str) -> Option<Provider> {
 /// Everything needed to make one request: where, how, which model, which key.
 #[derive(Debug, Clone)]
 pub struct Endpoint {
+    /// True for a model server running on this Mac (Ollama).
+    pub local: bool,
     pub protocol: Protocol,
     pub base_url: String,
     pub model: String,
@@ -162,6 +164,7 @@ pub fn endpoint(settings: &Settings, api_key: Option<String>) -> Result<Endpoint
     }
 
     Ok(Endpoint {
+        local: provider.id == "ollama",
         protocol: provider.protocol,
         base_url,
         model: model.to_string(),

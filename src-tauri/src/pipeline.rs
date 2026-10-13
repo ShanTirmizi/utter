@@ -1,14 +1,16 @@
 //! The dictation pipeline, driven by the hotkey:
 //!
 //!   key down -> note the focused app -> record
-//!   key up   -> transcribe -> clean up (optional) -> paste into the focused app
+//!   key up   -> transcribe -> tidy or rewrite (optional) -> paste into the focused app
+//!
+//! Which of the two hotkeys was pressed decides between tidying and rewriting.
 //!
 //! All the state for "what is Utter doing right now" lives here, so there is
 //! exactly one place that decides what a key press means.
 
 use crate::{
     audio::{self, Recorder, TARGET_RATE},
-    cleanup,
+    cleanup::{self, Task},
     context::{self, AppContext},
     insert, models, permissions,
     providers::{self, NotReady},
@@ -32,6 +34,16 @@ enum Phase {
     Processing,
 }
 
+/// What to do with the words once they are transcribed. Each hotkey has one.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    /// Keep the speaker's wording; remove fillers and fix punctuation.
+    Tidy,
+    /// Say the same thing better, in the chosen style.
+    Rewrite,
+}
+
 /// The result of one dictation.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,7 +52,9 @@ pub struct Dictation {
     pub raw: String,
     /// What Utter produced from it.
     pub text: String,
-    /// True when `text` came from the cleanup model rather than being `raw`.
+    /// Which hotkey was used.
+    pub mode: Mode,
+    /// True when `text` came from the language model rather than being `raw`.
     pub cleaned: bool,
     /// True when the text was pasted for the user; false when it was only
     /// copied to the clipboard.
@@ -58,6 +72,7 @@ pub struct Dictation {
 #[serde(rename_all = "camelCase")]
 pub struct Update {
     pub phase: &'static str,
+    pub mode: Mode,
     pub message: Option<String>,
     pub dictation: Option<Dictation>,
 }
@@ -66,6 +81,8 @@ pub struct Pipeline {
     recorder: Recorder,
     transcriber: Arc<Transcriber>,
     phase: Mutex<Phase>,
+    /// Which hotkey started the current dictation.
+    mode: Mutex<Mode>,
     /// The app in focus at key-down. It decides the writing style; the paste
     /// itself goes to whatever has focus when the text is ready.
     target: Mutex<AppContext>,
@@ -78,6 +95,7 @@ impl Pipeline {
             recorder: Recorder::spawn(),
             transcriber: Arc::new(Transcriber::default()),
             phase: Mutex::new(Phase::Idle),
+            mode: Mutex::new(Mode::Tidy),
             target: Mutex::new(AppContext::unknown()),
             last: Mutex::new(None),
         }
@@ -89,7 +107,8 @@ impl Pipeline {
 }
 
 fn emit(app: &AppHandle, phase: &'static str, message: Option<String>, dictation: Option<Dictation>) {
-    let _ = app.emit("pipeline", Update { phase, message, dictation });
+    let mode = *app.state::<Pipeline>().mode.lock().unwrap();
+    let _ = app.emit("pipeline", Update { phase, mode, message, dictation });
 }
 
 /// Load the selected speech model in the background so the first dictation
@@ -110,14 +129,15 @@ pub fn preload_model(app: &AppHandle) {
     });
 }
 
-/// Hotkey went down: start recording.
-pub fn on_press(app: &AppHandle) {
+/// A hotkey went down: start recording. `mode` says which hotkey.
+pub fn on_press(app: &AppHandle, mode: Mode) {
     let pipeline = app.state::<Pipeline>();
     let mut phase = pipeline.phase.lock().unwrap();
     // Holding a key can repeat the press; only the first one counts.
     if *phase != Phase::Idle {
         return;
     }
+    *pipeline.mode.lock().unwrap() = mode;
     if !models::is_downloaded(app, &settings::load(app).model) {
         emit(app, "error", Some("Download a speech model in Utter's settings first.".into()), None);
         return;
@@ -131,17 +151,37 @@ pub fn on_press(app: &AppHandle) {
         Ok(()) => {
             *phase = Phase::Recording;
             emit(app, "recording", None, None);
+            warm_local_model(app, mode);
         }
         Err(e) => emit(app, "error", Some(e), None),
     }
 }
 
-/// Hotkey came up: stop recording and process the audio off the main thread.
-pub fn on_release(app: &AppHandle) {
+/// If the language model runs on this Mac, start loading it now, while the
+/// user is still speaking. Hosted providers need no head start, and are never
+/// contacted until there is text to send.
+fn warm_local_model(app: &AppHandle, mode: Mode) {
+    let settings = settings::load(app);
+    if mode == Mode::Tidy && !settings.cleanup_enabled {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let resolved = tauri::async_runtime::spawn_blocking(move || providers::resolve(&settings)).await;
+        if let Ok(Ok(endpoint)) = resolved {
+            if endpoint.local {
+                cleanup::warm_up(&endpoint).await;
+            }
+        }
+    });
+}
+
+/// A hotkey came up: stop recording and process the audio off the main thread.
+pub fn on_release(app: &AppHandle, mode: Mode) {
     let pipeline = app.state::<Pipeline>();
     let samples = {
         let mut phase = pipeline.phase.lock().unwrap();
-        if *phase != Phase::Recording {
+        // Only the hotkey that started the recording can end it.
+        if *phase != Phase::Recording || *pipeline.mode.lock().unwrap() != mode {
             return;
         }
         *phase = Phase::Processing;
@@ -194,11 +234,13 @@ async fn process(app: &AppHandle, samples: Vec<f32>) -> Result<Option<Dictation>
     }
 
     let target = app.state::<Pipeline>().target.lock().unwrap().clone();
-    let tidied = tidy_up(&raw, &target, &settings).await;
+    let mode = *app.state::<Pipeline>().mode.lock().unwrap();
+    let tidied = improve(&raw, &target, &settings, mode).await;
     let (inserted, delivery_note) = deliver(app, &tidied.text).await?;
 
     Ok(Some(Dictation {
         text: tidied.text,
+        mode,
         cleaned: tidied.cleaned,
         inserted,
         // A delivery problem matters more to the user than a cleanup one.
@@ -217,34 +259,54 @@ struct Tidied {
     ms: Option<u64>,
 }
 
-/// Run the optional cleanup step. Whatever goes wrong, the raw transcript
-/// comes back, so a dictation is never lost to a network or API problem.
-async fn tidy_up(raw: &str, target: &AppContext, settings: &Settings) -> Tidied {
+/// Run the language-model step for `mode`. Whatever goes wrong, the raw
+/// transcript comes back, so a dictation is never lost to a network or API
+/// problem.
+async fn improve(raw: &str, target: &AppContext, settings: &Settings, mode: Mode) -> Tidied {
     let untouched = |note: Option<String>, ms: Option<u64>| Tidied {
         text: raw.to_string(),
         cleaned: false,
         note,
         ms,
     };
-    if !settings.cleanup_enabled {
-        return untouched(None, None);
-    }
+    // The tidy hotkey respects the on/off switch. The rewrite hotkey is an
+    // explicit request, so it always tries.
+    let (task, what) = match mode {
+        Mode::Tidy if !settings.cleanup_enabled => return untouched(None, None),
+        Mode::Tidy => (Task::Tidy, "Cleanup"),
+        Mode::Rewrite => (
+            Task::Rewrite {
+                instruction: cleanup::rewrite_instruction(
+                    &settings.rewrite_style,
+                    &settings.rewrite_prompt,
+                ),
+            },
+            "Rewrite",
+        ),
+    };
     // Reading the Keychain can block on a system prompt; keep it off the
     // async threads.
     let for_lookup = settings.clone();
     let resolved = tauri::async_runtime::spawn_blocking(move || providers::resolve(&for_lookup)).await;
     let endpoint = match resolved {
         Ok(Ok(endpoint)) => endpoint,
-        // No key yet is the ordinary "raw text" mode, not a fault.
-        Ok(Err(NotReady::NoKey)) => return untouched(None, None),
-        Ok(Err(NotReady::Problem(text))) => {
-            return untouched(Some(format!("Cleanup skipped: {text}")), None);
+        // For tidying, no key yet is the ordinary "raw text" mode, not a
+        // fault. Someone who pressed the rewrite hotkey should be told.
+        Ok(Err(NotReady::NoKey)) if mode == Mode::Tidy => return untouched(None, None),
+        Ok(Err(NotReady::NoKey)) => {
+            return untouched(
+                Some("Rewrite needs a model. Set one up under Cleanup in settings.".into()),
+                None,
+            );
         }
-        Err(e) => return untouched(Some(format!("Cleanup skipped: {e}")), None),
+        Ok(Err(NotReady::Problem(text))) => {
+            return untouched(Some(format!("{what} skipped: {text}")), None);
+        }
+        Err(e) => return untouched(Some(format!("{what} skipped: {e}")), None),
     };
 
     let started = Instant::now();
-    let result = cleanup::clean(raw, target, &endpoint).await;
+    let result = cleanup::run(raw, target, &endpoint, &task).await;
     let ms = Some(started.elapsed().as_millis() as u64);
     match result {
         Ok(text) => Tidied {
@@ -253,7 +315,7 @@ async fn tidy_up(raw: &str, target: &AppContext, settings: &Settings) -> Tidied 
             note: None,
             ms,
         },
-        Err(e) => untouched(Some(format!("Cleanup skipped: {e}")), ms),
+        Err(e) => untouched(Some(format!("{what} skipped: {e}")), ms),
     }
 }
 

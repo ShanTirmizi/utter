@@ -18,6 +18,14 @@ pub struct Settings {
     pub cleanup_model: String,
     /// Base URL, used only by the "custom" provider.
     pub base_url: String,
+    /// Second key combination: hold it to have the dictation rewritten rather
+    /// than just tidied. Empty switches the feature off.
+    pub rewrite_hotkey: String,
+    /// Which rewrite style to use: a preset id from `cleanup::REWRITE_STYLES`,
+    /// or "custom" for the user's own instruction below.
+    pub rewrite_style: String,
+    /// The user's own rewrite instruction.
+    pub rewrite_prompt: String,
     /// Which speech model to use; a name from `models::CATALOG`.
     pub model: String,
     /// Set once the first-run permissions screen has been completed.
@@ -32,6 +40,9 @@ impl Default for Settings {
             provider: "anthropic".into(),
             cleanup_model: String::new(),
             base_url: String::new(),
+            rewrite_hotkey: "Control+Alt+KeyR".into(),
+            rewrite_style: "clear".into(),
+            rewrite_prompt: String::new(),
             model: "base.en".into(),
             onboarded: false,
         }

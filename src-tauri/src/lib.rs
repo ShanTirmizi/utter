@@ -35,11 +35,11 @@ fn get_settings(app: AppHandle) -> Settings {
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
     let previous = settings::load(&app);
-    if settings.hotkey != previous.hotkey {
-        // Try the new hotkey first; if the system refuses it, keep the old one
-        // working and leave the saved settings untouched.
-        if let Err(e) = hotkey::register(&app, &settings.hotkey) {
-            let _ = hotkey::register(&app, &previous.hotkey);
+    if settings.hotkey != previous.hotkey || settings.rewrite_hotkey != previous.rewrite_hotkey {
+        // Try the new hotkeys first; if the system refuses one, keep the old
+        // ones working and leave the saved settings untouched.
+        if let Err(e) = hotkey::register(&app, &settings) {
+            let _ = hotkey::register(&app, &previous);
             return Err(e);
         }
     }
@@ -100,7 +100,27 @@ async fn current_endpoint(app: &AppHandle) -> Result<providers::Endpoint, String
 async fn test_cleanup(app: AppHandle) -> Result<String, String> {
     let endpoint = current_endpoint(&app).await?;
     let sample = "um so this is like a quick test of the the cleanup step";
-    cleanup::clean(sample, &context::AppContext::unknown(), &endpoint).await
+    cleanup::run(sample, &context::AppContext::unknown(), &endpoint, &cleanup::Task::Tidy).await
+}
+
+/// The ready-made rewrite styles offered in settings.
+#[tauri::command]
+fn rewrite_styles() -> Vec<cleanup::RewriteStyle> {
+    cleanup::REWRITE_STYLES.to_vec()
+}
+
+/// Rewrite one fixed, rambling sentence with the current style, so the user
+/// can see what a style does before relying on it.
+#[tauri::command]
+async fn test_rewrite(app: AppHandle) -> Result<String, String> {
+    let endpoint = current_endpoint(&app).await?;
+    let settings = settings::load(&app);
+    let task = cleanup::Task::Rewrite {
+        instruction: cleanup::rewrite_instruction(&settings.rewrite_style, &settings.rewrite_prompt),
+    };
+    let sample = "um so basically I think we should like push the meeting to friday because uh \
+                  half the team is out on thursday and yeah I just think it makes more sense that way";
+    cleanup::run(sample, &context::AppContext::unknown(), &endpoint, &task).await
 }
 
 /// Models the chosen provider offers for the saved key.
@@ -234,7 +254,7 @@ pub fn run() {
             place_pill(app.handle());
             build_tray(app.handle())?;
             let saved = settings::load(app.handle());
-            if let Err(e) = hotkey::register(app.handle(), &saved.hotkey) {
+            if let Err(e) = hotkey::register(app.handle(), &saved) {
                 eprintln!("[utter] {e}");
             }
             Ok(())
@@ -248,6 +268,8 @@ pub fn run() {
             delete_api_key,
             test_cleanup,
             list_cleanup_models,
+            rewrite_styles,
+            test_rewrite,
             permission_status,
             request_microphone,
             request_accessibility,
