@@ -12,6 +12,7 @@ use cpal::{
 use std::{
     sync::{
         Arc, Mutex,
+        atomic::{AtomicU32, Ordering},
         mpsc::{self, Sender},
     },
     thread,
@@ -30,6 +31,8 @@ enum Command {
 #[derive(Clone)]
 pub struct Recorder {
     commands: Sender<Command>,
+    /// The loudest sample since `level` was last read, as the bits of an f32.
+    loudest: Arc<AtomicU32>,
 }
 
 /// What the recording thread holds while a recording is in progress.
@@ -43,6 +46,8 @@ struct Active {
 impl Recorder {
     pub fn spawn() -> Self {
         let (commands, inbox) = mpsc::channel::<Command>();
+        let loudest = Arc::new(AtomicU32::new(0));
+        let gauge = loudest.clone();
         thread::Builder::new()
             .name("utter-recorder".into())
             .spawn(move || {
@@ -50,7 +55,7 @@ impl Recorder {
                 for command in inbox {
                     match command {
                         Command::Start(reply) => {
-                            let result = open_stream().map(|a| active = Some(a));
+                            let result = open_stream(gauge.clone()).map(|a| active = Some(a));
                             let _ = reply.send(result);
                         }
                         Command::Stop(reply) => {
@@ -67,7 +72,13 @@ impl Recorder {
                 }
             })
             .expect("could not start the recorder thread");
-        Self { commands }
+        Self { commands, loudest }
+    }
+
+    /// How loud the microphone has been since this was last asked, from 0
+    /// (silence) to 1 (loud speech). Drives the waveform in the status pill.
+    pub fn level(&self) -> f32 {
+        meter(f32::from_bits(self.loudest.swap(0, Ordering::Relaxed)))
     }
 
     /// Open the default microphone and begin buffering.
@@ -91,7 +102,7 @@ impl Recorder {
     }
 }
 
-fn open_stream() -> Result<Active, String> {
+fn open_stream(gauge: Arc<AtomicU32>) -> Result<Active, String> {
     let device = cpal::default_host()
         .default_input_device()
         .ok_or("No microphone found.")?;
@@ -115,6 +126,7 @@ fn open_stream() -> Result<Active, String> {
     macro_rules! build {
         ($sample:ty, $to_f32:expr) => {{
             let sink = samples.clone();
+            let gauge = gauge.clone();
             device.build_input_stream(
                 config,
                 move |data: &[$sample], _: &cpal::InputCallbackInfo| {
@@ -130,7 +142,15 @@ fn open_stream() -> Result<Active, String> {
                         }
                     }
                     let loudest = loudest_channel(&energy[..channels.min(MAX_CHANNELS)]);
-                    buffer.extend(data.chunks_exact(channels).map(|frame| $to_f32(frame[loudest])));
+                    let mut top = 0.0_f32;
+                    buffer.extend(data.chunks_exact(channels).map(|frame| {
+                        let s = $to_f32(frame[loudest]);
+                        top = top.max(s.abs());
+                        s
+                    }));
+                    // For floats that are not negative, a larger number has
+                    // larger bits, so the atomic can keep the maximum.
+                    gauge.fetch_max(top.to_bits(), Ordering::Relaxed);
                 },
                 on_error,
                 None,
@@ -192,6 +212,14 @@ pub fn resample(input: &[f32], from: u32, to: u32) -> Vec<f32> {
         out.push(window.iter().sum::<f32>() / window.len() as f32);
     }
     out
+}
+
+/// Turn a peak sample into a level for display: -60 dB and below is 0, -12 dB
+/// and above is 1, and the decibels in between are spread evenly. Speech sits
+/// in that range, so quiet and loud talkers both move the waveform.
+pub fn meter(peak: f32) -> f32 {
+    let decibels = 20.0 * peak.max(1e-6).log10();
+    ((decibels + 60.0) / 48.0).clamp(0.0, 1.0)
 }
 
 /// Loudest sample in the recording.
@@ -308,6 +336,17 @@ mod tests {
         assert_eq!(loudest_channel(&[0.0, 0.0, 4.0, 0.1]), 2);
         assert_eq!(loudest_channel(&[1.0, 1.0]), 0);
         assert_eq!(loudest_channel(&[0.0]), 0);
+    }
+
+    #[test]
+    fn meter_spreads_speech_levels_between_zero_and_one() {
+        assert_eq!(meter(0.0), 0.0);
+        assert_eq!(meter(0.001), 0.0); // -60 dB
+        assert_eq!(meter(1.0), 1.0);
+        assert_eq!(meter(0.26), 1.0); // just above -12 dB
+        // -36 dB is halfway.
+        assert!((meter(10f32.powf(-36.0 / 20.0)) - 0.5).abs() < 0.001);
+        assert!(meter(0.05) > meter(0.01));
     }
 
     #[test]

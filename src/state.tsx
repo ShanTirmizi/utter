@@ -73,6 +73,9 @@ export type AppState = {
   setTab: (tab: TabId) => void;
 };
 
+/** How the backend's "one at a time" refusal begins. */
+export const BUSY_NOTE = "Still finishing the last dictation";
+
 const IDLE: Live = { phase: "idle", mode: "tidy", stage: null, app: null, message: null, since: 0 };
 const TABS: TabId[] = ["try", "hotkey", "model", "cleanup", "permissions"];
 
@@ -101,16 +104,27 @@ export function useAppState(): AppState | null {
   const [capturing, setCapturing] = useState<Mode | null>(null);
   const [tab, setTab] = useState<TabId>(firstTab);
   const lastProgress = useRef<DownloadProgress | null>(null);
+  // The model being downloaded, so a late progress event cannot look like a new download.
+  const downloading = useRef<string | null>(null);
+  // Saves run one after another, each starting from what the last one stored.
+  const latest = useRef<Settings | null>(null);
+  const saving = useRef<Promise<unknown>>(Promise.resolve());
 
   const refreshModels = useCallback(() => modelStatuses().then(setModels), []);
 
   useEffect(() => {
-    getSettings().then(setSettings);
+    getSettings().then((loaded) => {
+      latest.current = loaded;
+      setSettings(loaded);
+    });
     loadProviders().then(setCatalog);
     lastDictation().then(setDictation);
     refreshModels();
 
     const stopPipeline = listen<PipelineUpdate>("pipeline", ({ payload }) => {
+      // A press while the last dictation is still being processed is refused
+      // with a note; the dictation itself carries on, so the state stands.
+      if (payload.phase === "error" && payload.message?.startsWith(BUSY_NOTE)) return;
       setLive((before) => ({
         phase: payload.phase,
         mode: payload.mode,
@@ -126,6 +140,7 @@ export function useAppState(): AppState | null {
       }
     });
     const stopDownload = listen<DownloadProgress>("model-download", ({ payload }) => {
+      if (downloading.current !== payload.name) return;
       lastProgress.current = payload;
       setProgress(payload);
     });
@@ -155,17 +170,23 @@ export function useAppState(): AppState | null {
     hasApiKey(providerId).then(setHasKey);
   }, [providerId]);
 
-  const update = useCallback(
-    async (change: Partial<Settings>) => {
-      if (!settings) return;
-      setSettings(await saveSettings({ ...settings, ...change }));
-    },
-    [settings],
-  );
+  const update = useCallback((change: Partial<Settings>) => {
+    const save = async () => {
+      if (!latest.current) return;
+      const stored = await saveSettings({ ...latest.current, ...change });
+      latest.current = stored;
+      setSettings(stored);
+    };
+    // Wait for any save already under way, whether it worked or not.
+    const done = saving.current.then(save, save);
+    saving.current = done.catch(() => undefined);
+    return done;
+  }, []);
 
   const download = useCallback(
     async (name: string) => {
       setDownloadFault(null);
+      downloading.current = name;
       lastProgress.current = { name, received: 0, total: 0 };
       setProgress(lastProgress.current);
       try {
@@ -174,6 +195,7 @@ export function useAppState(): AppState | null {
         const reached = lastProgress.current ?? { received: 0, total: 0 };
         setDownloadFault({ name, message: String(err), received: reached.received, total: reached.total });
       }
+      downloading.current = null;
       setProgress(null);
       await refreshModels();
     },

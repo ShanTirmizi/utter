@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   deleteApiKey,
+  hasApiKey,
   listCleanupModels,
   rewriteStyles,
   setApiKey,
@@ -120,6 +121,8 @@ export default function CleanupSection() {
     try {
       await update({ baseUrl: urlDraft.trim() });
       setResult(null);
+      // A key belongs to the host it was saved for; a new host starts without one.
+      setHasKey(await hasApiKey(provider.id));
     } catch (err) {
       setResult({ tone: "bad", title: "That address can’t be used.", body: String(err) });
     }
@@ -438,8 +441,9 @@ function RewriteStyleCard() {
       )}
 
       <p className="hint">
-        Whatever the style, Utter keeps every point you made and adds nothing you did not say.
-        {isCustom && " “Your own” starts from the style you had selected, for you to edit."}
+        {isCustom
+          ? "Your own instruction is followed as written, so it can also translate, expand or change the tone. It starts from the style you had selected."
+          : "The ready-made styles keep every point you made and add nothing you did not say."}
       </p>
 
       <div className="acts">

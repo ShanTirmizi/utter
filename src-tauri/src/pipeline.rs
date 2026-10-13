@@ -24,7 +24,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -69,6 +69,12 @@ pub struct Dictation {
     pub app: AppContext,
     pub transcribe_ms: u64,
     pub cleanup_ms: Option<u64>,
+    /// How long the hotkey was held.
+    pub spoken_ms: u64,
+    /// From the hotkey coming up to the text being delivered.
+    pub total_ms: u64,
+    /// When it finished, in milliseconds since 1970.
+    pub finished_at: u64,
 }
 
 /// Sent to the UI on the `pipeline` event whenever something changes.
@@ -77,6 +83,10 @@ pub struct Dictation {
 pub struct Update {
     pub phase: &'static str,
     pub mode: Mode,
+    /// While processing: "transcribing", then "tidying" or "rewriting".
+    pub stage: Option<&'static str>,
+    /// The app being dictated into, while processing.
+    pub app: Option<AppContext>,
     pub message: Option<String>,
     pub dictation: Option<Dictation>,
 }
@@ -116,7 +126,46 @@ impl Pipeline {
 
 fn emit(app: &AppHandle, phase: &'static str, message: Option<String>, dictation: Option<Dictation>) {
     let mode = *app.state::<Pipeline>().mode.lock().unwrap();
-    let _ = app.emit("pipeline", Update { phase, mode, message, dictation });
+    let _ = app.emit("pipeline", Update { phase, mode, stage: None, app: None, message, dictation });
+}
+
+/// Say which step of processing has begun, so the pill can name it.
+fn emit_stage(app: &AppHandle, stage: &'static str) {
+    let pipeline = app.state::<Pipeline>();
+    let mode = *pipeline.mode.lock().unwrap();
+    let target = pipeline.target.lock().unwrap().clone();
+    let _ = app.emit(
+        "pipeline",
+        Update {
+            phase: "processing",
+            mode,
+            stage: Some(stage),
+            app: Some(target),
+            message: None,
+            dictation: None,
+        },
+    );
+}
+
+/// How often the microphone level is sent to the UI while recording.
+const LEVEL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Send the microphone level on the `audio-level` event for as long as
+/// recording number `id` lasts. The pill draws its waveform from it.
+fn report_level(app: &AppHandle, id: u64) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(LEVEL_INTERVAL).await;
+            let pipeline = app.state::<Pipeline>();
+            let recording = *pipeline.phase.lock().unwrap() == Phase::Recording
+                && pipeline.recording_id.load(Ordering::SeqCst) == id;
+            if !recording {
+                break;
+            }
+            let _ = app.emit("audio-level", pipeline.recorder.level());
+        }
+    });
 }
 
 /// Load the selected speech model in the background so the first dictation
@@ -169,6 +218,7 @@ pub fn on_press(app: &AppHandle, mode: Mode) {
             warm_local_model(app, mode);
             let id = pipeline.recording_id.fetch_add(1, Ordering::SeqCst) + 1;
             abandon_if_never_released(app, id);
+            report_level(app, id);
         }
         Err(e) => emit(app, "error", Some(e), None),
     }
@@ -232,7 +282,7 @@ pub fn on_release(app: &AppHandle, mode: Mode) {
         *phase = Phase::Processing;
         pipeline.recorder.stop()
     };
-    emit(app, "processing", None, None);
+    emit_stage(app, "transcribing");
     finish(app.clone(), samples, Delivery::Paste);
 }
 
@@ -281,6 +331,9 @@ async fn process(
     samples: Vec<f32>,
     delivery: Delivery,
 ) -> Result<Option<Dictation>, String> {
+    // This runs as soon as the key comes up, so it times the user's wait.
+    let released = Instant::now();
+    let spoken_ms = samples.len() as u64 * 1000 / TARGET_RATE as u64;
     if samples.len() < MIN_SAMPLES {
         return Ok(None);
     }
@@ -307,6 +360,12 @@ async fn process(
 
     let target = app.state::<Pipeline>().target.lock().unwrap().clone();
     let mode = *app.state::<Pipeline>().mode.lock().unwrap();
+    // The tidy hotkey only calls the language model when cleanup is on.
+    if mode == Mode::Rewrite {
+        emit_stage(app, "rewriting");
+    } else if settings.cleanup_enabled {
+        emit_stage(app, "tidying");
+    }
     let tidied = improve(&raw, &target, &settings, mode).await;
     let (inserted, delivery_note) = deliver(app, &tidied.text, delivery).await?;
 
@@ -325,6 +384,12 @@ async fn process(
         raw,
         app: target,
         transcribe_ms,
+        spoken_ms,
+        total_ms: released.elapsed().as_millis() as u64,
+        finished_at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|since| since.as_millis() as u64)
+            .unwrap_or(0),
     }))
 }
 
@@ -493,7 +558,7 @@ pub fn simulate(app: &AppHandle, samples: Vec<f32>, mode: Mode) -> bool {
     *pipeline.target.lock().unwrap() = context::frontmost();
     emit(app, "recording", None, None);
     warm_local_model(app, mode);
-    emit(app, "processing", None, None);
+    emit_stage(app, "transcribing");
     finish(app.clone(), samples, Delivery::ClipboardOnly);
     true
 }
