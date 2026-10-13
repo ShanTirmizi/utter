@@ -15,8 +15,8 @@ cleaned-up text appears in whatever app is focused.
   one rewrites what you said so it reads better, in a style you choose.
 - **Edit by voice.** Select some text, hold the rewrite hotkey and say what to
   change: "make this shorter", "turn this into bullet points".
-- **Hands-free.** Tap the hotkey instead of holding it, talk for as long as you
-  like, and tap again to finish.
+- **Hands-free.** Tap the hotkey instead of holding it, talk for up to five
+  minutes, and tap again to finish.
 - **Your words.** A personal dictionary for the names and jargon that speech
   recognition gets wrong.
 - **History.** Your recent dictations, kept on your Mac only, to search and
