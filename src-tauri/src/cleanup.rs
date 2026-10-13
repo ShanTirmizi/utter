@@ -90,11 +90,63 @@ pub fn system_prompt(app: &AppContext) -> String {
 /// The transcript as the model sees it: clearly marked as material, so it
 /// is not mistaken for a request.
 fn user_message(transcript: &str) -> String {
-    format!("<transcript>\n{transcript}\n</transcript>")
+    // The closing line repeats the one rule that matters most. Smaller models
+    // weigh the end of the message heavily and otherwise tend to reply to the
+    // instructions instead of doing the job.
+    format!(
+        "<transcript>\n{transcript}\n</transcript>\n\n\
+         Reply with the tidied transcript text only. Do not reply to these instructions."
+    )
+}
+
+/// Lower-case words of a text, ignoring punctuation. "Don't" and "dont"
+/// compare equal, and `user_id` counts as the words "user" and "id".
+fn words(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .replace(['\'', '\u{2019}'], "")
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Is `reply` a tidied version of `transcript`, rather than something else
+/// the model decided to say?
+///
+/// Tidying removes and re-punctuates words; it adds almost none. So nearly
+/// every word of an honest reply already appears in the transcript, and the
+/// reply is not drastically shorter. A model that answers the dictation, or
+/// talks about its instructions, fails both tests.
+fn is_faithful(reply: &str, transcript: &str) -> bool {
+    let said = words(transcript);
+    let written = words(reply);
+
+    let known: std::collections::HashSet<&String> = said.iter().collect();
+    let new_words = written.iter().filter(|w| !known.contains(w)).count();
+
+    // A dictation of one or two words: the reply must be about as short and
+    // made of the same words. Languages written without spaces also look like
+    // "one or two words" here, and for those there is nothing reliable to
+    // compare, so they are let through.
+    if said.len() < 3 {
+        return !transcript.is_ascii() || (written.len() <= said.len() + 1 && new_words <= 1);
+    }
+    if said.iter().any(|w| w.chars().count() > 30) {
+        return true;
+    }
+    // Allow a few: a corrected mishearing, or "three" written as "3".
+    let allowed = (written.len() * 3 / 10).max(1);
+    if new_words > allowed {
+        return false;
+    }
+    // Fillers and false starts go, but not most of what was said.
+    !(said.len() >= 12 && written.len() * 100 < said.len() * 35)
 }
 
 /// Final checks shared by every provider.
 fn accept(text: &str, transcript: &str) -> Result<String, String> {
+    // Some models echo the wrapper tags back around their answer.
+    let text = text.replace("<transcript>", "").replace("</transcript>", "");
     let text = text.trim();
     if text.is_empty() {
         return Err("The reply was empty.".into());
@@ -103,6 +155,11 @@ fn accept(text: &str, transcript: &str) -> Result<String, String> {
     // means the model answered the dictation instead of tidying it.
     if text.chars().count() > transcript.chars().count() * 2 + 120 {
         return Err("The reply was far longer than the dictation.".into());
+    }
+    if !is_faithful(text, transcript) {
+        return Err("The model's reply was not a tidied version of what you said. \
+                    A larger model usually fixes this."
+            .into());
     }
     Ok(text.to_string())
 }
@@ -439,6 +496,48 @@ mod tests {
     fn a_reply_that_answers_instead_of_tidying_is_rejected() {
         assert!(accept(&"word ".repeat(200), "write me a poem").is_err());
         assert_eq!(accept("  Fine.  ", "um fine").unwrap(), "Fine.");
+    }
+
+    #[test]
+    fn a_model_talking_about_its_instructions_is_rejected() {
+        // What a very small local model actually returned for a dictation
+        // about something else entirely.
+        let leaked = "Okay, I understand. I will follow your instructions precisely. I will not \
+            generate any text that is informatively rambling or excessively verbose, or lacking \
+            creativity. I will strive to provide the best possible output while adhering to your \
+            constraints. Let's begin!";
+        let said = "so um I was thinking that we should probably move the launch to next thursday \
+            because the design review is not done yet and I do not want to rush it you know can \
+            you let the team know and ask sarah to update the calendar invite and also check with \
+            finance about the budget for the event space we talked about last week thanks";
+        assert!(accept(leaked, said).is_err());
+        // A short acknowledgement is caught too.
+        assert!(accept("Okay, I understand.", "send the report by friday please").is_err());
+        assert!(accept("Sure! Here is the tidied text.", said).is_err());
+    }
+
+    #[test]
+    fn honest_tidying_passes_the_faithfulness_check() {
+        let said = "um so I was thinking we could uh meet on tuesday no wait wednesday at three \
+            can you send me the like the budget spreadsheet before then";
+        let tidy = "I was thinking we could meet on Wednesday at 3. Can you send me the budget \
+            spreadsheet before then?";
+        assert_eq!(accept(tidy, said).unwrap(), tidy);
+        // Identifier formatting and contractions reuse the speaker's words.
+        assert!(accept("Rename it to user_id.", "rename it to snake case user id").is_ok());
+        assert!(accept("Don't ship it yet.", "um dont ship it yet").is_ok());
+        // One-word and numeric dictations are left alone...
+        assert!(accept("Okay.", "okay").is_ok());
+        assert!(accept("3", "three").is_ok());
+        // ...but a chatty reply to a two-word dictation is not.
+        assert!(accept("Okay, I understand.", "hello there").is_err());
+        // Echoed wrapper tags are stripped, not inserted.
+        assert_eq!(accept("<transcript>\nSend it today.\n</transcript>", "um send it today").unwrap(), "Send it today.");
+    }
+
+    #[test]
+    fn text_without_spaces_between_words_is_not_judged_by_word_overlap() {
+        assert!(accept("今日は会議があります。", "今日は会議があります").is_ok());
     }
 
     #[test]

@@ -237,6 +237,8 @@ export default function CleanupSection({ settings, update }: Props) {
         {provider.defaultModel
           ? `Leave empty to use ${provider.defaultModel}. A small, fast model is best here.`
           : "A small, fast model is best here: cleanup is light editing, and you wait for it."}
+        {provider.id === "ollama" &&
+          " Not too small, though: local models under a few billion parameters tend to ignore the instructions, and Utter then uses your raw words instead."}
       </p>
 
       {settings.cleanupEnabled && provider.needsKey && !hasKey && (
