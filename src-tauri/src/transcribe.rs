@@ -10,10 +10,6 @@ use crate::audio::TARGET_RATE;
 /// silence up to this length.
 const MIN_SAMPLES: usize = (TARGET_RATE as usize * 11) / 10;
 
-/// Below this peak level the recording is treated as silence. Transcribing
-/// silence makes speech models invent text.
-pub const SILENCE_PEAK: f32 = 0.003;
-
 /// A loaded model, remembered so that only the first dictation pays the
 /// load time.
 struct Loaded {

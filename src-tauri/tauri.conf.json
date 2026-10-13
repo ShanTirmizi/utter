@@ -23,7 +23,6 @@
       {
         "label": "pill",
         "title": "Utter status",
-        "url": "index.html#pill",
         "width": 360,
         "height": 72,
         "decorations": false,
@@ -43,7 +42,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": ["app"],
     "category": "Productivity",
     "icon": [
       "icons/32x32.png",

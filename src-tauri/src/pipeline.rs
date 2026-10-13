@@ -11,7 +11,7 @@ use crate::{
     cleanup,
     context::{self, AppContext},
     insert, models, permissions, secrets, settings,
-    transcribe::{SILENCE_PEAK, Transcriber},
+    transcribe::Transcriber,
 };
 use serde::Serialize;
 use std::{
@@ -133,6 +133,10 @@ pub fn on_press(app: &AppHandle) {
         emit(app, "error", Some("Download a speech model in Utter's settings first.".into()), None);
         return;
     }
+    if permissions::microphone() == permissions::MicStatus::Denied {
+        emit(app, "error", Some("Microphone access is off. Allow Utter in System Settings.".into()), None);
+        return;
+    }
     *pipeline.target.lock().unwrap() = context::frontmost();
     match pipeline.recorder.start() {
         Ok(()) => {
@@ -178,8 +182,8 @@ async fn process(app: &AppHandle, samples: Vec<f32>) -> Result<Option<Dictation>
     if samples.len() < MIN_SAMPLES {
         return Ok(None);
     }
-    if audio::peak(&samples) < SILENCE_PEAK {
-        return Err("Heard only silence. Check which microphone macOS is using.".into());
+    if !audio::has_speech(&samples) {
+        return Err("Didn't catch any speech. Check which microphone macOS is using.".into());
     }
 
     let settings = settings::load(app);

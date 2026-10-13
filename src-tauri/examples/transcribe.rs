@@ -40,6 +40,7 @@ fn main() -> Result<(), String> {
     transcriber.ensure_loaded("cli", Path::new(&model))?;
     let loaded = started.elapsed();
     let text = transcriber.transcribe(&samples, language)?;
+    eprintln!("speech detected: {}", audio::has_speech(&samples));
 
     println!("{text}");
     eprintln!(

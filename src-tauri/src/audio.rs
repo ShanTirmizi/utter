@@ -171,9 +171,40 @@ pub fn resample(input: &[f32], from: u32, to: u32) -> Vec<f32> {
     out
 }
 
-/// Loudest sample in the recording; used to skip transcription of silence.
+/// Loudest sample in the recording.
 pub fn peak(samples: &[f32]) -> f32 {
     samples.iter().fold(0.0_f32, |max, s| max.max(s.abs()))
+}
+
+/// Below this peak level a recording is silence (a muted or missing mic).
+const SILENCE_PEAK: f32 = 0.003;
+/// Speech must be at least this many times louder than the background.
+const SPEECH_TO_BACKGROUND: f32 = 2.5;
+
+/// Does this recording look like someone talking, rather than silence or a
+/// steady background noise such as a fan?
+///
+/// Speech models invent words when given non-speech, so this check runs
+/// before transcription. It compares loud moments with quiet ones: speech
+/// swings between syllables and pauses, steady noise does not.
+pub fn has_speech(samples: &[f32]) -> bool {
+    const FRAME: usize = TARGET_RATE as usize * 30 / 1000; // 30 ms
+
+    if peak(samples) < SILENCE_PEAK {
+        return false;
+    }
+    let mut loudness: Vec<f32> = samples
+        .chunks_exact(FRAME)
+        .map(|frame| (frame.iter().map(|s| s * s).sum::<f32>() / FRAME as f32).sqrt())
+        .collect();
+    // Too short to judge; let the speech model decide.
+    if loudness.len() < 8 {
+        return true;
+    }
+    loudness.sort_by(f32::total_cmp);
+    let background = loudness[loudness.len() / 10].max(1e-5);
+    let loud = loudness[loudness.len() * 95 / 100];
+    loud > background * SPEECH_TO_BACKGROUND
 }
 
 #[cfg(test)]
@@ -205,6 +236,36 @@ mod tests {
     fn upsampling_does_not_panic_or_shrink() {
         let out = resample(&vec![0.5_f32; 8_000], 8_000, 16_000);
         assert_eq!(out.len(), 16_000);
+    }
+
+    /// A cheap repeatable noise source for tests, in the range -1..1.
+    fn noise(len: usize, level: f32) -> Vec<f32> {
+        let mut state: u32 = 0x2545_F491;
+        (0..len)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                (state as f32 / u32::MAX as f32 * 2.0 - 1.0) * level
+            })
+            .collect()
+    }
+
+    #[test]
+    fn silence_and_steady_noise_are_not_speech() {
+        assert!(!has_speech(&vec![0.0; 32_000]));
+        assert!(!has_speech(&noise(32_000, 0.05)));
+    }
+
+    #[test]
+    fn bursts_over_a_quiet_background_are_speech() {
+        // Half a second of loud sound, half a second of faint room noise, twice.
+        let mut clip = Vec::new();
+        for _ in 0..2 {
+            clip.extend(noise(8_000, 0.4));
+            clip.extend(noise(8_000, 0.01));
+        }
+        assert!(has_speech(&clip));
     }
 
     #[test]
