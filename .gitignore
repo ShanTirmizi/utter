@@ -29,3 +29,6 @@ pnpm-debug.log*
 .DS_Store
 *.local
 *.sw?
+
+# Vercel project link for the download site
+.vercel

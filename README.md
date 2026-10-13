@@ -43,8 +43,25 @@ flowchart LR
 
 ## Install
 
-There is no signed download yet, so the recommended route is to build it
-yourself. The first build takes several minutes, nearly all of it compiling.
+### Download
+
+Get the app from **<https://utter-beta.vercel.app>**, or straight from the
+[latest release](https://github.com/ShanTirmizi/utter/releases). It is an early
+build for Apple Silicon Macs (M1 or later) on macOS 12 or later.
+
+1. Open the DMG and drag Utter into Applications.
+2. Open Utter. macOS refuses the first time, because the app is not signed with
+   an Apple Developer ID. Go to System Settings > Privacy & Security and click
+   **Open Anyway**, or run
+   `xattr -dr com.apple.quarantine /Applications/Utter.app` once.
+3. Follow the welcome screens.
+
+See "Why macOS objects to the download" below for what the missing signature
+means.
+
+### Build it yourself
+
+The first build takes several minutes, nearly all of it compiling.
 
 ### You need
 
@@ -66,7 +83,7 @@ pnpm tauri build
 The app is written to `src-tauri/target/release/bundle/macos/Utter.app`. Drag it
 into `/Applications` and open it.
 
-### Why not just download it?
+### Why macOS objects to the download
 
 Apps distributed outside the App Store are expected to be signed with a paid
 Apple Developer ID and notarised by Apple. Utter has neither yet, which has two
@@ -77,10 +94,10 @@ consequences:
   System Settings > Privacy & Security > Open Anyway, or clear the mark with
   `xattr -dr com.apple.quarantine /Applications/Utter.app`. An app you build
   yourself is never quarantined, so none of this applies.
-- **Permissions do not survive updates.** macOS ties the Accessibility grant to
-  the app's signature. Without a Developer ID, every new build counts as a
-  different app, so after updating you must remove Utter from the Accessibility
-  list and add it again.
+- **Permissions do not survive updates.** macOS ties the Microphone and
+  Accessibility grants to the app's signature. Without a Developer ID, every new
+  build counts as a different app, so after updating you allow the microphone
+  again and use **Reset it** under Permissions for Accessibility.
 
 ## First run
 
@@ -219,6 +236,8 @@ The code is laid out as one file per stage of the pipeline, in
 | `context.rs` | Work out which app is focused and what kind it is |
 | `cleanup.rs` | The tidy and rewrite prompts, the two API formats, reply checks |
 | `providers.rs` | The list of cleanup providers |
+
+The download page lives in `site/` (plain HTML and CSS) and is deployed to Vercel.
 | `insert.rs` | Clipboard save, paste, restore |
 | `pipeline.rs` | Runs the stages in order |
 | `secrets.rs`, `settings.rs` | Keychain and preferences |

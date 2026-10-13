@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Utter: voice dictation for macOS</title>
+    <meta
+      name="description"
+      content="Free, open-source voice dictation for macOS. Hold a hotkey, speak, release, and cleaned-up text appears in whatever app you are using. Transcription runs on your Mac."
+    />
+    <meta property="og:title" content="Utter: voice dictation for macOS" />
+    <meta
+      property="og:description"
+      content="Hold a hotkey, speak, release. Your words appear wherever you were typing. Free and open source."
+    />
+    <meta property="og:image" content="/icon.png" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" width="28" height="28" />
+        <span>Utter</span>
+      </a>
+      <nav>
+        <a href="#install">Install</a>
+        <a href="#privacy">Privacy</a>
+        <a href="https://github.com/ShanTirmizi/utter">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-text">
+          <h1>Talk, and Utter types it.</h1>
+          <p class="lede">
+            Hold a hotkey, speak, let go. Your words appear in whatever app you were typing in, tidied
+            up. Free and open source, for macOS.
+          </p>
+          <div class="cta">
+            <a
+              class="button primary"
+              href="https://github.com/ShanTirmizi/utter/releases/download/v0.1.0/Utter-0.1.0-apple-silicon.dmg"
+            >
+              Download for Mac
+            </a>
+            <a class="button" href="https://github.com/ShanTirmizi/utter">View the source</a>
+          </div>
+          <p class="meta">v0.1.0 · early build · Apple Silicon · macOS 12 or later · 3.6 MB</p>
+        </div>
+
+        <div class="demo" aria-label="An example dictation">
+          <div class="pill" aria-hidden="true">
+            <span class="badge"><i></i><i></i><i></i><i></i><i></i></span>
+            <span class="wave">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <i></i><i></i><i></i><i></i>
+            </span>
+            <span class="time">0:04</span>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <span>Last dictation</span>
+              <span class="mono">Slack · chat style</span>
+            </div>
+            <p class="diff">
+              <del>um so</del> <del>can</del><ins>Can</ins> you send me the <del>like the</del> budget
+              spreadsheet before <del>wednesday</del><ins>Wednesday?</ins>
+            </p>
+            <p class="legend"><del>removed</del> <ins>added</ins></p>
+            <dl class="times">
+              <div><dt>You spoke</dt><dd>4.1 s</dd></div>
+              <div><dt>Transcribe</dt><dd>0.31 s</dd></div>
+              <div><dt>Cleanup</dt><dd>0.54 s</dd></div>
+            </dl>
+          </div>
+          <p class="caption">An illustration of the app's result view. Timings vary with your Mac and model.</p>
+        </div>
+      </section>
+
+      <section class="steps" aria-label="How it works">
+        <div class="step">
+          <div class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd class="wide">Space</kbd></div>
+          <h3>Hold</h3>
+          <p>Hold the hotkey in any app with a text cursor. You can change the keys.</p>
+        </div>
+        <div class="step">
+          <div class="glyph">
+            <span class="bars"><i></i><i></i><i></i><i></i><i></i></span>
+          </div>
+          <h3>Speak</h3>
+          <p>The microphone is open only while the keys are down.</p>
+        </div>
+        <div class="step">
+          <div class="glyph mono">Aa</div>
+          <h3>Let go</h3>
+          <p>Your Mac turns the audio into text, tidies it, and pastes it where you were typing.</p>
+        </div>
+      </section>
+
+      <section class="features">
+        <article>
+          <h2>It stays on your Mac</h2>
+          <p>
+            Speech is transcribed on your own machine by an open speech model. Audio is never
+            uploaded and never kept. There is no account, no analytics and no telemetry.
+          </p>
+        </article>
+        <article>
+          <h2>Your key, or none</h2>
+          <p>
+            Cleanup is optional. Bring a key from Anthropic, OpenAI, Google Gemini, Groq or
+            OpenRouter, point it at any OpenAI-compatible service, or run a local model through
+            Ollama with no key at all. Without any of these you get the raw transcription.
+          </p>
+        </article>
+        <article>
+          <h2>Tidy, or rewrite</h2>
+          <p>
+            One hotkey keeps your wording and removes the ums, repeats and false starts. A second
+            one rewrites what you said so it reads better: clearer, shorter, more professional,
+            friendlier, or by an instruction you write yourself.
+          </p>
+        </article>
+        <article>
+          <h2>It fits the app you are in</h2>
+          <dl class="example">
+            <dt>Heard</dt>
+            <dd class="mono">um so can we uh move the call to tomorrow</dd>
+            <dt>Mail</dt>
+            <dd>Could we move the call to tomorrow?</dd>
+            <dt>Slack</dt>
+            <dd>can we move the call to tomorrow?</dd>
+            <dt>Notes</dt>
+            <dd>Move the call to tomorrow.</dd>
+          </dl>
+        </article>
+      </section>
+
+      <section class="install" id="install">
+        <h2>Install</h2>
+        <ol>
+          <li>
+            <a
+              href="https://github.com/ShanTirmizi/utter/releases/download/v0.1.0/Utter-0.1.0-apple-silicon.dmg"
+              >Download the DMG</a
+            >, open it, and drag Utter into Applications.
+          </li>
+          <li>
+            Open Utter. <strong>macOS will refuse the first time.</strong> Go to System Settings, then
+            Privacy &amp; Security, scroll down, and click <strong>Open Anyway</strong> next to the
+            message about Utter.
+          </li>
+          <li>
+            Follow the welcome screens: allow the microphone, switch on Accessibility so Utter can
+            paste for you, and let the speech model download (148 MB).
+          </li>
+        </ol>
+
+        <div class="note">
+          <h3>Why macOS objects</h3>
+          <p>
+            Apps from outside the App Store are expected to be signed with a paid Apple Developer ID.
+            Utter does not have one yet, so macOS cannot tell you who made it. The whole source is
+            public, and you can build it yourself instead. Two things follow from the missing
+            signature:
+          </p>
+          <ul>
+            <li>You have to approve the first launch by hand, as above.</li>
+            <li>
+              After each update, macOS asks for the Microphone and Accessibility permissions again.
+            </li>
+          </ul>
+          <p>If you prefer Terminal, this one command approves the app instead of step 2:</p>
+          <pre><code>xattr -dr com.apple.quarantine /Applications/Utter.app</code></pre>
+        </div>
+
+        <p class="req">
+          Needs a Mac with Apple Silicon (M1 or later) and macOS 12 or later. Intel Macs are not
+          supported by this build. To build from source, see the
+          <a href="https://github.com/ShanTirmizi/utter#install">README</a>.
+        </p>
+      </section>
+
+      <section class="privacy" id="privacy">
+        <h2>What leaves your Mac</h2>
+        <table>
+          <tbody>
+            <tr>
+              <th scope="row">Audio</th>
+              <td>Never.</td>
+            </tr>
+            <tr>
+              <th scope="row">Text</th>
+              <td>
+                Only if you set up cleanup with a hosted provider. Then the transcript and the name
+                of the app you are typing in go to that provider, using your key. With a local model
+                they stay on your Mac.
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Keys</th>
+              <td>Stored in the macOS Keychain and sent only to the provider each one belongs to.</td>
+            </tr>
+            <tr>
+              <th scope="row">Speech models</th>
+              <td>Downloaded once from Hugging Face, when you ask.</td>
+            </tr>
+            <tr>
+              <th scope="row">Anything else</th>
+              <td>Nothing. Utter has no account, no analytics and no telemetry.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <footer>
+      <span>Utter is free software under the MIT licence.</span>
+      <span>
+        <a href="https://github.com/ShanTirmizi/utter">Source</a> ·
+        <a href="https://github.com/ShanTirmizi/utter/issues">Report a problem</a> ·
+        <a href="https://github.com/ShanTirmizi/utter/releases">All releases</a>
+      </span>
+    </footer>
+  </body>
+</html>
