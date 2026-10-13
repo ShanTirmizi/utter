@@ -84,9 +84,17 @@ consequences:
 
 ## First run
 
-1. Open Utter. The welcome screen asks for two permissions (see below).
-2. In **Speech model**, download a model. Base (148 MB) is a good start.
-3. Click into any text field, hold `⌃ ⌥ Space`, speak, and let go.
+Utter opens with a four-step welcome that takes about a minute:
+
+1. **Hello.** Pressing "Get started" also starts downloading the Base speech
+   model (148 MB), so it is usually ready by step 3.
+2. **Permissions.** Allow the microphone; Accessibility is optional (see below).
+3. **Speech model.** Keep Base, or pick a larger one.
+4. **Try it.** Hold `⌃ ⌥ Space`, say a sentence, and let go.
+
+After that, the window has five tabs: Try it, Hotkey, Model, Cleanup and
+Permissions. The capsule in the title bar always says whether Utter is ready,
+and if it is not, clicking it opens the tab that fixes it.
 
 Closing the window keeps Utter running in the menu bar. Quit from the menu-bar
 icon.
@@ -132,8 +140,9 @@ dictation hotkey and Utter rewrites what you said before inserting it.
 - **If it goes wrong.** You get your raw words and a note saying why. The
   menu-bar icon can copy the last dictation again.
 
-Press **Test** in the Rewrite section to see what a style does to a sample
-sentence. To switch the feature off, turn the rewrite hotkey off there.
+Pick the style under **Cleanup**, and press **Test on a sample** to see what it
+does to a sentence. The rewrite hotkey itself is under **Hotkey**; turn it off
+there to switch the feature off.
 
 ## Permissions
 
@@ -182,7 +191,7 @@ under "Why not just download it?".
 
 ```bash
 pnpm tauri dev                 # run the app with live reload
-pnpm dev                       # settings UI only, in a browser, with fake data
+pnpm dev                       # the UI only, in a browser, with a pretend backend
 cd src-tauri && cargo test     # unit tests
 cargo run --example transcribe -- model.bin audio.wav   # transcribe a file
 ```
@@ -215,8 +224,30 @@ The code is laid out as one file per stage of the pipeline, in
 | `secrets.rs`, `settings.rs` | Keychain and preferences |
 | `permissions.rs` | Check and request macOS permissions |
 
+The interface is React and hand-written CSS, in `src`:
+
+| File | Job |
+| --- | --- |
+| `api.ts` | Typed wrappers around the Rust commands and events |
+| `state.tsx`, `readiness.ts` | What the window knows, and whether Utter is ready |
+| `App.tsx` | Title bar, tabs, and the first-run switch |
+| `Welcome.tsx` | The first-run flow |
+| `sections/` | One file per tab |
+| `Pill.tsx` | The status pill |
+| `ui.tsx` | Icons, keycaps, switches and other small parts |
+| `styles/` | Design tokens and component styles |
+| `dev-mock.ts` | The pretend backend for `pnpm dev` |
+
+With `pnpm dev`, open `http://localhost:1420` and hold `⌃ ⌥ Space` to play a
+dictation. `/#pill` shows the status pill and `?welcome` the first run; the
+notes at the top of `dev-mock.ts` list the other switches.
+
 More on the design choices is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Licence
 
 [MIT](LICENSE)
+
+The typefaces in `src/assets/fonts` (Bricolage Grotesque, Instrument Sans and
+Geist Mono) are under the SIL Open Font License; each licence sits beside its
+font file.

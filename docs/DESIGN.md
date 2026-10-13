@@ -207,6 +207,42 @@ Fallback: if Accessibility is not granted, or a password field has locked
 keyboard input, Utter leaves the text on the clipboard and says so. The last
 dictation can also be copied again from the menu-bar icon.
 
+## The interface
+
+Most of the time the only thing on screen is the status pill, so it gets the
+most care. The settings window is opened rarely and should answer one question
+at a glance: is Utter ready, and if not, what is the one thing to do?
+
+- **The pill is one shape.** It changes width, height and corner radius between
+  listening, working, a note and a problem, and its contents crossfade inside.
+  The eye never loses it. The orange badge is the app mark: its five bars
+  bounce with your voice, travel while working and lie flat for a note.
+- **The waveform is real.** While recording, the backend sends the microphone
+  level about twenty times a second (`audio-level`, 0 to 1 for -60 dB to
+  -12 dB). The pill keeps the last 26 readings, rising fast and falling slower
+  so speech looks lively without flickering.
+- **The pill never takes focus.** Its window is transparent, always on top and
+  ignores the mouse, so it carries state only, never controls.
+- **Readiness has a fixed order.** The title-bar capsule shows the first of:
+  microphone not allowed, speech model missing, model downloading, cleanup on
+  but unable to run, Accessibility off, ready. Clicking it opens the tab that
+  fixes it, and that tab carries a dot.
+- **Sections are tabs, not a long page.** Five of them fit the 480 px minimum
+  width as icons. Rewrite has no tab of its own: its hotkey sits beside the
+  dictation hotkey, and its style sits with the model that does the rewriting.
+- **Before and after.** The last dictation can be read as heard, as written, or
+  as the changes between the two, with the time each step took.
+- **Type and colour.** Bricolage Grotesque for headings, Instrument Sans for
+  the interface and Geist Mono for anything a machine measured (keycaps,
+  timings, what was heard). Warm neutrals around the icon's orange. All three
+  fonts are bundled, because the content security policy allows local files
+  only. Tokens for both appearances are in `src/styles/tokens.css`.
+- **Reduced motion.** Loops stop and anything that would move or spring becomes
+  a short fade. The waveform is replaced by the word "Listening" and a
+  five-step level meter in the badge.
+- **No UI framework.** The whole interface is a few hundred lines of React and
+  one stylesheet, in keeping with the goal that one person can read all of it.
+
 ## Distribution
 
 Utter is not signed with an Apple Developer ID, so:
