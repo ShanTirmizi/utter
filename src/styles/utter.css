@@ -21,6 +21,8 @@ p { margin: 0; }
 .tab.flag::after{content:"";position:absolute;top:5px;right:7px;width:6px;height:6px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px var(--win-2)}
 .tab.flagbad::after{content:"";position:absolute;top:5px;right:7px;width:6px;height:6px;border-radius:50%;background:var(--bad);box-shadow:0 0 0 2px var(--win-2)}
 .body{flex:1;min-height:0;overflow-y:auto;padding:20px 24px 24px;display:flex;flex-direction:column;gap:14px}
+/* When a section is taller than the window, scroll it; never squash its parts. */
+.body>*,.wbody>*{flex-shrink:0}
 .sechead{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:28px}
 .h{font:600 21px/26px var(--font-display);letter-spacing:-.01em;margin:0}
 .sub{color:var(--ink-2);margin:0}

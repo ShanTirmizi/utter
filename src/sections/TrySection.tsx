@@ -9,6 +9,16 @@ import { clock, FlatMark, IconCheck, InlineKeys, Notice, seconds, Segmented } fr
 type Show = "heard" | "changes" | "written";
 
 /** A place to practise, the live status, and the last dictation taken apart. */
+/**
+ * Can a dictation happen at all right now? Only a missing microphone
+ * permission or speech model stops it. A cleanup problem does not: the text
+ * simply goes in raw, and the strip under the box says so.
+ */
+function dictationBlocked(app: AppState): boolean {
+  const ready = readiness(app);
+  return ready.tone === "bad" || ready.tone === "busy" || (ready.tone === "warn" && ready.tab === "model");
+}
+
 export default function TrySection() {
   const app = useApp();
   const { live, settings, dictation } = app;
@@ -23,9 +33,9 @@ export default function TrySection() {
           ? { tone: "warn", text: "Problem" }
           : live.phase === "done"
             ? { tone: "ok", text: "Done" }
-            : readiness(app).tone === ""
-              ? { tone: "ok", text: "Ready" }
-              : { tone: "warn", text: "Not ready" };
+            : dictationBlocked(app)
+              ? { tone: "warn", text: "Not ready" }
+              : { tone: "ok", text: "Ready" };
 
   return (
     <>
