@@ -5,6 +5,7 @@ import { hotkeyLabel } from "../hotkey";
 import { cleanupGap, readiness, selectedModel } from "../readiness";
 import { shortName, useApp, useElapsed, useLevels, type AppState } from "../state";
 import { clock, FlatMark, IconCheck, InlineKeys, Notice, seconds, Segmented } from "../ui";
+import HistoryList from "./HistoryList";
 
 type Show = "heard" | "changes" | "written";
 
@@ -48,7 +49,11 @@ export default function TrySection() {
       <PracticeBox placeholder={`Click here, then hold ${hotkeyLabel(settings.hotkey)} and speak. Let go to insert.`} />
 
       <p className="hint">
-        {live.phase === "recording" ? (
+        {live.phase === "recording" && live.handsFree ? (
+          <>
+            Hands-free. Tap <InlineKeys hotkey={hotkey} /> again to finish.
+          </>
+        ) : live.phase === "recording" ? (
           <>
             Let go of <InlineKeys hotkey={hotkey} /> to insert.
           </>
@@ -72,6 +77,8 @@ export default function TrySection() {
           </p>
         </div>
       )}
+
+      <HistoryList />
     </>
   );
 }
@@ -116,7 +123,10 @@ export function PracticeBox({
                 <i key={i} style={{ height: Math.round(3 + level * 23) }} />
               ))}
             </span>
-            <span>{live.mode === "rewrite" ? "Listening · rewrite" : "Listening"}</span>
+            <span>
+              {live.mode === "rewrite" ? "Listening · rewrite" : "Listening"}
+              {live.handsFree && " · hands-free"}
+            </span>
             <span className="t">{clock(elapsed)}</span>
           </>
         ) : working ? (
@@ -144,6 +154,7 @@ function workingText(app: AppState): string {
   const style = live.app && live.app.category !== "other" ? ` · ${live.app.category} style` : "";
   if (live.stage === "tidying") return `Tidying${style}`;
   if (live.stage === "rewriting") return "Rewriting";
+  if (live.stage === "editing") return "Editing your selection";
   if (live.stage === "transcribing") return "Transcribing";
   return live.mode === "rewrite" ? "Rewriting" : "Working";
 }
@@ -215,18 +226,25 @@ function RestingStrip({ app, readyText }: { app: AppState; readyText?: string })
 function LastDictation({ dictation }: { dictation: Dictation }) {
   const { setTab, settings } = useApp();
   const rewritten = dictation.mode === "rewrite";
-  const [show, setShow] = useState<Show>(rewritten ? "written" : "changes");
+  // With text selected, the words spoken were an instruction for changing it.
+  const edited = dictation.selection !== null && dictation.cleaned;
+  const [show, setShow] = useState<Show>(rewritten && !edited ? "written" : "changes");
   // A new dictation starts on the view that suits it.
-  useEffect(() => setShow(dictation.mode === "rewrite" ? "written" : "changes"), [dictation]);
+  useEffect(
+    () => setShow(dictation.mode === "rewrite" && !(dictation.selection !== null && dictation.cleaned) ? "written" : "changes"),
+    [dictation],
+  );
 
   const failed = !dictation.cleaned && !!dictation.note && /skipped|needs a model/i.test(dictation.note);
-  const what = rewritten ? "Rewrite" : "Cleanup";
+  const what = edited || dictation.selection !== null ? "Edit" : rewritten ? "Rewrite" : "Cleanup";
 
   const meta = [
     dictation.app.name || null,
     // "other" is the backend's word for an app it has no particular style for.
     dictation.cleaned
-      ? rewritten
+      ? edited
+        ? "selection edited"
+        : rewritten
         ? "rewritten"
         : dictation.app.category === "other"
           ? "tidied"
@@ -265,7 +283,26 @@ function LastDictation({ dictation }: { dictation: Dictation }) {
       )}
       {!failed && dictation.note && <Notice tone="warn">{dictation.note}</Notice>}
 
-      {dictation.cleaned ? (
+      {edited ? (
+        <>
+          <p className="asked">
+            <span className="label">You said</span> {dictation.raw}
+          </p>
+          <Segmented
+            label="Show"
+            value={show}
+            onChange={setShow}
+            options={[
+              { id: "heard", label: "Before" },
+              { id: "changes", label: "Changes" },
+              { id: "written", label: "After" },
+            ]}
+          />
+          {show === "written" && <p className="final">{dictation.text}</p>}
+          {show === "heard" && <p className="heard">{dictation.selection}</p>}
+          {show === "changes" && <Changes heard={dictation.selection ?? ""} written={dictation.text} />}
+        </>
+      ) : dictation.cleaned ? (
         <>
           <Segmented
             label="Show"

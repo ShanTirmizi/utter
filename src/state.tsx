@@ -6,6 +6,7 @@ import {
   downloadModel,
   getSettings,
   hasApiKey,
+  history as loadHistory,
   hotkeyProblem as loadHotkeyProblem,
   lastDictation,
   modelStatuses,
@@ -33,6 +34,8 @@ export type TabId = "try" | "hotkey" | "model" | "cleanup" | "permissions";
 export type Live = {
   phase: PipelineUpdate["phase"];
   mode: Mode;
+  /** A tap started this recording; it runs until the next tap. */
+  handsFree: boolean;
   stage: Stage | null;
   app: AppContext | null;
   message: string | null;
@@ -68,6 +71,9 @@ export type AppState = {
 
   live: Live;
   dictation: Dictation | null;
+  /** Past dictations kept on this Mac, newest first. */
+  history: Dictation[];
+  refreshHistory: () => Promise<void>;
   /** True once a dictation has finished while this window was open. */
   fresh: boolean;
 
@@ -85,7 +91,7 @@ export type AppState = {
 /** How the backend's "one at a time" refusal begins. */
 export const BUSY_NOTE = "Still finishing the last dictation";
 
-const IDLE: Live = { phase: "idle", mode: "tidy", stage: null, app: null, message: null, since: 0 };
+const IDLE: Live = { phase: "idle", mode: "tidy", handsFree: false, stage: null, app: null, message: null, since: 0 };
 const TABS: TabId[] = ["try", "hotkey", "model", "cleanup", "permissions"];
 
 /** `pnpm dev` only: "?tab=cleanup" opens the window on that section. */
@@ -110,6 +116,7 @@ export function useAppState(): AppState | null {
   const [cleanupFault, setCleanupFault] = useState<string | null>(null);
   const [live, setLive] = useState<Live>(IDLE);
   const [dictation, setDictation] = useState<Dictation | null>(null);
+  const [past, setPast] = useState<Dictation[]>([]);
   const [fresh, setFresh] = useState(false);
   const [capturing, setCapturing] = useState<Mode | null>(null);
   const [tab, setTabNow] = useState<TabId>(firstTab);
@@ -126,6 +133,18 @@ export function useAppState(): AppState | null {
   const saving = useRef<Promise<unknown>>(Promise.resolve());
 
   const refreshModels = useCallback(() => modelStatuses().then(setModels), []);
+  // The last dictation comes along, since forgetting or clearing can change it.
+  const refreshHistory = useCallback(
+    () =>
+      Promise.all([loadHistory(), lastDictation()]).then(
+        ([entries, last]) => {
+          setPast(entries);
+          setDictation(last);
+        },
+        () => undefined,
+      ),
+    [],
+  );
 
   useEffect(() => {
     getSettings().then((loaded) => {
@@ -134,7 +153,7 @@ export function useAppState(): AppState | null {
     });
     loadProviders().then(setCatalog);
     loadHotkeyProblem().then(setHotkeyProblem);
-    lastDictation().then(setDictation);
+    refreshHistory();
     refreshModels();
 
     const stopPipeline = listen<PipelineUpdate>("pipeline", ({ payload }) => {
@@ -144,6 +163,7 @@ export function useAppState(): AppState | null {
       setLive((before) => ({
         phase: payload.phase,
         mode: payload.mode,
+        handsFree: !!payload.handsFree,
         stage: payload.stage ?? null,
         app: payload.app ?? null,
         message: payload.message,
@@ -155,6 +175,7 @@ export function useAppState(): AppState | null {
         setFresh(true);
         // Cleanup just worked, so an earlier failed test no longer describes it.
         if (payload.dictation.cleaned) setCleanupFault(null);
+        refreshHistory();
       }
     });
     const stopDownload = listen<DownloadProgress>("model-download", ({ payload }) => {
@@ -166,7 +187,7 @@ export function useAppState(): AppState | null {
       stopPipeline.then((unlisten) => unlisten());
       stopDownload.then((unlisten) => unlisten());
     };
-  }, [refreshModels]);
+  }, [refreshModels, refreshHistory]);
 
   // Permissions change outside the app, so ask the system once a second.
   useEffect(() => {
@@ -269,6 +290,8 @@ export function useAppState(): AppState | null {
     hotkeyProblem,
     live,
     dictation,
+    history: past,
+    refreshHistory,
     fresh,
     capturing,
     setCapturing,

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Mode } from "../api";
 import { fromKeyEvent, heldIds, hotkeyLabel } from "../hotkey";
 import { useApp } from "../state";
-import { Keycaps, Notice } from "../ui";
+import { Keycaps, Notice, Switch } from "../ui";
 
 const DEFAULT_HOTKEY: Record<Mode, string> = {
   tidy: "Control+Alt+Space",
@@ -46,6 +46,22 @@ export default function HotkeySection() {
       )}
       <HotkeyStage which="tidy" held={held} />
       <HotkeyStage which="rewrite" held={held} />
+      <div className="card optrow">
+        <span className="opttext">
+          <b>Hands-free</b>
+          <span className="hint">
+            Tap a hotkey once to start, and again to finish. For when you have a lot to say. It stops by
+            itself after 30 seconds of silence and copies what you said.
+          </span>
+        </span>
+        <Switch
+          label="Hands-free"
+          checked={settings.handsFree}
+          onChange={(handsFree) => {
+            app.update({ handsFree }).catch(() => undefined);
+          }}
+        />
+      </div>
       <ul className="rules">
         <li>
           <b>Hold</b>
@@ -57,12 +73,25 @@ export default function HotkeySection() {
         </li>
         <li>
           <b>Quick tap</b>
-          <span>Ignored, with a “Nothing heard” note.</span>
+          <span>
+            {settings.handsFree
+              ? "Starts hands-free. Tap again to finish and insert."
+              : "Ignored, with a “Nothing heard” note."}
+          </span>
         </li>
         {settings.rewriteHotkey && (
           <li>
             <b>Rewrite</b>
             <span>Hold {hotkeyLabel(settings.rewriteHotkey)} instead and Utter rewords what you said.</span>
+          </li>
+        )}
+        {settings.rewriteHotkey && (
+          <li>
+            <b>Edit</b>
+            <span>
+              Select some text first, hold {hotkeyLabel(settings.rewriteHotkey)} and say what to change. Utter
+              replaces the selection.
+            </span>
           </li>
         )}
       </ul>
@@ -174,7 +203,7 @@ function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
           ) : main ? (
             "Press it now to check it. Keys light up while held."
           ) : (
-            "Hold this one instead and Utter rewords what you said, in the style set under Cleanup."
+            "Hold this one instead and Utter rewords what you said, in the style set under Cleanup. With text selected, it changes that text the way you ask."
           )}
         </p>
 

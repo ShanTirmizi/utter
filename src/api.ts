@@ -17,6 +17,12 @@ export type Settings = {
   rewriteStyle: string;
   /** The user's own rewrite instruction, used when the style is "custom". */
   rewritePrompt: string;
+  /** Names and terms to be spelled exactly this way. */
+  dictionary: string[];
+  /** Keep past dictations on this Mac. */
+  keepHistory: boolean;
+  /** A quick tap starts a recording that runs until the next tap. */
+  handsFree: boolean;
   /** Speech model. */
   model: string;
   onboarded: boolean;
@@ -63,6 +69,11 @@ export type Dictation = {
   text: string;
   /** Which hotkey was used. */
   mode: Mode;
+  /**
+   * The selected text this dictation edited, or null. When set, `raw` is the
+   * spoken instruction and `text` is what replaced the selection.
+   */
+  selection: string | null;
   /** True when the text went through the cleanup model. */
   cleaned: boolean;
   /** True when pasted for you; false when only copied to the clipboard. */
@@ -89,11 +100,13 @@ export type AppContext = {
 export type Mode = "tidy" | "rewrite";
 
 /** What "processing" is doing right now. */
-export type Stage = "transcribing" | "tidying" | "rewriting";
+export type Stage = "transcribing" | "tidying" | "rewriting" | "editing";
 
 export type PipelineUpdate = {
   phase: "idle" | "recording" | "processing" | "done" | "error";
   mode: Mode;
+  /** True while a tap-started recording runs until the next tap. */
+  handsFree: boolean;
   /** Set while processing. */
   stage: Stage | null;
   /** The app being dictated into, once known. */
@@ -107,6 +120,14 @@ export type PipelineUpdate = {
 export type AudioLevel = number;
 
 export const lastDictation = () => invoke<Dictation | null>("last_dictation");
+
+/** Past dictations kept on this Mac, newest first. */
+export const history = () => invoke<Dictation[]>("history");
+export const clearHistory = () => invoke<void>("clear_history");
+/** Forget one past dictation, named by its `finishedAt`. */
+export const forgetDictation = (finishedAt: number) => invoke<void>("forget_dictation", { finishedAt });
+/** Put text on the clipboard. */
+export const copyText = (text: string) => invoke<void>("copy_text", { text });
 
 export type ModelStatus = {
   name: string;

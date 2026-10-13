@@ -180,11 +180,36 @@ requested**.
 
 | Permission | Used for | Asked when |
 | --- | --- | --- |
-| Microphone | Recording while the hotkey is held | First-run screen |
-| Accessibility | Pressing `⌘V` in the focused app | First-run screen; optional |
+| Microphone | Recording while you dictate | First-run screen |
+| Accessibility | Pressing `⌘V` in the focused app; reading the selection | First-run screen; optional |
 
 The first-run screen explains each one, shows its live status, and lists Input
 Monitoring as not required so nobody goes looking for it.
+
+### Hold or tap
+
+Holding the hotkey is the main gesture: the release is an unambiguous "done".
+A press released within 300 ms is a tap, and starts a hands-free recording that
+the next tap of either hotkey ends. One gesture serves both because the key is
+already under the user's fingers and a tap was otherwise wasted (it used to
+produce "Nothing heard").
+
+Nobody is holding a key during a hands-free recording, so it has to be able to
+end without the user: after 30 seconds below speaking level, or at the five
+minute cap. A recording that ends that way is copied, never typed, because the
+focused app may have changed since the user last looked. A *held* recording
+that reaches the cap is still discarded: that is a lost key-up event, not
+something the user said on purpose.
+
+### A microphone that is ready
+
+Opening an input stream takes a few hundred milliseconds, which used to clip
+the first word. The stream is now built ahead of time and kept paused; starting
+it takes tens of milliseconds. A paused stream captures nothing and the
+system's microphone indicator stays off. It is rebuilt when the default input
+device changes. Bluetooth devices are the exception: holding an input stream,
+even a paused one, can keep a headset in its low-quality call mode, so for
+those the stream is closed after each dictation and the old delay remains.
 
 ## Inserting text
 
@@ -206,6 +231,43 @@ scripts. Writing through accessibility APIs fails in many apps.
 Fallback: if Accessibility is not granted, or a password field has locked
 keyboard input, Utter leaves the text on the clipboard and says so. The last
 dictation can also be copied again from the menu-bar icon.
+
+## Editing the selection
+
+With the rewrite hotkey, selected text turns the spoken words into an
+instruction ("make this shorter") and the reply replaces the selection.
+
+Finding the selection, in order:
+
+1. Ask the focused element for its selected text through the accessibility
+   API. Web-based apps only answer once asked to, so the app is nudged when the
+   hotkey goes down and read when it comes up.
+2. If the app gives no answer either way, press `⌘C` and see whether the
+   clipboard changes, then put the clipboard back. Skipped in code editors,
+   where copying with nothing selected takes the whole line.
+
+Replacing it is the ordinary paste, which overwrites a selection. The rule that
+matters is the failure mode: if the model fails, or its reply is rejected,
+nothing is pasted. Falling back to "insert the raw words", the right thing for
+a dictation, would here replace the user's paragraph with "make this shorter".
+
+## Your words
+
+The dictionary is used twice. The speech model takes it as an initial prompt
+("Glossary: ..."), which biases it towards those spellings; the cleanup model
+is told the same list is how those words are written. The reply check allows
+the listed terms, since the model may correctly introduce a spelling that the
+transcript did not contain. The list is capped (200 entries, and a character
+budget for the speech prompt) because a long prompt slows transcription and a
+huge glossary starts to be heard where it was not said.
+
+## History
+
+Finished dictations are appended to one JSON file in the app's data folder,
+written to a temporary file and renamed, with owner-only permissions. The 200
+most recent are kept. It can be switched off, cleared, or pruned one entry at a
+time. Nothing reads it except the window. It is plain JSON rather than a
+database because it is small, bounded and the user should be able to open it.
 
 ## The interface
 
@@ -261,8 +323,8 @@ a download work on the first double-click and keep permissions across updates.
 ## Not in this version
 
 - Reading the browser's current site to choose a style.
-- A personal dictionary for names and jargon.
-- Keeping the microphone warm so the first word is never clipped.
 - Starting a new dictation while the previous one is still being processed.
-- A history window.
+- Learning from corrections, or remembering anything about the user beyond the
+  word list they write themselves.
+- A signed, notarised build with automatic updates.
 - Windows and Linux.

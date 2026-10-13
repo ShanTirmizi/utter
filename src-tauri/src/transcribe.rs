@@ -46,7 +46,7 @@ impl Transcriber {
     /// or "auto" to detect it.
     pub fn transcribe(&self, samples: &[f32], language: &str) -> Result<String, String> {
         let loaded = self.loaded.lock().unwrap();
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language)
+        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, &[])
     }
 
     /// Make sure `name` is the loaded model, then transcribe with it. Both
@@ -58,13 +58,15 @@ impl Transcriber {
         path: &Path,
         samples: &[f32],
         language: &str,
+        terms: &[String],
     ) -> Result<String, String> {
         let mut loaded = self.loaded.lock().unwrap();
         Self::load(&mut loaded, name, path)?;
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language)
+        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, terms)
     }
 
-    fn run(loaded: &Loaded, samples: &[f32], language: &str) -> Result<String, String> {
+    fn run(loaded: &Loaded, samples: &[f32], language: &str, terms: &[String]) -> Result<String, String> {
+        let hint = glossary(terms);
 
         let mut state = loaded
             .context
@@ -91,6 +93,11 @@ impl Transcriber {
             params.set_n_threads(threads());
             // Each piece stands alone; do not let one bleed into the next.
             params.set_no_context(true);
+            if !hint.is_empty() {
+                // Text the model is told came just before. Having "seen" the
+                // user's names and terms, it is more likely to hear them.
+                params.set_initial_prompt(&hint);
+            }
             params.set_no_timestamps(true);
             params.set_suppress_blank(true);
             params.set_suppress_nst(true);
@@ -104,12 +111,50 @@ impl Transcriber {
                 .map_err(|e| format!("Transcription failed: {e}"))?;
             let text: String = state.as_iter().map(|segment| segment.to_string()).collect();
             let text = tidy(&text);
-            if !text.is_empty() {
+            if !text.is_empty() && !is_prompt_echo(&text, terms) {
                 pieces.push(text);
             }
         }
         Ok(collapse_repeats(&pieces.join(" ")))
     }
+}
+
+/// Did the model repeat the glossary it was shown instead of hearing speech?
+/// It can, on a stretch of noise. A real dictation neither opens with the
+/// word "Glossary" nor is exactly a run of three or more listed words.
+fn is_prompt_echo(text: &str, terms: &[String]) -> bool {
+    if terms.is_empty() {
+        return false;
+    }
+    let plain = |text: &str| -> Vec<String> {
+        text.split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let heard = plain(text);
+    if heard.first().is_some_and(|w| w == "glossary") {
+        return true;
+    }
+    let listed: Vec<String> = terms.iter().flat_map(|t| plain(t)).collect();
+    heard.len() >= 3 && listed.windows(heard.len()).any(|run| run == heard.as_slice())
+}
+
+/// The user's dictionary as a line of text for the speech model. The model
+/// reads only a limited amount of such text, so the list is cut to fit.
+pub fn glossary(terms: &[String]) -> String {
+    const BUDGET: usize = 600;
+    let mut line = String::new();
+    for term in terms {
+        if line.len() + term.len() + 2 > BUDGET {
+            break;
+        }
+        if !line.is_empty() {
+            line.push_str(", ");
+        }
+        line.push_str(term);
+    }
+    if line.is_empty() { line } else { format!("Glossary: {line}.") }
 }
 
 /// Longest piece of audio given to the model in one go, safely inside its
@@ -238,6 +283,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_glossary_coming_back_is_not_a_dictation() {
+        let terms: Vec<String> = ["Priya", "Kubernetes", "Q3 roadmap"].iter().map(|t| t.to_string()).collect();
+        assert!(is_prompt_echo("Glossary: Priya, Kubernetes.", &terms));
+        assert!(is_prompt_echo("Priya, Kubernetes, Q3 roadmap.", &terms));
+        // Saying one of the words, or a sentence with them in it, is fine.
+        assert!(!is_prompt_echo("Priya", &terms));
+        assert!(!is_prompt_echo("Ask Priya about Kubernetes.", &terms));
+        assert!(!is_prompt_echo("Glossary: anything", &[]));
+    }
+
+    #[test]
     fn strips_bracketed_annotations() {
         assert_eq!(tidy(" [BLANK_AUDIO] "), "");
         assert_eq!(tidy("Hello [MUSIC] there."), "Hello there.");
@@ -301,6 +357,14 @@ mod tests {
         assert_eq!(collapse_repeats("I said it twice. I said it twice."), "I said it twice. I said it twice.");
         assert_eq!(collapse_repeats("Version 3.5 is out. It works"), "Version 3.5 is out. It works");
         assert_eq!(collapse_repeats(""), "");
+    }
+
+    #[test]
+    fn the_glossary_lists_terms_and_stays_within_budget() {
+        assert_eq!(glossary(&[]), "");
+        assert_eq!(glossary(&["Priya".into(), "Kubernetes".into()]), "Glossary: Priya, Kubernetes.");
+        let many: Vec<String> = (0..300).map(|i| format!("longterm{i}")).collect();
+        assert!(glossary(&many).len() <= 620);
     }
 
     #[test]

@@ -18,7 +18,7 @@ type Note = {
 
 type View =
   | { kind: "hidden" }
-  | { kind: "listen"; rewrite: boolean; since: number }
+  | { kind: "listen"; rewrite: boolean; handsFree: boolean; since: number }
   | { kind: "work"; label: string; chip: string | null }
   | ({ kind: "note" } & Note);
 
@@ -91,6 +91,8 @@ function workLabel(update: PipelineUpdate): { label: string; chip: string | null
       return { label: app ? `Tidying for ${app}` : "Tidying", chip: style };
     case "rewriting":
       return { label: app ? `Rewriting for ${app}` : "Rewriting", chip: null };
+    case "editing":
+      return { label: "Editing your selection", chip: null };
     default:
       return { label: update.mode === "rewrite" ? "Rewriting" : "Working", chip: null };
   }
@@ -109,7 +111,7 @@ export default function Pill() {
   // Bars lie flat for a moment before the pill sinks away.
   const [resting, setResting] = useState(false);
   // Each layer keeps its last contents so they can fade out rather than vanish.
-  const [listenView, setListenView] = useState({ rewrite: false, since: 0 });
+  const [listenView, setListenView] = useState({ rewrite: false, handsFree: false, since: 0 });
   const [workView, setWorkView] = useState<{ label: string; chip: string | null }>({ label: "", chip: null });
   const [noteView, setNoteView] = useState<Note>({ whole: "", title: "", detail: null, split: false, problem: false });
   const [box, setBox] = useState({ width: 44, height: 44, radius: 22, twoLines: false });
@@ -145,6 +147,8 @@ export default function Pill() {
     };
     // The label shown while working, to come back to after an interruption.
     let working: { label: string; chip: string | null } | null = null;
+    // When the recording under way began; a tap that turns it hands-free keeps the clock.
+    let began = 0;
 
     const stop = listen<PipelineUpdate>("pipeline", ({ payload }) => {
       // A new press interrupts whatever was showing.
@@ -152,7 +156,8 @@ export default function Pill() {
       setResting(false);
       switch (payload.phase) {
         case "recording": {
-          const next = { rewrite: payload.mode === "rewrite", since: performance.now() };
+          if (before !== "recording") began = performance.now();
+          const next = { rewrite: payload.mode === "rewrite", handsFree: !!payload.handsFree, since: began };
           setListenView(next);
           setView({ kind: "listen", ...next });
           break;
@@ -187,7 +192,7 @@ export default function Pill() {
         default:
           // Back to idle straight after a press: the key was only tapped.
           if (before === "recording" || before === "processing") {
-            show(readNote("Nothing heard. Hold the keys while you speak.", false));
+            show(readNote(payload.message ?? "Nothing heard. Hold the keys while you speak.", false));
           } else {
             hide();
           }
@@ -223,7 +228,7 @@ export default function Pill() {
         setBox({ width: Math.min(MAX_WIDTH, BADGE + widest + TAIL), height: 56, radius: 18, twoLines: true });
       }
     }
-  }, [view, reduced, fontsReady]);
+  }, [view, reduced, fontsReady, listenView.handsFree]);
 
   const hidden = view.kind === "hidden";
   const problem = view.kind === "note" && view.problem;
@@ -246,7 +251,11 @@ export default function Pill() {
   const badgeClass = listening ? "talkL" : view.kind === "work" && !resting && !reduced ? "think" : "";
 
   const label =
-    view.kind === "listen" ? "Listening" : view.kind === "work" ? view.label : view.kind === "note" ? view.whole : "";
+    view.kind === "listen"
+      ? view.handsFree
+        ? "Listening, hands-free. Tap the hotkey again to finish."
+        : "Listening"
+      : view.kind === "work" ? view.label : view.kind === "note" ? view.whole : "";
 
   return (
     <div className="pillwin">
@@ -276,6 +285,7 @@ export default function Pill() {
             <span className="meter">Listening</span>
             <span className="ptime">{clock(elapsed)}</span>
             {listenView.rewrite && <span className="pchip2">rewrite</span>}
+            {listenView.handsFree && <span className="pchip2">tap to finish</span>}
           </span>
         </div>
 

@@ -14,10 +14,12 @@
 //   ?model=missing    no speech model downloaded
 //   ?key              a key is already stored for Anthropic
 //   ?cleanup=off      cleanup switched off
-//   ?empty            no last dictation
+//   ?empty            no last dictation and no history
+//   ?words            a few terms already in the dictionary
+//   ?selected         the rewrite hotkey edits a pretend selection
 //   ?fail=cleanup|test|download|hotkey   make that step fail
 //   ?fail=startup-hotkey   macOS refused the hotkey at launch
-//   ?pill=listen|transcribe|tidy|rewrite|note|note2|paste|blocked
+//   ?pill=listen|handsfree|transcribe|tidy|rewrite|edit|note|note2|paste|blocked
 //                     hold the pill (open /#pill) in one state
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -46,6 +48,9 @@ let settings: Settings = {
   rewriteHotkey: "Control+Alt+KeyR",
   rewriteStyle: "clear",
   rewritePrompt: "",
+  dictionary: query.has("words") ? ["Priya", "Kubernetes", "Q3 roadmap"] : [],
+  keepHistory: true,
+  handsFree: true,
   model: "base.en",
   onboarded: !query.has("welcome"),
 };
@@ -105,6 +110,7 @@ let last: Dictation | null = query.has("empty") || query.has("welcome")
       raw: lines[1].raw,
       text: lines[1].tidy,
       mode: "tidy",
+      selection: null,
       cleaned: true,
       inserted: true,
       note: null,
@@ -116,6 +122,20 @@ let last: Dictation | null = query.has("empty") || query.has("welcome")
       finishedAt: Date.now() - 4 * 60_000,
     };
 
+/** Past dictations, newest first. */
+let past: Dictation[] = last
+  ? [
+      last,
+      { ...last, raw: lines[0].raw, text: lines[0].tidy, app: mail, finishedAt: Date.now() - 50 * 60_000 },
+      {
+        ...last,
+        raw: "okay so the uh the standup is moving to ten thirty from tomorrow",
+        text: "The standup is moving to 10:30 from tomorrow.",
+        finishedAt: Date.now() - 26 * 3_600_000,
+      },
+    ]
+  : [];
+
 // Other tabs of the preview (the pill at /#pill, say) hear the same events.
 const channel = new BroadcastChannel("utter-dev");
 channel.onmessage = ({ data }) => emit(data.event, data.payload);
@@ -125,7 +145,7 @@ function send(event: string, payload: unknown) {
 }
 
 function pipeline(update: Partial<PipelineUpdate> & Pick<PipelineUpdate, "phase">, mode: Mode) {
-  send("pipeline", { mode, stage: null, app: null, message: null, dictation: null, ...update });
+  send("pipeline", { mode, handsFree: false, stage: null, app: null, message: null, dictation: null, ...update });
 }
 
 /** Whether the language-model step would run for this hotkey. */
@@ -139,6 +159,9 @@ function modelStepRuns(mode: Mode): boolean {
 let voice: ReturnType<typeof setInterval> | undefined;
 let pressedAt = 0;
 let recording: Mode | null = null;
+// A tap started the recording, so it runs until the next tap.
+let latched = false;
+let swallowRelease = false;
 function startVoice() {
   let beat = 0;
   clearInterval(voice);
@@ -151,6 +174,13 @@ function startVoice() {
 }
 
 function press(mode: Mode) {
+  if (recording && latched) {
+    // The second tap ends a hands-free recording.
+    latched = false;
+    swallowRelease = true;
+    finish();
+    return;
+  }
   if (recording) return;
   if (!models.find((m) => m.name === settings.model)?.downloaded) {
     return pipeline({ phase: "error", message: "Download a speech model in Utter's settings first." }, mode);
@@ -164,7 +194,23 @@ function press(mode: Mode) {
   startVoice();
 }
 
-async function release() {
+function release() {
+  if (swallowRelease) {
+    swallowRelease = false;
+    return;
+  }
+  if (!recording || latched) return;
+  if (performance.now() - pressedAt < 300 && settings.handsFree) {
+    latched = true;
+    return pipeline(
+      { phase: "recording", handsFree: true, message: "Hands-free. Tap the hotkey again to finish." },
+      recording,
+    );
+  }
+  finish();
+}
+
+async function finish() {
   const mode = recording;
   if (!mode) return;
   recording = null;
@@ -174,6 +220,7 @@ async function release() {
   pipeline({ phase: "processing", stage: "transcribing", app: line.app }, mode);
   // An accidental tap is ignored.
   if (spokenMs < 300) return pipeline({ phase: "idle" }, mode);
+  if (mode === "rewrite" && query.has("selected")) return edit(spokenMs);
 
   const transcribeMs = 380;
   await wait(transcribeMs);
@@ -200,6 +247,7 @@ async function release() {
     raw: line.raw,
     text: cleaned ? (mode === "rewrite" ? line.rewrite : line.tidy) : line.raw,
     mode,
+    selection: null,
     cleaned,
     inserted,
     note,
@@ -211,7 +259,34 @@ async function release() {
     finishedAt: Date.now(),
   };
   if (inserted) paste(`${last.text} `);
+  if (settings.keepHistory) past = [last, ...past].slice(0, 200);
   pipeline({ phase: "done", dictation: last }, mode);
+}
+
+/** The rewrite hotkey with text selected: the words spoken say how to change it. */
+async function edit(spokenMs: number) {
+  await wait(380);
+  pipeline({ phase: "processing", stage: "editing", app: mail }, "rewrite");
+  await wait(700);
+  const done: Dictation = {
+    raw: "make this shorter and less formal",
+    text: "Can we move Thursday's review to Friday? Half the team is out.",
+    mode: "rewrite",
+    selection:
+      "I am writing to enquire whether it would be possible to reschedule the review that is planned for Thursday to Friday instead, as approximately half of the team will be out of the office.",
+    cleaned: true,
+    inserted: permissions.accessibility,
+    note: permissions.accessibility ? null : "Copied to the clipboard (Accessibility is off). Press ⌘V to paste.",
+    app: mail,
+    transcribeMs: 380,
+    cleanupMs: 700,
+    spokenMs,
+    totalMs: 1110,
+    finishedAt: Date.now(),
+  };
+  last = done;
+  if (settings.keepHistory) past = [done, ...past].slice(0, 200);
+  pipeline({ phase: "done", dictation: done }, "rewrite");
 }
 
 /** Stand in for the real paste: put the text into the focused text box. */
@@ -270,6 +345,8 @@ function pinPill(state: string) {
   const dictation = (note: string, inserted: boolean): Dictation => ({ ...(last ?? ({} as Dictation)), note, inserted });
   const play: Record<string, () => void> = {
     listen: () => (pipeline({ phase: "recording" }, "tidy"), startVoice()),
+    handsfree: () => (pipeline({ phase: "recording", handsFree: true }, "tidy"), startVoice()),
+    edit: () => pipeline({ phase: "processing", stage: "editing", app: mail }, "rewrite"),
     transcribe: () => pipeline({ phase: "processing", stage: "transcribing" }, "tidy"),
     tidy: () => pipeline({ phase: "processing", stage: "tidying", app: mail }, "tidy"),
     rewrite: () => pipeline({ phase: "processing", stage: "rewriting", app: mail }, "rewrite"),
@@ -302,7 +379,7 @@ export function installMock() {
           if (next.baseUrl && !/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)/.test(next.baseUrl)) {
             throw "The base URL must use https, or http on localhost.";
           }
-          settings = next;
+          settings = { ...next, dictionary: next.dictionary.map((t) => t.trim().slice(0, 60)).filter(Boolean).slice(0, 200) };
           return settings;
         }
         case "providers":
@@ -358,6 +435,17 @@ export function installMock() {
           return download(payload?.name as string);
         case "last_dictation":
           return last;
+        case "history":
+          return past;
+        case "clear_history":
+          past = [];
+          last = null;
+          return;
+        case "forget_dictation":
+          past = past.filter((d) => d.finishedAt !== payload?.finishedAt);
+          return;
+        case "copy_text":
+          return;
         default:
           return;
       }

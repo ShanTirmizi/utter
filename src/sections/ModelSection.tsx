@@ -1,6 +1,7 @@
 import { selectedModel } from "../readiness";
 import { shortName, useApp } from "../state";
 import { IconCheck, Notice, WaveProgress } from "../ui";
+import DictionaryCard from "./DictionaryCard";
 
 export default function ModelSection() {
   const app = useApp();
@@ -41,6 +42,8 @@ export default function ModelSection() {
         Models download once from Hugging Face and are saved on this Mac. Switching takes effect from the
         next dictation.
       </p>
+
+      <DictionaryCard />
     </>
   );
 }

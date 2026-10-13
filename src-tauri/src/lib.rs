@@ -5,6 +5,7 @@
 pub mod audio;
 mod cleanup;
 mod context;
+mod history;
 mod hotkey;
 mod insert;
 mod models;
@@ -12,6 +13,7 @@ mod permissions;
 mod pipeline;
 mod providers;
 mod secrets;
+mod selection;
 mod settings;
 pub mod transcribe;
 
@@ -34,8 +36,9 @@ fn get_settings(app: AppHandle) -> Settings {
 }
 
 #[tauri::command]
-fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
+fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Settings, String> {
     let previous = settings::load(&app);
+    settings.dictionary = settings::clean_dictionary(&settings.dictionary);
 
     // Check everything that can be checked before changing anything.
     hotkey::plan(&settings)?;
@@ -130,7 +133,7 @@ async fn current_endpoint(app: &AppHandle) -> Result<providers::Endpoint, String
 async fn test_cleanup(app: AppHandle) -> Result<String, String> {
     let endpoint = current_endpoint(&app).await?;
     let sample = "um so this is like a quick test of the the cleanup step";
-    cleanup::run(sample, &context::AppContext::unknown(), &endpoint, &cleanup::Task::Tidy).await
+    cleanup::run(sample, &context::AppContext::unknown(), &endpoint, &cleanup::Task::Tidy, &[]).await
 }
 
 /// The ready-made rewrite styles offered in settings.
@@ -148,7 +151,7 @@ async fn test_rewrite(app: AppHandle) -> Result<String, String> {
     let task = cleanup::rewrite_task(&settings.rewrite_style, &settings.rewrite_prompt);
     let sample = "um so basically I think we should like push the meeting to friday because uh \
                   half the team is out on thursday and yeah I just think it makes more sense that way";
-    cleanup::run(sample, &context::AppContext::unknown(), &endpoint, &task).await
+    cleanup::run(sample, &context::AppContext::unknown(), &endpoint, &task, &[]).await
 }
 
 /// Models the chosen provider offers for the saved key.
@@ -170,8 +173,22 @@ async fn list_cleanup_models(app: AppHandle) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn permission_status() -> permissions::PermissionStatus {
-    permissions::status()
+fn permission_status(app: AppHandle) -> permissions::PermissionStatus {
+    let status = permissions::status();
+    if status.microphone == permissions::MicStatus::Granted {
+        prepare_microphone_once(&app);
+    }
+    status
+}
+
+/// Open the microphone stream ahead of the first dictation, once. Only ever
+/// called after the user has allowed the microphone, or macOS would ask for
+/// it out of the blue.
+fn prepare_microphone_once(app: &AppHandle) {
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        app.state::<pipeline::Pipeline>().prepare_microphone();
+    }
 }
 
 /// Ask macOS to show its microphone permission prompt.
@@ -238,10 +255,38 @@ fn last_dictation(app: AppHandle) -> Option<pipeline::Dictation> {
     app.state::<pipeline::Pipeline>().last()
 }
 
+/// Past dictations kept on this Mac, newest first.
+#[tauri::command]
+fn history(app: AppHandle) -> Vec<pipeline::Dictation> {
+    app.state::<pipeline::Pipeline>().history()
+}
+
+#[tauri::command]
+fn clear_history(app: AppHandle) -> Result<(), String> {
+    pipeline::clear_history(&app)
+}
+
+/// Forget one past dictation, named by when it finished.
+#[tauri::command]
+fn forget_dictation(app: AppHandle, finished_at: u64) -> Result<(), String> {
+    pipeline::forget(&app, finished_at)
+}
+
+/// Put text on the clipboard, for the Copy buttons in the window.
+#[tauri::command]
+fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
+    // The pasteboard is only touched from the main thread.
+    app.run_on_main_thread(move || {
+        insert::set_clipboard_text(&text, false);
+    })
+    .map_err(|e| e.to_string())
+}
+
 /// Development aid, absent from release builds. Set `UTTER_SIMULATE` to one
 /// or more comma-separated recordings (raw 32-bit float, 16 kHz, mono) and
 /// each is run through the pipeline shortly after launch, as if dictated.
-/// A path ending in `@rewrite` uses the rewrite hotkey's mode. Each outcome
+/// A path ending in `@rewrite` uses the rewrite hotkey's mode, and `@edit`
+/// uses it with `UTTER_SIMULATE_SELECTION` as the selected text. Each outcome
 /// is printed as a `[pipeline]` line and left on the clipboard; nothing is
 /// pasted. `[probe]` lines show what each window displayed along the way.
 ///
@@ -322,9 +367,14 @@ fn simulate_from_env(app: &AppHandle) {
             }
         }
         for entry in list.split(',').map(str::trim).filter(|e| !e.is_empty()) {
-            let (path, mode) = match entry.strip_suffix("@rewrite") {
-                Some(path) => (path, pipeline::Mode::Rewrite),
-                None => (entry, pipeline::Mode::Tidy),
+            // "@edit" is the rewrite hotkey with text selected; the pretend
+            // selection comes from UTTER_SIMULATE_SELECTION.
+            let (path, mode, selected) = if let Some(path) = entry.strip_suffix("@rewrite") {
+                (path, pipeline::Mode::Rewrite, None)
+            } else if let Some(path) = entry.strip_suffix("@edit") {
+                (path, pipeline::Mode::Rewrite, std::env::var("UTTER_SIMULATE_SELECTION").ok())
+            } else {
+                (entry, pipeline::Mode::Tidy, None)
             };
             let samples: Vec<f32> = match std::fs::read(path) {
                 Ok(bytes) => bytes
@@ -337,7 +387,7 @@ fn simulate_from_env(app: &AppHandle) {
                 }
             };
             let started = std::time::Instant::now();
-            if !pipeline::simulate(&app, samples, mode) {
+            if !pipeline::simulate(&app, samples, mode, selected) {
                 eprintln!("[simulate] {entry}: busy, skipped");
                 continue;
             }
@@ -422,7 +472,14 @@ pub fn run() {
             // Keep whisper.cpp's own logging out of the terminal.
             whisper_rs::install_logging_hooks();
             app.manage(pipeline::Pipeline::new());
+            pipeline::load_history(app.handle());
             pipeline::preload_model(app.handle());
+            // Open the microphone stream now, stopped, so even the first
+            // dictation starts quickly. Only once access has been granted:
+            // doing this earlier would make macOS ask for it out of the blue.
+            if permissions::microphone() == permissions::MicStatus::Granted {
+                prepare_microphone_once(app.handle());
+            }
             #[cfg(debug_assertions)]
             simulate_from_env(app.handle());
             place_pill(app.handle());
@@ -453,6 +510,10 @@ pub fn run() {
             model_statuses,
             download_model,
             last_dictation,
+            history,
+            clear_history,
+            forget_dictation,
+            copy_text,
         ])
         // Closing the settings window hides it; Utter keeps running in the
         // menu bar so the hotkey stays available.

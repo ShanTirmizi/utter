@@ -3,9 +3,9 @@
 //! read the same.
 
 use objc2_app_kit::NSWorkspace;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
     Chat,
@@ -16,12 +16,18 @@ pub enum Category {
     Other,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppContext {
     pub name: String,
     pub bundle_id: String,
     pub category: Category,
+}
+
+impl Default for AppContext {
+    fn default() -> Self {
+        Self::unknown()
+    }
 }
 
 impl AppContext {
@@ -81,6 +87,13 @@ pub fn categorise(bundle_id: &str) -> Category {
         "com.apple.dt.Xcode",
         "dev.zed.Zed",
         "com.todesktop.230313mzl4w4u92",
+        "com.exafunction.windsurf",
+        "com.vscodium",
+        "com.visualstudio.code.oss",
+        "com.google.android.studio",
+        "com.panic.Nova",
+        "com.barebones.bbedit",
+        "com.sublimetext.3",
         "com.sublimetext.4",
         "com.apple.Terminal",
         "com.googlecode.iterm2",

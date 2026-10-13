@@ -4,6 +4,13 @@
 //!
 //! The audio stream cannot move between threads on macOS, so one dedicated
 //! thread owns it and takes Start/Stop commands over a channel.
+//!
+//! Opening a microphone takes a moment, and anything said in that moment is
+//! lost. So after the first dictation the stream is kept, stopped, between
+//! dictations: starting a stopped stream is much quicker than opening one.
+//! A stopped stream captures nothing and does not light the microphone
+//! indicator. Bluetooth headsets are the exception: holding their microphone
+//! open keeps them in low-quality call mode, so theirs is released each time.
 
 use cpal::{
     SampleFormat, Stream,
@@ -12,10 +19,11 @@ use cpal::{
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc::{self, Sender},
     },
     thread,
+    time::Instant,
 };
 
 pub const TARGET_RATE: u32 = 16_000;
@@ -24,6 +32,8 @@ pub const TARGET_RATE: u32 = 16_000;
 pub const MAX_SECONDS: usize = 300;
 
 enum Command {
+    /// Open the stream without starting it, so the first dictation is quick too.
+    Prepare,
     Start(Sender<Result<(), String>>),
     Stop(Sender<Vec<f32>>),
 }
@@ -35,12 +45,20 @@ pub struct Recorder {
     loudest: Arc<AtomicU32>,
 }
 
-/// What the recording thread holds while a recording is in progress.
-struct Active {
-    /// Dropping the stream stops capture and releases the microphone.
-    _stream: Stream,
-    samples: Arc<Mutex<Vec<f32>>>,
+/// An opened microphone stream, running or stopped.
+struct Ready {
+    stream: Stream,
+    /// The system's id for the device this stream reads from.
+    device: u32,
     rate: u32,
+    samples: Arc<Mutex<Vec<f32>>>,
+    /// The callback keeps audio only while this is set.
+    recording: Arc<AtomicBool>,
+    /// Microseconds from Start to the first audio arriving; 0 until it has.
+    first_audio: Arc<AtomicU64>,
+    /// Set when the system reports the stream is no longer usable: its
+    /// device went away, or its sample rate was changed under it.
+    invalid: Arc<AtomicBool>,
 }
 
 impl Recorder {
@@ -51,22 +69,20 @@ impl Recorder {
         thread::Builder::new()
             .name("utter-recorder".into())
             .spawn(move || {
-                let mut active: Option<Active> = None;
+                let mut ready: Option<Ready> = None;
                 for command in inbox {
                     match command {
+                        Command::Prepare => {
+                            let device = system::default_input();
+                            if ready.is_none() && device != 0 && !system::is_bluetooth(device) {
+                                ready = open_stream(gauge.clone(), device).ok();
+                            }
+                        }
                         Command::Start(reply) => {
-                            let result = open_stream(gauge.clone()).map(|a| active = Some(a));
-                            let _ = reply.send(result);
+                            let _ = reply.send(start(&mut ready, &gauge));
                         }
                         Command::Stop(reply) => {
-                            let audio = match active.take() {
-                                Some(a) => {
-                                    let raw = std::mem::take(&mut *a.samples.lock().unwrap());
-                                    resample(&raw, a.rate, TARGET_RATE)
-                                }
-                                None => Vec::new(),
-                            };
-                            let _ = reply.send(audio);
+                            let _ = reply.send(stop(&mut ready));
                         }
                     }
                 }
@@ -81,7 +97,14 @@ impl Recorder {
         meter(f32::from_bits(self.loudest.swap(0, Ordering::Relaxed)))
     }
 
-    /// Open the default microphone and begin buffering.
+    /// Get the microphone ready ahead of time. Nothing is captured and the
+    /// microphone indicator stays off. Only call this once the user has
+    /// allowed microphone access, or macOS will ask for it out of the blue.
+    pub fn prepare(&self) {
+        let _ = self.commands.send(Command::Prepare);
+    }
+
+    /// Start the default microphone and begin buffering.
     pub fn start(&self) -> Result<(), String> {
         let (reply, result) = mpsc::channel();
         self.commands
@@ -102,7 +125,78 @@ impl Recorder {
     }
 }
 
-fn open_stream(gauge: Arc<AtomicU32>) -> Result<Active, String> {
+/// Begin a recording, reusing the stopped stream from last time when it still
+/// reads from the system's current default microphone.
+fn start(ready: &mut Option<Ready>, gauge: &Arc<AtomicU32>) -> Result<(), String> {
+    let device = system::default_input();
+    if ready.as_ref().is_some_and(|r| r.device != device || r.invalid.load(Ordering::SeqCst)) {
+        // The user switched microphones since last time, or the system
+        // said the stream is no longer good.
+        *ready = None;
+    }
+    let reused = ready.is_some();
+    if ready.is_none() {
+        *ready = Some(open_stream(gauge.clone(), device)?);
+    }
+
+    let began = Instant::now();
+    let outcome = begin(ready.as_ref().expect("stream was just ensured"), began);
+    if outcome.is_err() && reused {
+        // A kept stream can go stale (its device was unplugged and returned,
+        // say). Open a fresh one once before giving up.
+        *ready = Some(open_stream(gauge.clone(), device)?);
+        return begin(ready.as_ref().expect("stream was just opened"), Instant::now());
+    }
+    if outcome.is_err() {
+        *ready = None;
+    }
+    outcome
+}
+
+fn begin(ready: &Ready, began: Instant) -> Result<(), String> {
+    ready.samples.lock().unwrap().clear();
+    ready.first_audio.store(0, Ordering::Relaxed);
+    STARTED.lock().unwrap().replace(began);
+    ready.recording.store(true, Ordering::SeqCst);
+    ready
+        .stream
+        .play()
+        .map_err(|e| format!("Could not start recording: {e}"))
+}
+
+/// When the current recording was asked to start, for timing the first audio.
+static STARTED: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// End the recording and hand back its audio. The stream is stopped and kept
+/// for next time, unless it belongs to a Bluetooth microphone.
+fn stop(ready: &mut Option<Ready>) -> Vec<f32> {
+    let Some(current) = ready.as_ref() else {
+        return Vec::new();
+    };
+    current.recording.store(false, Ordering::SeqCst);
+    let raw = std::mem::take(&mut *current.samples.lock().unwrap());
+    let rate = current.rate;
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[audio] first audio arrived {:.0} ms after the key went down",
+        current.first_audio.load(Ordering::Relaxed) as f64 / 1000.0
+    );
+
+    // A stream that ran for a while and delivered nothing is not worth
+    // keeping either; the next dictation gets a new one.
+    let ran_for = STARTED.lock().unwrap().map(|at| at.elapsed()).unwrap_or_default();
+    let deaf = current.first_audio.load(Ordering::Relaxed) == 0 && ran_for > std::time::Duration::from_millis(700);
+    let keep = !system::is_bluetooth(current.device)
+        && !current.invalid.load(Ordering::SeqCst)
+        && !deaf
+        && current.stream.pause().is_ok();
+    if !keep {
+        *ready = None;
+    }
+    resample(&raw, rate, TARGET_RATE)
+}
+
+fn open_stream(gauge: Arc<AtomicU32>, device_id: u32) -> Result<Ready, String> {
     let device = cpal::default_host()
         .default_input_device()
         .ok_or("No microphone found.")?;
@@ -116,8 +210,16 @@ fn open_stream(gauge: Arc<AtomicU32>) -> Result<Active, String> {
     let config = supported.config();
 
     let samples = Arc::new(Mutex::new(Vec::<f32>::new()));
+    let recording = Arc::new(AtomicBool::new(false));
+    let first_audio = Arc::new(AtomicU64::new(0));
     let limit = rate as usize * MAX_SECONDS;
-    let on_error = |e| eprintln!("[utter] microphone stream error: {e}");
+    let invalid = Arc::new(AtomicBool::new(false));
+    let broken = invalid.clone();
+    let on_error = move |e| {
+        eprintln!("[utter] microphone stream error: {e}");
+        // Never reuse this stream: the next dictation opens a new one.
+        broken.store(true, Ordering::SeqCst);
+    };
 
     // Each callback delivers interleaved frames. Take the loudest channel
     // rather than averaging them: on an interface with several inputs the
@@ -127,9 +229,19 @@ fn open_stream(gauge: Arc<AtomicU32>) -> Result<Active, String> {
         ($sample:ty, $to_f32:expr) => {{
             let sink = samples.clone();
             let gauge = gauge.clone();
+            let recording = recording.clone();
+            let first_audio = first_audio.clone();
             device.build_input_stream(
                 config,
                 move |data: &[$sample], _: &cpal::InputCallbackInfo| {
+                    if !recording.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    if first_audio.load(Ordering::Relaxed) == 0 {
+                        if let Some(began) = *STARTED.lock().unwrap() {
+                            first_audio.store(began.elapsed().as_micros().max(1) as u64, Ordering::Relaxed);
+                        }
+                    }
                     let mut buffer = sink.lock().unwrap();
                     if buffer.len() >= limit {
                         return;
@@ -167,15 +279,82 @@ fn open_stream(gauge: Arc<AtomicU32>) -> Result<Active, String> {
     }
     .map_err(|e| format!("Could not open the microphone: {e}"))?;
 
-    stream
-        .play()
-        .map_err(|e| format!("Could not start recording: {e}"))?;
-
-    Ok(Active {
-        _stream: stream,
-        samples,
+    Ok(Ready {
+        stream,
+        device: device_id,
         rate,
+        samples,
+        recording,
+        first_audio,
+        invalid,
     })
+}
+
+/// The two facts about the system's microphones that the recorder needs,
+/// read straight from Core Audio.
+pub mod system {
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    struct Address {
+        selector: u32,
+        scope: u32,
+        element: u32,
+    }
+
+    #[link(name = "CoreAudio", kind = "framework")]
+    unsafe extern "C" {
+        fn AudioObjectGetPropertyData(
+            object: u32,
+            address: *const Address,
+            qualifier_size: u32,
+            qualifier: *const c_void,
+            size: *mut u32,
+            data: *mut c_void,
+        ) -> i32;
+    }
+
+    const fn code(tag: &[u8; 4]) -> u32 {
+        u32::from_be_bytes(*tag)
+    }
+
+    const SYSTEM: u32 = 1;
+    const GLOBAL: u32 = code(b"glob");
+    const DEFAULT_INPUT: u32 = code(b"dIn ");
+    const TRANSPORT: u32 = code(b"tran");
+    const RUNNING_SOMEWHERE: u32 = code(b"gone");
+
+    fn read(object: u32, selector: u32) -> Option<u32> {
+        let address = Address { selector, scope: GLOBAL, element: 0 };
+        let mut value: u32 = 0;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                object,
+                &address,
+                0,
+                std::ptr::null(),
+                &mut size,
+                (&mut value as *mut u32).cast(),
+            )
+        };
+        (status == 0).then_some(value)
+    }
+
+    /// The id of the default microphone; 0 if there is none.
+    pub fn default_input() -> u32 {
+        read(SYSTEM, DEFAULT_INPUT).unwrap_or(0)
+    }
+
+    /// True for Bluetooth and Bluetooth LE microphones.
+    pub fn is_bluetooth(device: u32) -> bool {
+        matches!(read(device, TRANSPORT), Some(t) if t == code(b"blue") || t == code(b"blea"))
+    }
+
+    /// True while any app is capturing from, or playing to, this device.
+    pub fn in_use(device: u32) -> bool {
+        read(device, RUNNING_SOMEWHERE).is_some_and(|running| running != 0)
+    }
 }
 
 /// More input channels than this are not examined when picking the loudest.
@@ -347,6 +526,44 @@ mod tests {
         // -36 dB is halfway.
         assert!((meter(10f32.powf(-36.0 / 20.0)) - 0.5).abs() < 0.001);
         assert!(meter(0.05) > meter(0.01));
+    }
+
+    /// Run with `cargo test -- --ignored`. Opens the real default microphone
+    /// (no permission is needed to start it; without permission it only
+    /// delivers silence) and checks that a kept stream is truly stopped.
+    #[test]
+    #[ignore = "uses the real microphone"]
+    fn a_kept_stream_is_stopped_and_restarts_faster() {
+        use std::time::Duration;
+        let recorder = Recorder::spawn();
+        let device = system::default_input();
+        assert_ne!(device, 0, "no default microphone");
+        let bluetooth = system::is_bluetooth(device);
+        let busy_before = system::in_use(device);
+
+        let cold = Instant::now();
+        recorder.start().unwrap();
+        let cold_ms = cold.elapsed().as_millis();
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(system::in_use(device));
+        let first = recorder.stop();
+        std::thread::sleep(Duration::from_millis(400));
+        if !busy_before {
+            assert!(!system::in_use(device), "the microphone is still running after stop");
+        }
+
+        let warm = Instant::now();
+        recorder.start().unwrap();
+        let warm_ms = warm.elapsed().as_millis();
+        std::thread::sleep(Duration::from_millis(600));
+        let second = recorder.stop();
+        eprintln!(
+            "bluetooth={bluetooth} cold start {cold_ms} ms, warm start {warm_ms} ms, captured {} and {} samples",
+            first.len(),
+            second.len()
+        );
+        // About 0.6 s of 16 kHz audio each time, give or take start-up.
+        assert!(first.len() > 4_000 && second.len() > 4_000);
     }
 
     #[test]

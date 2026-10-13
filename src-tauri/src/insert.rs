@@ -49,11 +49,17 @@ unsafe extern "C" {
 }
 
 /// The key that types "v" on the keyboard layout in use right now.
+pub fn paste_key_code() -> u16 {
+    key_code_for('v', QWERTY_V)
+}
+
+/// The key that types `letter` on the keyboard layout in use right now, or
+/// `fallback` (its QWERTY position) if the layout cannot be read.
 ///
 /// Apps match Cmd shortcuts by the letter a key produces, not its position.
 /// On Dvorak, for example, the QWERTY V key produces K, so pressing it with
 /// Cmd would not paste. Main thread only.
-pub fn paste_key_code() -> u16 {
+fn key_code_for(letter: char, fallback: u16) -> u16 {
     const KEY_DOWN: u16 = 0;
     const NO_DEAD_KEYS: u32 = 1;
     const COMMAND: u32 = 1; // cmdKey >> 8
@@ -61,7 +67,7 @@ pub fn paste_key_code() -> u16 {
     unsafe {
         let source = TISCopyCurrentKeyboardLayoutInputSource();
         if source.is_null() {
-            return QWERTY_V;
+            return fallback;
         }
         let data = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData);
         let layout = if data.is_null() { std::ptr::null() } else { CFDataGetBytePtr(data) };
@@ -87,7 +93,7 @@ pub fn paste_key_code() -> u16 {
                         &mut length,
                         chars.as_mut_ptr(),
                     );
-                    if status == 0 && length == 1 && chars[0] == 'v' as u16 {
+                    if status == 0 && length == 1 && chars[0] == letter as u16 {
                         found = Some(key_code);
                         break 'search;
                     }
@@ -95,7 +101,7 @@ pub fn paste_key_code() -> u16 {
             }
         }
         CFRelease(source);
-        found.unwrap_or(QWERTY_V)
+        found.unwrap_or(fallback)
     }
 }
 
@@ -170,10 +176,80 @@ pub fn restore_clipboard(saved: Saved, our_change_count: isize) {
     pasteboard.writeObjects(&NSArray::from_retained_slice(&objects));
 }
 
+/// Key code of the C key on a QWERTY layout.
+const QWERTY_C: u16 = 8;
+
+/// Press and release Cmd+C in the focused app.
+fn press_copy() -> Result<(), String> {
+    press_with_command(key_code_for('c', QWERTY_C))
+}
+
+thread_local! {
+    /// The clipboard as it was before a copy probe, to put back afterwards.
+    static PROBE: std::cell::RefCell<Option<Saved>> = const { std::cell::RefCell::new(None) };
+}
+
+/// First half of reading the selection by copying it: remember the
+/// clipboard, empty it, and press Cmd+C. Returns the pasteboard's change
+/// count, which only moves on if the app really copied something.
+pub fn begin_copy_probe() -> Result<isize, String> {
+    // A paste from a moment ago may still be waiting to put the user's
+    // clipboard back. Do that now, or the text just pasted would be saved
+    // below as if it were theirs.
+    restore_staged();
+    let saved = save_clipboard();
+    let pasteboard = NSPasteboard::generalPasteboard();
+    let emptied = pasteboard.clearContents();
+    PROBE.with(|slot| *slot.borrow_mut() = Some(saved));
+    if let Err(e) = press_copy() {
+        // Nothing was copied, and the clipboard must not stay empty.
+        end_copy_probe(emptied);
+        return Err(e);
+    }
+    Ok(emptied)
+}
+
+/// Has the app answered the probe's Cmd+C yet?
+pub fn copy_probe_landed(emptied: isize) -> bool {
+    NSPasteboard::generalPasteboard().changeCount() != emptied
+}
+
+/// The pasteboard type some code editors add to say how a copy came about.
+const EDITOR_DATA: &str = "vscode-editor-data";
+
+/// True when the editor says it copied a whole line because nothing was
+/// selected. That is not a selection, and must not be treated as one.
+fn copied_without_selection(pasteboard: &NSPasteboard) -> bool {
+    pasteboard
+        .stringForType(&NSString::from_str(EDITOR_DATA))
+        .is_some_and(|data| data.to_string().replace(' ', "").contains("\"isFromEmptySelection\":true"))
+}
+
+/// Second half, a moment later: take whatever the app copied and put the
+/// user's clipboard back. `None` means nothing was selected.
+pub fn end_copy_probe(emptied: isize) -> Option<String> {
+    let pasteboard = NSPasteboard::generalPasteboard();
+    let copied = (pasteboard.changeCount() != emptied)
+        .then(|| pasteboard.stringForType(unsafe { NSPasteboardTypeString }))
+        .flatten()
+        .map(|s| s.to_string())
+        .filter(|s| !s.trim().is_empty())
+        .filter(|_| !copied_without_selection(&pasteboard));
+    if let Some(saved) = PROBE.with(|slot| slot.borrow_mut().take()) {
+        // Whatever is there now is ours or the probe's; the user's comes back.
+        restore_clipboard(saved, pasteboard.changeCount());
+    }
+    copied
+}
+
 /// Press and release Cmd+V. Requires the Accessibility permission; without it
 /// macOS silently drops the events.
 pub fn press_paste() -> Result<(), String> {
-    let key_code = paste_key_code();
+    press_with_command(paste_key_code())
+}
+
+/// Press and release one key with Cmd held, and nothing else.
+fn press_with_command(key_code: u16) -> Result<(), String> {
     let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
         .map_err(|_| "Could not create a keyboard event source.".to_string())?;
     for key_down in [true, false] {
