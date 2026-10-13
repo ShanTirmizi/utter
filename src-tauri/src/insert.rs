@@ -104,3 +104,69 @@ pub fn press_paste() -> Result<(), String> {
     }
     Ok(())
 }
+
+thread_local! {
+    /// The clipboard contents waiting to be restored after a paste, with the
+    /// change count of our own write. Main thread only, like the pasteboard.
+    static STAGED: std::cell::RefCell<Option<(Saved, isize)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Step 1 of a paste: remember the clipboard and replace it with `text`.
+pub fn stage(text: &str) {
+    // If an earlier paste has not been undone yet, undo it first so that the
+    // user's own clipboard, not our previous text, is what gets remembered.
+    restore_staged();
+    let saved = save_clipboard();
+    let change_count = set_clipboard_text(text, true);
+    STAGED.with(|slot| *slot.borrow_mut() = Some((saved, change_count)));
+}
+
+/// Step 3 of a paste (step 2 is `press_paste`): put the clipboard back.
+pub fn restore_staged() {
+    if let Some((saved, change_count)) = STAGED.with(|slot| slot.borrow_mut().take()) {
+        restore_clipboard(saved, change_count);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn clipboard_text() -> Option<String> {
+        NSPasteboard::generalPasteboard()
+            .stringForType(unsafe { NSPasteboardTypeString })
+            .map(|s| s.to_string())
+    }
+
+    /// Run with `cargo test -- --ignored`. It briefly replaces the real
+    /// clipboard, then puts back whatever was there.
+    #[test]
+    #[ignore = "uses the real system clipboard"]
+    fn a_paste_puts_the_original_clipboard_back() {
+        let before_test = save_clipboard();
+
+        // Normal case: our text is staged, then the original returns.
+        set_clipboard_text("what the user had copied", false);
+        stage("dictated text ");
+        assert_eq!(clipboard_text().as_deref(), Some("dictated text "));
+        restore_staged();
+        assert_eq!(clipboard_text().as_deref(), Some("what the user had copied"));
+
+        // Two dictations back to back must still restore the user's text,
+        // not the first dictation.
+        stage("first dictation ");
+        stage("second dictation ");
+        restore_staged();
+        assert_eq!(clipboard_text().as_deref(), Some("what the user had copied"));
+
+        // If the user copies something new before we restore, theirs wins.
+        stage("dictated text ");
+        set_clipboard_text("something newer", false);
+        restore_staged();
+        assert_eq!(clipboard_text().as_deref(), Some("something newer"));
+
+        let ours = set_clipboard_text("", false);
+        restore_clipboard(before_test, ours);
+    }
+}

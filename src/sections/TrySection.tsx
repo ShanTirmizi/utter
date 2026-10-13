@@ -32,6 +32,7 @@ export default function TrySection({ hotkey }: { hotkey: string }) {
     <section className="card">
       <h2>Try it</h2>
       <p className="muted">Hold {keycaps(hotkey).join(" ")} and say something.</p>
+      <textarea rows={3} placeholder="Click here, then dictate. The text lands wherever your cursor is." />
       <div className="row">
         <span className={`status status-${phase}`}>{LABELS[phase]}</span>
         {message && <span className="muted small">{message}</span>}

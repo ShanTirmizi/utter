@@ -1,7 +1,7 @@
 //! The dictation pipeline, driven by the hotkey:
 //!
 //!   key down -> note the focused app -> record
-//!   key up   -> transcribe -> clean up (optional) -> (insertion arrives next)
+//!   key up   -> transcribe -> clean up (optional) -> paste into the focused app
 //!
 //! All the state for "what is Utter doing right now" lives here, so there is
 //! exactly one place that decides what a key press means.
@@ -10,13 +10,13 @@ use crate::{
     audio::{self, Recorder, TARGET_RATE},
     cleanup,
     context::{self, AppContext},
-    models, secrets, settings,
+    insert, models, permissions, secrets, settings,
     transcribe::{SILENCE_PEAK, Transcriber},
 };
 use serde::Serialize;
 use std::{
-    sync::{Arc, Mutex},
-    time::Instant,
+    sync::{Arc, Mutex, mpsc},
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -40,6 +40,9 @@ pub struct Dictation {
     pub text: String,
     /// True when `text` came from the cleanup model rather than being `raw`.
     pub cleaned: bool,
+    /// True when the text was pasted for the user; false when it was only
+    /// copied to the clipboard.
+    pub inserted: bool,
     /// Anything the user should know, such as why cleanup was skipped.
     pub note: Option<String>,
     /// The app that had focus when the hotkey went down.
@@ -61,8 +64,8 @@ pub struct Pipeline {
     recorder: Recorder,
     transcriber: Arc<Transcriber>,
     phase: Mutex<Phase>,
-    /// The app to type into, captured at key-down so that a slow transcription
-    /// cannot be misdirected by the user switching apps meanwhile.
+    /// The app in focus at key-down. It decides the writing style; the paste
+    /// itself goes to whatever has focus when the text is ready.
     target: Mutex<AppContext>,
     last: Mutex<Option<Dictation>>,
 }
@@ -199,11 +202,14 @@ async fn process(app: &AppHandle, samples: Vec<f32>) -> Result<Option<Dictation>
 
     let target = app.state::<Pipeline>().target.lock().unwrap().clone();
     let tidied = tidy_up(&raw, &target, settings.cleanup_enabled).await;
+    let (inserted, delivery_note) = deliver(app, &tidied.text).await?;
 
     Ok(Some(Dictation {
         text: tidied.text,
         cleaned: tidied.cleaned,
-        note: tidied.note,
+        inserted,
+        // A delivery problem matters more to the user than a cleanup one.
+        note: delivery_note.or(tidied.note),
         cleanup_ms: tidied.ms,
         raw,
         app: target,
@@ -251,5 +257,72 @@ async fn tidy_up(raw: &str, target: &AppContext, enabled: bool) -> Tidied {
             ms,
         },
         Err(e) => untouched(Some(format!("Cleanup skipped: {e}")), ms),
+    }
+}
+
+/// Run `work` on the main thread and wait for its result. The pasteboard must
+/// only be touched from there.
+fn on_main<T: Send + 'static>(
+    app: &AppHandle,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    let (reply, result) = mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = reply.send(work());
+    })
+    .map_err(|e| e.to_string())?;
+    result.recv().map_err(|e| e.to_string())
+}
+
+/// Get the text into the focused app. Returns whether it was pasted, plus a
+/// note when it could only be copied.
+///
+/// Fallback: if Utter may not press keys (Accessibility is off) or a password
+/// field has locked keyboard input, the text is left on the clipboard for the
+/// user to paste, so nothing dictated is ever lost.
+async fn deliver(app: &AppHandle, text: &str) -> Result<(bool, Option<String>), String> {
+    let blocked = if !permissions::accessibility() {
+        Some("Accessibility is off")
+    } else if permissions::secure_input_active() {
+        Some("a password field is active")
+    } else {
+        None
+    };
+    if let Some(reason) = blocked {
+        let plain = text.to_string();
+        on_main(app, move || insert::set_clipboard_text(&plain, false))?;
+        return Ok((
+            false,
+            Some(format!("Copied to the clipboard ({reason}). Press ⌘V to paste.")),
+        ));
+    }
+
+    // A trailing space lets the next dictation follow on without running the
+    // two together.
+    let spaced = if text.ends_with(char::is_whitespace) {
+        text.to_string()
+    } else {
+        format!("{text} ")
+    };
+    on_main(app, move || insert::stage(&spaced))?;
+    // Give the system a moment to publish the new clipboard before pasting.
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    on_main(app, insert::press_paste)??;
+
+    // Put the user's clipboard back once the target app has had time to read
+    // ours. This runs on its own so the pipeline is free for the next press.
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let _ = on_main(&app, insert::restore_staged);
+    });
+    Ok((true, None))
+}
+
+/// Put the most recent dictation on the clipboard. Called from the tray menu,
+/// whose handler already runs on the main thread.
+pub fn copy_last(app: &AppHandle) {
+    if let Some(last) = app.state::<Pipeline>().last() {
+        insert::set_clipboard_text(&last.text, false);
     }
 }

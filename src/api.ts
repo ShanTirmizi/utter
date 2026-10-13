@@ -28,6 +28,8 @@ export type Dictation = {
   text: string;
   /** True when the text went through the cleanup model. */
   cleaned: boolean;
+  /** True when pasted for you; false when only copied to the clipboard. */
+  inserted: boolean;
   note: string | null;
   app: AppContext;
   transcribeMs: number;
