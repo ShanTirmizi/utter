@@ -23,3 +23,12 @@ export type PipelineUpdate = {
   phase: "idle" | "recording" | "processing" | "done" | "error";
   message: string | null;
 };
+
+export type MicStatus = "undetermined" | "granted" | "denied";
+export type PermissionStatus = { microphone: MicStatus; accessibility: boolean };
+
+export const permissionStatus = () => invoke<PermissionStatus>("permission_status");
+export const requestMicrophone = () => invoke<void>("request_microphone");
+export const requestAccessibility = () => invoke<boolean>("request_accessibility");
+export const openPrivacySettings = (pane: "microphone" | "accessibility") =>
+  invoke<void>("open_privacy_settings", { pane });

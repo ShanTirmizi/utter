@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { getSettings, saveSettings, type Settings } from "./api";
 import CleanupSection from "./sections/CleanupSection";
 import HotkeySection from "./sections/HotkeySection";
+import PermissionsSection from "./sections/PermissionsSection";
 import TrySection from "./sections/TrySection";
+import Welcome from "./Welcome";
 import "./App.css";
 
 export default function App() {
@@ -23,6 +25,11 @@ export default function App() {
 
   if (!settings) return null;
 
+  // First launch: explain the permissions before anything else.
+  if (!settings.onboarded) {
+    return <Welcome onDone={() => update({ onboarded: true })} />;
+  }
+
   return (
     <main className="page">
       <header>
@@ -35,6 +42,7 @@ export default function App() {
         enabled={settings.cleanupEnabled}
         onToggle={(cleanupEnabled) => update({ cleanupEnabled })}
       />
+      <PermissionsSection />
     </main>
   );
 }

@@ -4,6 +4,7 @@
 
 mod audio;
 mod hotkey;
+mod permissions;
 mod pipeline;
 mod secrets;
 mod settings;
@@ -47,6 +48,28 @@ fn delete_api_key() -> Result<(), String> {
     secrets::delete()
 }
 
+#[tauri::command]
+fn permission_status() -> permissions::PermissionStatus {
+    permissions::status()
+}
+
+/// Briefly open the microphone so macOS shows its permission prompt.
+#[tauri::command]
+fn request_microphone(app: AppHandle) {
+    std::thread::spawn(move || app.state::<pipeline::Pipeline>().probe_microphone());
+}
+
+/// Show the system dialog that leads to the Accessibility settings pane.
+#[tauri::command]
+fn request_accessibility() -> bool {
+    permissions::prompt_accessibility()
+}
+
+#[tauri::command]
+fn open_privacy_settings(pane: String) -> Result<(), String> {
+    permissions::open_settings(&pane)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -66,6 +89,10 @@ pub fn run() {
             has_api_key,
             set_api_key,
             delete_api_key,
+            permission_status,
+            request_microphone,
+            request_accessibility,
+            open_privacy_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Utter");
