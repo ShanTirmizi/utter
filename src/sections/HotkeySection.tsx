@@ -1,63 +1,249 @@
 import { useEffect, useState } from "react";
-import { fromKeyEvent, keycaps } from "../hotkey";
+import type { Mode } from "../api";
+import { fromKeyEvent, heldIds, hotkeyLabel } from "../hotkey";
+import { useApp } from "../state";
+import { Keycaps, Notice } from "../ui";
 
-type Props = {
-  hotkey: string;
-  onChange: (hotkey: string) => Promise<void>;
+const DEFAULT_HOTKEY: Record<Mode, string> = {
+  tidy: "Control+Alt+Space",
+  rewrite: "Control+Alt+KeyR",
 };
 
-export default function HotkeySection({ hotkey, onChange }: Props) {
+type Outcome = { kind: "saved" } | { kind: "bad"; attempt: string; message: string } | null;
+
+/** The keys held right now, by hotkey id ("Control", "Alt", "Space", "KeyR"). */
+function useHeldKeys(): Set<string> {
+  const [held, setHeld] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => setHeld(new Set(heldIds(e, true)));
+    const onUp = (e: KeyboardEvent) => setHeld(new Set(heldIds(e, false)));
+    const clear = () => setHeld(new Set());
+    window.addEventListener("keydown", onDown);
+    window.addEventListener("keyup", onUp);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keydown", onDown);
+      window.removeEventListener("keyup", onUp);
+      window.removeEventListener("blur", clear);
+    };
+  }, []);
+  return held;
+}
+
+export default function HotkeySection() {
+  const { settings } = useApp();
+  const held = useHeldKeys();
   return (
-    <section className="card">
-      <h2>Hotkey</h2>
-      <p className="muted">Hold it while you speak. Let go to finish.</p>
-      <HotkeyField hotkey={hotkey} onChange={onChange} />
-    </section>
+    <>
+      <div className="sechead">
+        <h2 className="h">Hotkey</h2>
+      </div>
+      <HotkeyStage which="tidy" held={held} />
+      <HotkeyStage which="rewrite" held={held} />
+      <ul className="rules">
+        <li>
+          <b>Hold</b>
+          <span>Listening starts once every key is down.</span>
+        </li>
+        <li>
+          <b>Let go</b>
+          <span>Text goes in wherever your cursor is.</span>
+        </li>
+        <li>
+          <b>Quick tap</b>
+          <span>Ignored, with a “Nothing heard” note.</span>
+        </li>
+        {settings.rewriteHotkey && (
+          <li>
+            <b>Rewrite</b>
+            <span>Hold {hotkeyLabel(settings.rewriteHotkey)} instead and Utter rewords what you said.</span>
+          </li>
+        )}
+      </ul>
+    </>
   );
 }
 
-/** Shows a hotkey as keycaps, with a button to record a new one. */
-export function HotkeyField({ hotkey, onChange }: Props) {
-  const [capturing, setCapturing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * One hotkey as keycaps, with a way to record a new one. `tidy` is the main
+ * dictation hotkey; `rewrite` is the optional second one, drawn a size down.
+ */
+function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
+  const app = useApp();
+  const { settings, live } = app;
+  const main = which === "tidy";
+  const field = main ? "hotkey" : "rewriteHotkey";
+  const hotkey = settings[field];
+  const other = main ? settings.rewriteHotkey : settings.hotkey;
+  const capturing = app.capturing === which;
+  const [outcome, setOutcome] = useState<Outcome>(null);
 
-  // While capturing, the next valid key combination becomes the hotkey.
+  const save = (next: string) => {
+    const label = hotkeyLabel(next);
+    const parts = next.split("+");
+    if (next === other) {
+      const use = main ? "rewriting" : "dictating";
+      return setOutcome({ kind: "bad", attempt: next, message: `It is already your hotkey for ${use}.` });
+    }
+    if (parts.length === 2 && parts[0] === "Shift") {
+      return setOutcome({
+        kind: "bad",
+        attempt: next,
+        message: `You could no longer type that character. Add ⌃, ⌥ or ⌘ to ${label}.`,
+      });
+    }
+    app
+      .update({ [field]: next })
+      .then(() => setOutcome({ kind: "saved" }))
+      .catch((err) => setOutcome({ kind: "bad", attempt: next, message: String(err) }));
+  };
+
+  // While recording, the next valid key combination becomes the hotkey.
   useEffect(() => {
     if (!capturing) return;
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
-      if (e.code === "Escape") {
-        setCapturing(false);
-        return;
-      }
+      if (e.code === "Escape") return app.setCapturing(null);
       const next = fromKeyEvent(e);
       if (!next) return;
-      setCapturing(false);
-      onChange(next)
-        .then(() => setError(null))
-        .catch((err) => setError(String(err)));
+      app.setCapturing(null);
+      save(next);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [capturing, onChange]);
+    // `app` is new on every render, so the listener always sees current settings.
+  }, [capturing, app]);
+
+  const record = () => {
+    setOutcome(null);
+    app.setCapturing(which);
+  };
+
+  // Keys light up while held. The system keeps the last key of a registered
+  // hotkey to itself, so the pipeline starting to listen stands in for it.
+  const firing = live.phase === "recording" && live.mode === which;
+  const down = new Set(firing ? hotkey.split("+") : held);
+
+  const modifiersHeld = ["Control", "Alt", "Shift", "Super"].filter((m) => held.has(m));
+  const stageClass = ["card", "keystage", main ? "" : "compact", capturing ? "rec" : "", outcome?.kind === "bad" ? "bad" : ""];
 
   return (
     <>
-      <div className="row">
-        <div className="keycaps" aria-label={`Current hotkey: ${hotkey}`}>
+      {main && (
+        <p className="sub">
+          {capturing || outcome?.kind === "bad"
+            ? "Hold the keys you want, all together, then let go."
+            : "Hold it to dictate. Let go to insert the text."}
+        </p>
+      )}
+
+      <div className={stageClass.join(" ")}>
+        {!main && <span className="stagelabel">Rewrite hotkey</span>}
+        {capturing && <span className="recdot">Recording</span>}
+
+        {capturing ? (
+          <Keycaps hotkey={modifiersHeld.join("+")} down={new Set(modifiersHeld)} small={!main} ghost />
+        ) : outcome?.kind === "bad" ? (
+          <Keycaps hotkey={outcome.attempt} look="bad" small={!main} />
+        ) : hotkey ? (
+          <Keycaps key={hotkey} hotkey={hotkey} down={down} look={outcome?.kind === "saved" ? "pop" : undefined} small={!main} />
+        ) : (
+          <div className="keys">
+            <kbd className="key sm wide off">Off</kbd>
+          </div>
+        )}
+
+        <p className="hint">
           {capturing ? (
-            <span className="muted">Press the new combination… (Esc to cancel)</span>
-          ) : hotkey ? (
-            keycaps(hotkey).map((cap, i) => <kbd key={i}>{cap}</kbd>)
+            <>
+              {modifiersHeld.length > 0
+                ? `Holding ${hotkeyLabel(modifiersHeld.join("+"))}. Add one more key. `
+                : "Hold at least one of ⌃ ⌥ ⌘, then one other key. "}
+              <kbd className="k">esc</kbd> cancels.
+            </>
+          ) : outcome?.kind === "bad" ? (
+            "Not saved."
+          ) : !hotkey ? (
+            "Rewriting is off. Set a hotkey to turn it on."
+          ) : main ? (
+            "Press it now to check it. Keys light up while held."
           ) : (
-            <span className="muted">Not set</span>
+            "Hold this one instead and Utter rewords what you said, in the style set under Cleanup."
+          )}
+        </p>
+
+        {!main && !capturing && outcome?.kind !== "bad" && (
+          <div className="stageacts">
+            <button className="btn sm" onClick={record}>
+              {hotkey ? "Record new hotkey" : "Set a rewrite hotkey"}
+            </button>
+            {hotkey && (
+              <button
+                className="btn sm quiet"
+                onClick={() => {
+                  setOutcome(null);
+                  app.update({ rewriteHotkey: "" });
+                }}
+              >
+                Turn off
+              </button>
+            )}
+          </div>
+        )}
+        {!main && capturing && (
+          <div className="stageacts">
+            <button className="btn sm" onClick={() => app.setCapturing(null)}>
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+
+      {outcome?.kind === "bad" && (
+        <>
+          <Notice tone="bad">
+            <b>{hotkeyLabel(outcome.attempt)} can’t be used.</b> {outcome.message}
+          </Notice>
+          <div className="acts">
+            <button className="btn primary" onClick={record}>
+              Try again
+            </button>
+            <button className="btn" onClick={() => setOutcome(null)}>
+              {hotkey ? `Keep ${hotkeyLabel(hotkey)}` : "Leave it off"}
+            </button>
+          </div>
+        </>
+      )}
+
+      {outcome?.kind === "saved" && hotkey && (
+        <Notice tone="ok">
+          <b>Saved.</b> Hold {hotkeyLabel(hotkey)} to {main ? "dictate" : "rewrite"}, in any app.
+        </Notice>
+      )}
+
+      {main && outcome?.kind !== "bad" && (
+        <div className="acts">
+          {capturing ? (
+            <>
+              <button className="btn" onClick={() => app.setCapturing(null)}>
+                Cancel
+              </button>
+              <span className="hint">{hotkeyLabel(hotkey)} keeps working until a new hotkey is saved.</span>
+            </>
+          ) : (
+            <>
+              <button className="btn" onClick={record}>
+                Record new hotkey
+              </button>
+              {hotkey !== DEFAULT_HOTKEY.tidy && DEFAULT_HOTKEY.tidy !== other && (
+                <button className="btn quiet" onClick={() => save(DEFAULT_HOTKEY.tidy)}>
+                  Reset to {hotkeyLabel(DEFAULT_HOTKEY.tidy)}
+                </button>
+              )}
+            </>
           )}
         </div>
-        <button onClick={() => setCapturing((c) => !c)}>
-          {capturing ? "Cancel" : hotkey ? "Change" : "Set"}
-        </button>
-      </div>
-      {error && <p className="error">{error}</p>}
+      )}
     </>
   );
 }

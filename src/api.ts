@@ -71,6 +71,12 @@ export type Dictation = {
   app: AppContext;
   transcribeMs: number;
   cleanupMs: number | null;
+  /** How long the hotkey was held. */
+  spokenMs: number;
+  /** From letting go of the hotkey to the text being delivered. */
+  totalMs: number;
+  /** When it finished, in milliseconds since 1970. */
+  finishedAt: number;
 };
 
 export type AppContext = {
@@ -82,12 +88,23 @@ export type AppContext = {
 /** Tidy keeps your wording; rewrite says it better. One hotkey each. */
 export type Mode = "tidy" | "rewrite";
 
+/** What "processing" is doing right now. */
+export type Stage = "transcribing" | "tidying" | "rewriting";
+
 export type PipelineUpdate = {
   phase: "idle" | "recording" | "processing" | "done" | "error";
   mode: Mode;
+  /** Set while processing. */
+  stage: Stage | null;
+  /** The app being dictated into, once known. */
+  app: AppContext | null;
   message: string | null;
   dictation: Dictation | null;
 };
+
+// While recording, the "audio-level" event carries the microphone level about
+// twenty times a second: one number from 0 (silence) to 1 (loud speech).
+export type AudioLevel = number;
 
 export const lastDictation = () => invoke<Dictation | null>("last_dictation");
 

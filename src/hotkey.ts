@@ -40,3 +40,40 @@ export function fromKeyEvent(e: KeyboardEvent): string | null {
   parts.push(e.code);
   return parts.join("+");
 }
+
+const MODIFIER_NAMES: Record<string, string> = {
+  Control: "Control",
+  Alt: "Option",
+  Shift: "Shift",
+  Super: "Command",
+};
+
+/** One key of a hotkey, ready to draw: "⌥" with "Option" underneath. */
+export type KeyPart = { id: string; cap: string; name: string | null; wide: boolean };
+
+export function keyParts(hotkey: string): KeyPart[] {
+  if (!hotkey) return [];
+  const caps = keycaps(hotkey);
+  return hotkey.split("+").map((id, i) => ({
+    id,
+    cap: caps[i],
+    name: MODIFIER_NAMES[id] ?? null,
+    wide: caps[i].length > 2,
+  }));
+}
+
+/** "⌃ ⌥ Space", for sentences. */
+export function hotkeyLabel(hotkey: string): string {
+  return keycaps(hotkey).join(" ");
+}
+
+/** The parts of a hotkey that a key event shows as held, by id. */
+export function heldIds(e: KeyboardEvent, down: boolean): string[] {
+  const held: string[] = [];
+  if (e.ctrlKey) held.push("Control");
+  if (e.altKey) held.push("Alt");
+  if (e.shiftKey) held.push("Shift");
+  if (e.metaKey) held.push("Super");
+  if (down && !MODIFIER_CODES.has(e.code)) held.push(e.code);
+  return held;
+}

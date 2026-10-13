@@ -2,19 +2,20 @@ import { useCallback, useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   deleteApiKey,
-  hasApiKey,
   listCleanupModels,
-  providers as loadProviders,
+  rewriteStyles,
   setApiKey,
   testCleanup,
+  testRewrite,
   type Provider,
-  type Settings,
+  type RewriteStyle,
 } from "../api";
+import { hotkeyLabel } from "../hotkey";
+import { cleanupGap } from "../readiness";
+import { shortName, useApp } from "../state";
+import { IconLock, Notice, seconds, Switch } from "../ui";
 
-type Props = {
-  settings: Settings;
-  update: (change: Partial<Settings>) => Promise<void>;
-};
+type Result = { tone: "ok" | "bad" | "info"; title: string; body: string } | null;
 
 /** "https://api.example.com/v1" -> "api.example.com" */
 function host(url: string): string {
@@ -25,49 +26,69 @@ function host(url: string): string {
   }
 }
 
-export default function CleanupSection({ settings, update }: Props) {
-  const [catalog, setCatalog] = useState<Provider[]>([]);
-  const [hasKey, setHasKey] = useState(false);
+/** What each provider asks of you, in three words. */
+function providerNote(p: Provider): string {
+  if (p.id === "custom") return "Any compatible URL";
+  return p.needsKey ? "API key" : "This Mac, no key";
+}
+
+/**
+ * The language model: whether dictations are tidied, which service does it,
+ * and how the rewrite hotkey rewords things. The key field is one-way; a
+ * stored key is never shown, only removed.
+ */
+export default function CleanupSection() {
+  const app = useApp();
+  const { settings, update, provider, hasKey, setHasKey, setCleanupFault } = app;
   const [keyDraft, setKeyDraft] = useState("");
   const [modelDraft, setModelDraft] = useState(settings.cleanupModel);
   const [urlDraft, setUrlDraft] = useState(settings.baseUrl);
   const [models, setModels] = useState<string[]>([]);
-  const [message, setMessage] = useState<string | null>(null);
+  const [result, setResult] = useState<Result>(null);
+  const [busy, setBusy] = useState<"test" | "list" | null>(null);
 
-  const provider = catalog.find((p) => p.id === settings.provider);
+  const rewriteOn = settings.rewriteHotkey !== "";
+  // The rewrite hotkey uses this setup too, so it stays live while either is on.
+  const inUse = settings.cleanupEnabled || rewriteOn;
   const ready = provider ? !provider.needsKey || hasKey : false;
   const baseUrl = provider?.baseUrl || settings.baseUrl;
-
-  useEffect(() => {
-    loadProviders().then(setCatalog);
-  }, []);
+  const model = settings.cleanupModel || provider?.defaultModel || "";
+  const gap = cleanupGap(app);
 
   const refreshModels = useCallback(async (announce: boolean) => {
+    if (announce) setBusy("list");
     try {
       const found = await listCleanupModels();
       setModels(found);
-      if (announce) setMessage(`Found ${found.length} models.`);
+      if (announce) {
+        setResult({
+          tone: "info",
+          title: `Found ${found.length} ${found.length === 1 ? "model" : "models"}.`,
+          body: "Click the model box to pick one.",
+        });
+      }
     } catch (err) {
       setModels([]);
-      if (announce) setMessage(String(err));
+      if (announce) setResult({ tone: "bad", title: "Couldn’t list models.", body: String(err) });
     }
+    if (announce) setBusy(null);
   }, []);
 
   // Each provider has its own key, model and model list.
   useEffect(() => {
     setKeyDraft("");
     setModels([]);
-    setMessage(null);
+    setResult(null);
     setModelDraft(settings.cleanupModel);
-    hasApiKey(settings.provider).then(setHasKey);
   }, [settings.provider, settings.cleanupModel]);
 
   // Offer the provider's models as soon as it can be asked for them.
   useEffect(() => {
-    if (ready && baseUrl) refreshModels(false);
-  }, [ready, baseUrl, settings.provider, refreshModels]);
+    if (inUse && ready && baseUrl) refreshModels(false);
+  }, [inUse, ready, baseUrl, settings.provider, refreshModels]);
 
   if (!provider) return null;
+  const name = shortName(provider.label);
 
   const saveKey = async () => {
     try {
@@ -75,9 +96,10 @@ export default function CleanupSection({ settings, update }: Props) {
       // Drop the key from the page as soon as it is in the Keychain.
       setKeyDraft("");
       setHasKey(true);
-      setMessage("Saved to your Keychain.");
+      setCleanupFault(null);
+      setResult(null);
     } catch (err) {
-      setMessage(String(err));
+      setResult({ tone: "bad", title: "The key was not saved.", body: String(err) });
     }
   };
 
@@ -85,7 +107,7 @@ export default function CleanupSection({ settings, update }: Props) {
     await deleteApiKey(provider.id);
     setHasKey(false);
     setModels([]);
-    setMessage("Key removed.");
+    setResult(null);
   };
 
   const saveModel = async (value: string) => {
@@ -97,157 +119,340 @@ export default function CleanupSection({ settings, update }: Props) {
     if (urlDraft.trim() === settings.baseUrl) return;
     try {
       await update({ baseUrl: urlDraft.trim() });
-      setMessage(null);
+      setResult(null);
     } catch (err) {
-      setMessage(String(err));
+      setResult({ tone: "bad", title: "That address can’t be used.", body: String(err) });
     }
   };
 
   const test = async () => {
-    setMessage("Testing…");
+    setBusy("test");
+    setResult(null);
+    const started = performance.now();
     try {
-      setMessage(`Works. Sample came back as: “${await testCleanup()}”`);
+      const sample = await testCleanup();
+      setCleanupFault(null);
+      setResult({
+        tone: "ok",
+        title: "Works.",
+        body: `${name} tidied a test sentence in ${seconds(performance.now() - started)}: “${sample}”`,
+      });
     } catch (err) {
-      setMessage(String(err));
+      setCleanupFault(String(err));
+      setResult({ tone: "bad", title: "The test failed.", body: String(err) });
     }
+    setBusy(null);
   };
 
-  const model = settings.cleanupModel || provider.defaultModel;
-
   return (
-    <section className="card">
-      <h2>Cleanup</h2>
-      <p className="muted">
-        Removes filler words, fixes punctuation and matches the style of the app you are
-        typing in. Optional: without it you get the raw transcription.
+    <>
+      <div className="sechead">
+        <h2 className="h">Cleanup</h2>
+        <Switch
+          label="Clean up dictations"
+          checked={settings.cleanupEnabled}
+          onChange={(cleanupEnabled) => update({ cleanupEnabled })}
+        />
+      </div>
+      <p className="sub">
+        A language model tidies each dictation: drops filler words, fixes punctuation and matches the app
+        you’re in. When it’s off or it fails, the raw text goes in.
       </p>
 
-      <label className="row toggle">
-        <span>Clean up dictations</span>
-        <input
-          type="checkbox"
-          checked={settings.cleanupEnabled}
-          onChange={(e) => update({ cleanupEnabled: e.target.checked })}
-        />
-      </label>
+      {!settings.cleanupEnabled && <Example />}
 
-      <h3>Provider</h3>
-      <div className="row">
-        <select
-          value={provider.id}
-          onChange={(e) => update({ provider: e.target.value, cleanupModel: "" })}
-        >
-          {catalog.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
+      <div className="field">
+        <span className="flabel">Provider</span>
+        <div className={`provs ${inUse ? "" : "dimmed"}`} role="group" aria-label="Provider" aria-hidden={!inUse}>
+          {app.catalog.map((p) => (
+            <button
+              key={p.id}
+              className="pchip"
+              aria-pressed={inUse && p.id === provider.id}
+              tabIndex={inUse ? 0 : -1}
+              onClick={() => p.id !== provider.id && update({ provider: p.id, cleanupModel: "" })}
+            >
+              <b>{shortName(p.label)}</b>
+              <span>{providerNote(p)}</span>
+            </button>
           ))}
-        </select>
+        </div>
       </div>
 
-      {provider.id === "custom" && (
+      {!inUse ? (
+        <p className="hint">Turn cleanup on to choose a provider.</p>
+      ) : (
         <>
-          <h3>Base URL</h3>
-          <div className="row">
-            <input
-              type="text"
-              placeholder="https://api.example.com/v1"
-              value={urlDraft}
-              spellCheck={false}
-              onChange={(e) => setUrlDraft(e.target.value)}
-              onBlur={saveUrl}
-            />
-          </div>
-        </>
-      )}
+          {!settings.cleanupEnabled && (
+            <p className="hint">
+              Cleanup is off, but the rewrite hotkey ({hotkeyLabel(settings.rewriteHotkey)}) uses this provider
+              and model.
+            </p>
+          )}
 
-      {provider.needsKey && (
-        <>
-          <h3>API key</h3>
-          {hasKey ? (
-            <div className="row">
-              <span className="ok">A key is stored in your Keychain.</span>
-              <button onClick={removeKey}>Remove</button>
-            </div>
-          ) : (
-            <div className="row">
+          {provider.id === "custom" && (
+            <label className="field">
+              <span className="flabel">Base URL</span>
               <input
-                type="password"
-                placeholder="Paste your key"
-                value={keyDraft}
-                autoComplete="off"
+                className="input mono"
+                type="text"
+                placeholder="https://api.example.com/v1"
+                value={urlDraft}
                 spellCheck={false}
-                onChange={(e) => setKeyDraft(e.target.value)}
+                onChange={(e) => setUrlDraft(e.target.value)}
+                onBlur={saveUrl}
               />
-              <button className="primary" disabled={!keyDraft.trim()} onClick={saveKey}>
-                Save
-              </button>
+            </label>
+          )}
+
+          {provider.needsKey && (
+            <div className="field">
+              <div className="flabel">
+                API key
+                {!hasKey && provider.keyUrl && (
+                  <button className="link" onClick={() => openUrl(provider.keyUrl)}>
+                    Get {/^[AEIOU]/.test(name) ? "an" : "a"} {name} key ↗
+                  </button>
+                )}
+              </div>
+              {hasKey ? (
+                <div className="stored">
+                  <IconLock />
+                  <span>A key is stored for {name}.</span>
+                  <button className="btn sm" onClick={removeKey}>
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="frow">
+                  <label style={{ flex: 1 }}>
+                    <span className="sr">{name} API key</span>
+                    <input
+                      className="input mono"
+                      type="password"
+                      placeholder={`Paste your ${name} key`}
+                      value={keyDraft}
+                      autoComplete="off"
+                      spellCheck={false}
+                      onChange={(e) => setKeyDraft(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && keyDraft.trim() && saveKey()}
+                    />
+                  </label>
+                  <button className="btn primary" disabled={!keyDraft.trim()} onClick={saveKey}>
+                    Save
+                  </button>
+                </div>
+              )}
+              <p className="hint">
+                Kept in the macOS Keychain and sent only to {host(baseUrl)}. Once saved it can’t be shown
+                again, only removed.
+              </p>
             </div>
           )}
-          <p className="muted small">
-            Stored only in the macOS Keychain and sent only to {host(baseUrl)}.
-            {provider.keyUrl && (
-              <>
-                {" "}
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    openUrl(provider.keyUrl);
+
+          <div className="field">
+            <div className="flabel">Model</div>
+            <div className="frow">
+              <label style={{ flex: 1 }}>
+                <span className="sr">Model name</span>
+                <input
+                  className="input mono"
+                  type="text"
+                  list="cleanup-models"
+                  placeholder={provider.defaultModel || "Type a name, or list them"}
+                  value={modelDraft}
+                  spellCheck={false}
+                  disabled={!ready}
+                  onChange={(e) => {
+                    setModelDraft(e.target.value);
+                    // Picking from the list should save straight away.
+                    if (models.includes(e.target.value)) saveModel(e.target.value);
                   }}
-                >
-                  Get a key
-                </a>
-              </>
-            )}
-          </p>
+                  onBlur={(e) => saveModel(e.target.value)}
+                />
+              </label>
+              <datalist id="cleanup-models">
+                {models.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+              <button className="btn" disabled={!ready || busy !== null} onClick={() => refreshModels(true)}>
+                {busy === "list" ? <span className="spin" /> : null}List models
+              </button>
+              <button className="btn" disabled={!ready || !model || busy !== null} onClick={test}>
+                {busy === "test" ? <span className="spin" /> : null}Test
+              </button>
+            </div>
+            <p className="hint">
+              {provider.defaultModel
+                ? `Leave empty to use ${provider.defaultModel}. A small, fast model is best: you wait for it.`
+                : "A small, fast model is best: cleanup is light editing, and you wait for it."}
+            </p>
+          </div>
+
+          {result ? (
+            <Notice tone={result.tone}>
+              <b>{result.title}</b> {result.body}
+              {result.tone === "bad" && settings.cleanupEnabled && " Until this works, dictations go in raw."}
+            </Notice>
+          ) : (
+            settings.cleanupEnabled &&
+            gap && (
+              <Notice tone="warn">
+                <b>Cleanup is on, but it needs {gap}.</b> Until it has one, dictations go in raw.
+              </Notice>
+            )
+          )}
+
+          <RewriteStyleCard />
         </>
       )}
+    </>
+  );
+}
 
-      <h3>Model</h3>
-      <div className="row">
-        <input
-          type="text"
-          list="cleanup-models"
-          placeholder={provider.defaultModel || "Choose or type a model name"}
-          value={modelDraft}
-          spellCheck={false}
-          onChange={(e) => {
-            setModelDraft(e.target.value);
-            // Picking from the list should save straight away.
-            if (models.includes(e.target.value)) saveModel(e.target.value);
-          }}
-          onBlur={(e) => saveModel(e.target.value)}
-        />
-        <datalist id="cleanup-models">
-          {models.map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-        <span className="buttons">
-          <button disabled={!ready} onClick={() => refreshModels(true)}>
-            List models
-          </button>
-          <button disabled={!ready || !model} onClick={test}>
-            Test
-          </button>
-        </span>
+/** Shown while cleanup is off: what it would do, without a wall of settings. */
+function Example() {
+  return (
+    <div className="card stack">
+      <span className="label">One dictation, three apps</span>
+      <dl className="example">
+        <dt>Heard</dt>
+        <dd className="mono">um so can we uh move the call to tomorrow</dd>
+        <dt>Mail</dt>
+        <dd>Could we move the call to tomorrow?</dd>
+        <dt>Slack</dt>
+        <dd>can we move the call to tomorrow?</dd>
+        <dt>Notes</dt>
+        <dd>Move the call to tomorrow.</dd>
+      </dl>
+      <div className="styles">
+        <span className="chip plain">chat</span>
+        <span className="chip plain">email</span>
+        <span className="chip plain">code</span>
+        <span className="chip plain">notes</span>
       </div>
-      <p className="muted small">
-        {provider.defaultModel
-          ? `Leave empty to use ${provider.defaultModel}. A small, fast model is best here.`
-          : "A small, fast model is best here: cleanup is light editing, and you wait for it."}
-        {provider.id === "ollama" &&
-          " Not too small, though: local models under a few billion parameters tend to ignore the instructions, and Utter then uses your raw words instead."}
+    </div>
+  );
+}
+
+/**
+ * How the second hotkey rewords a dictation: one of the ready-made styles, or
+ * an instruction of your own.
+ */
+function RewriteStyleCard() {
+  const { settings, update, setTab, provider, hasKey } = useApp();
+  const [styles, setStyles] = useState<RewriteStyle[]>([]);
+  const [draft, setDraft] = useState(settings.rewritePrompt);
+  const [result, setResult] = useState<Result>(null);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    rewriteStyles().then(setStyles);
+  }, []);
+
+  const preset = styles.find((s) => s.id === settings.rewriteStyle);
+  const isCustom = settings.rewriteStyle === "custom";
+  const canTest = !!provider && (!provider.needsKey || hasKey) && !!(settings.cleanupModel || provider.defaultModel);
+
+  if (!settings.rewriteHotkey) {
+    return (
+      <div className="card wcard">
+        <div>
+          <span className="flabel">Rewrite</span>
+          <p className="hint">
+            A second hotkey that rewords what you said so it reads better, instead of only tidying it. It is
+            off.
+          </p>
+        </div>
+        <button className="btn" onClick={() => setTab("hotkey")}>
+          Set a hotkey
+        </button>
+      </div>
+    );
+  }
+
+  // Start a custom style from whatever was showing, so there is something to edit.
+  const startCustom = async () => {
+    const seed = settings.rewritePrompt || preset?.instruction || "";
+    setDraft(seed);
+    setResult(null);
+    await update({ rewriteStyle: "custom", rewritePrompt: seed });
+  };
+
+  const saveDraft = async () => {
+    if (draft.trim() !== settings.rewritePrompt) await update({ rewritePrompt: draft.trim() });
+  };
+
+  const test = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      await saveDraft();
+      setResult({ tone: "ok", title: "A sample came back as:", body: `“${await testRewrite()}”` });
+    } catch (err) {
+      setResult({ tone: "bad", title: "The test failed.", body: String(err) });
+    }
+    setTesting(false);
+  };
+
+  return (
+    <div className="card stack">
+      <div className="cardhead">
+        <span className="label">Rewrite style</span>
+        <span className="meta">hold {hotkeyLabel(settings.rewriteHotkey)}</span>
+      </div>
+      <div className="schips" role="group" aria-label="Rewrite style">
+        {styles.map((s) => (
+          <button
+            key={s.id}
+            className="schip"
+            aria-pressed={s.id === settings.rewriteStyle}
+            onClick={() => {
+              setResult(null);
+              update({ rewriteStyle: s.id });
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
+        <button className="schip" aria-pressed={isCustom} onClick={startCustom}>
+          Your own
+        </button>
+      </div>
+
+      {isCustom ? (
+        <label>
+          <span className="sr">Your rewrite instruction</span>
+          <textarea
+            className="input area"
+            rows={4}
+            value={draft}
+            placeholder="Describe how you want it rewritten."
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={saveDraft}
+          />
+        </label>
+      ) : (
+        preset && <p className="quote">{preset.instruction}</p>
+      )}
+
+      <p className="hint">
+        Whatever the style, Utter keeps every point you made and adds nothing you did not say.
+        {isCustom && " “Your own” starts from the style you had selected, for you to edit."}
       </p>
 
-      {settings.cleanupEnabled && provider.needsKey && !hasKey && (
-        <p className="warn small">No key yet, so dictations are inserted as raw text.</p>
+      <div className="acts">
+        <button className="btn sm" disabled={!canTest || testing} onClick={test}>
+          {testing ? <span className="spin" /> : null}Test on a sample
+        </button>
+        {!canTest && <span className="hint">Needs the provider and model above.</span>}
+      </div>
+      {result && (
+        <Notice tone={result.tone}>
+          <b>{result.title}</b> {result.body}
+        </Notice>
       )}
-      {settings.cleanupEnabled && ready && !model && (
-        <p className="warn small">Choose a model to switch cleanup on.</p>
-      )}
-      {message && <p className="small">{message}</p>}
-    </section>
+    </div>
   );
 }

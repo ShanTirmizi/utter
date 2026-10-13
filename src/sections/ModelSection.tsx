@@ -1,91 +1,136 @@
-import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
-import {
-  downloadModel,
-  modelStatuses,
-  type DownloadProgress,
-  type ModelStatus,
-} from "../api";
+import { selectedModel } from "../readiness";
+import { shortName, useApp } from "../state";
+import { IconCheck, Notice, WaveProgress } from "../ui";
 
-type Props = {
-  selected: string;
-  onSelect: (name: string) => void;
-};
-
-export default function ModelSection({ selected, onSelect }: Props) {
-  const [models, setModels] = useState<ModelStatus[]>([]);
-  const [progress, setProgress] = useState<DownloadProgress | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(() => modelStatuses().then(setModels), []);
-
-  useEffect(() => {
-    refresh();
-    const stop = listen<DownloadProgress>("model-download", (e) => setProgress(e.payload));
-    return () => {
-      stop.then((unlisten) => unlisten());
-    };
-  }, [refresh]);
-
-  const download = async (name: string) => {
-    setError(null);
-    setProgress({ name, received: 0, total: 0 });
-    try {
-      await downloadModel(name);
-    } catch (err) {
-      setError(String(err));
-    }
-    setProgress(null);
-    refresh();
-  };
+export default function ModelSection() {
+  const app = useApp();
+  const selected = selectedModel(app);
+  const name = selected ? shortName(selected.label) : "";
+  const downloadingSelected = app.progress?.name === selected?.name;
 
   return (
-    <section className="card">
-      <h2>Speech model</h2>
-      <p className="muted">
-        Transcription runs on this Mac. Models are downloaded once from Hugging Face.
+    <>
+      <div className="sechead">
+        <h2 className="h">Speech model</h2>
+      </div>
+      <p className="sub">
+        Turns your voice into text, here on this Mac. Bigger is more accurate and a little slower.
       </p>
-      <ul className="models">
-        {models.map((m) => {
-          const busy = progress?.name === m.name;
-          const percent =
-            busy && progress.total > 0
-              ? Math.round((progress.received / progress.total) * 100)
-              : 0;
-          return (
-            <li key={m.name}>
-              <label>
-                <input
-                  type="radio"
-                  name="model"
-                  checked={selected === m.name}
-                  onChange={() => onSelect(m.name)}
-                />
-                <span>
-                  <strong>{m.label}</strong>
-                  <span className="muted small">
-                    {" "}
-                    · {m.sizeMb} MB · {m.note}
+
+      {selected && !selected.downloaded && !app.progress && (
+        <Notice
+          tone="warn"
+          action={
+            <button className="btn primary sm" onClick={() => app.download(selected.name)}>
+              Download {name}
+            </button>
+          }
+        >
+          <b>{name} is selected but not downloaded.</b> Dictation won’t work until it is.
+        </Notice>
+      )}
+
+      <ModelRows />
+
+      {downloadingSelected && (
+        <Notice tone="info">
+          Dictation starts working when {name} finishes. You can close this window; the download carries on.
+        </Notice>
+      )}
+      <p className="foot">
+        Models download once from Hugging Face and are saved on this Mac. Switching takes effect from the
+        next dictation.
+      </p>
+    </>
+  );
+}
+
+/** The three speech models as selectable rows. Shared with the welcome screen. */
+export function ModelRows({ suggest = false }: { suggest?: boolean }) {
+  const app = useApp();
+  const { models, progress, downloadFault, settings } = app;
+
+  return (
+    <div className="models" role="radiogroup" aria-label="Speech model">
+      {models.map((m, index) => {
+        const name = shortName(m.label);
+        const selected = settings.model === m.name;
+        const busy = progress?.name === m.name;
+        const fault = downloadFault?.name === m.name && !m.downloaded ? downloadFault : null;
+        const total = (busy && progress.total) || fault?.total || m.sizeMb * 1_000_000;
+        const received = busy ? progress.received : (fault?.received ?? 0);
+        // "(English)" in the label becomes a plain sentence in the description.
+        const englishOnly = /\(English\)/.test(m.label) ? " English only." : "";
+
+        return (
+          <div className={`mrow ${selected ? "sel" : ""}`} key={m.name}>
+            <div className="mtop">
+              <button
+                className="pick"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => !selected && app.update({ model: m.name })}
+              >
+                <span className="radio" />
+                <span className="mtext">
+                  <span className="mname">
+                    {name}
+                    <span className="msize">{m.sizeMb} MB</span>
+                  </span>
+                  <span className="mdesc">
+                    {m.note}
+                    {englishOnly}
                   </span>
                 </span>
-              </label>
-              {m.downloaded ? (
-                <span className="ok small">Downloaded</span>
-              ) : busy ? (
-                <span className="small">{percent}%</span>
+              </button>
+
+              {busy ? (
+                <span className="chip accent">Downloading</span>
+              ) : m.downloaded ? (
+                selected ? (
+                  <span className="chip ok">
+                    <IconCheck width={2.4} />
+                    In use
+                  </span>
+                ) : (
+                  <span className="chip plain">Downloaded</span>
+                )
+              ) : fault ? (
+                <button className="btn sm" disabled={!!progress} onClick={() => app.download(m.name)}>
+                  Retry
+                </button>
+              ) : suggest && index === 0 ? (
+                <button className="btn primary sm" disabled={!!progress} onClick={() => app.download(m.name)}>
+                  Download
+                </button>
+              ) : selected && !progress ? (
+                <span className="chip warn">Not downloaded</span>
               ) : (
-                <button disabled={progress !== null} onClick={() => download(m.name)}>
+                <button className="btn sm" disabled={!!progress} onClick={() => app.download(m.name)}>
                   Download
                 </button>
               )}
-            </li>
-          );
-        })}
-      </ul>
-      {models.some((m) => m.name === selected && !m.downloaded) && (
-        <p className="warn small">Download the selected model to start dictating.</p>
-      )}
-      {error && <p className="error small">{error}</p>}
-    </section>
+            </div>
+
+            {(busy || fault) && (
+              <div className="dl">
+                <WaveProgress fraction={total > 0 ? received / total : 0} failed={!!fault} label={`${name} download`} />
+                <span className="dlnum">
+                  {Math.round(received / 1_000_000)} of {m.sizeMb} MB
+                </span>
+              </div>
+            )}
+            {fault && (
+              <div className="mnote">
+                <p className="hint" style={{ color: "var(--bad)" }}>
+                  <b>Download stopped:</b> {fault.message.replace(/^Download (interrupted|failed): /, "")} Retry starts
+                  again from the beginning.
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
