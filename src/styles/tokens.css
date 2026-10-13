@@ -1,0 +1,109 @@
+/* Design tokens: type, colour and motion. Every other stylesheet reads these. */
+
+/* The three faces are SIL OFL and ship inside the app (licences sit beside the
+   files), so nothing is fetched from the network. */
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("../assets/fonts/bricolage-grotesque.woff2") format("woff2");
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("../assets/fonts/instrument-sans.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("../assets/fonts/geist-mono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  /* Display for headings, never below 15px. UI for everything read or pressed.
+     Mono for things a machine measured: keycaps, timings, what was heard. */
+  --font-display: "Bricolage Grotesque", "Instrument Sans", sans-serif;
+  --font-ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, Menlo, monospace;
+
+  /* The icon's two colours. Cream is for the mark's bars only. */
+  --ember: #c2410c;
+  --cream: #fbf1e3;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 0.75, 0.2);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --t-fast: 120ms;
+  --t-base: 200ms;
+  --t-morph: 280ms;
+
+  /* Light appearance. */
+  --win: #faf8f5;
+  --win-2: #f1ece5;
+  --card: #ffffff;
+  --line: rgba(48, 32, 16, 0.12);
+  --line-2: rgba(48, 32, 16, 0.22);
+  --ink: #1f1813;
+  --ink-2: #5b5047;
+  --ink-3: #776a5f;
+  /* Ember fills things; --accent-fg is the orange to use when it has to be text. */
+  --accent: #c2410c;
+  --accent-fg: #b93d0b;
+  --accent-soft: #fdeadd;
+  --on-accent: #fff;
+  --ok: #1b7a4a;
+  --ok-soft: #e2f2e8;
+  --warn: #9a5800;
+  --warn-soft: #fcf0d9;
+  --bad: #b42318;
+  --bad-soft: #fde7e4;
+  --key-top: #ffffff;
+  --key-edge: #d6ccc0;
+
+  /* The status pill sits over other apps, so it has its own near-solid pair
+     with a hairline edge that keeps it readable on any wallpaper. */
+  --pill-bg: rgba(255, 251, 246, 0.95);
+  --pill-ink: #1f1813;
+  --pill-ink-2: #5b5047;
+  --pill-line: rgba(40, 24, 8, 0.18);
+  --pill-key: #fff;
+  --pill-wave: #c2410c;
+  --pill-accent: #c2410c;
+  --pill-shadow: 0 0 0 0.5px rgba(40, 24, 8, 0.32), 0 6px 18px -4px rgba(40, 24, 8, 0.34), 0 1px 2px rgba(40, 24, 8, 0.18);
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --win: #1e1a17;
+    --win-2: #15120f;
+    --card: #2a2521;
+    --line: rgba(255, 236, 214, 0.11);
+    --line-2: rgba(255, 236, 214, 0.22);
+    --ink: #f6eee5;
+    --ink-2: #bcaea1;
+    --ink-3: #9a8d80;
+    --accent-fg: #ff9b5e;
+    --accent-soft: rgba(194, 65, 12, 0.24);
+    --ok: #62cf90;
+    --ok-soft: rgba(98, 207, 144, 0.13);
+    --warn: #f2b54f;
+    --warn-soft: rgba(242, 181, 79, 0.13);
+    --bad: #ff8173;
+    --bad-soft: rgba(255, 129, 115, 0.13);
+    --key-top: #3a332d;
+    --key-edge: #0c0a09;
+
+    --pill-bg: rgba(30, 26, 23, 0.93);
+    --pill-ink: #f6eee5;
+    --pill-ink-2: #bcaea1;
+    --pill-line: rgba(255, 240, 220, 0.2);
+    --pill-key: #3a332d;
+    --pill-wave: #ff9b5e;
+    --pill-accent: #ff9b5e;
+    --pill-shadow: 0 0 0 0.5px rgba(255, 240, 220, 0.26), 0 6px 18px -4px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}

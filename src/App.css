@@ -1,30 +1,16 @@
+/* The old screens still use these short names. They now point at the design
+   tokens in styles/tokens.css, and go away as each screen is rebuilt. */
 :root {
-  --bg: #f6f5f2;
-  --panel: #ffffff;
-  --text: #1c1b19;
-  --muted: #6b6860;
-  --line: #e2dfd8;
-  --accent: #c2410c;
-  --ok: #15803d;
-  --warn: #b45309;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--text);
-  background: var(--bg);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1a1917;
-    --panel: #242320;
-    --text: #edebe6;
-    --muted: #a09c92;
-    --line: #36342f;
-    --accent: #fb923c;
-    --ok: #4ade80;
-    --warn: #fbbf24;
-  }
+  --bg: var(--win);
+  --panel: var(--card);
+  --text: var(--ink);
+  --muted: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ink);
+  background: var(--win);
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
@@ -42,7 +28,8 @@ body {
 }
 
 h1 {
-  font-size: 22px;
+  font: 700 26px/30px var(--font-display);
+  letter-spacing: -0.02em;
   margin: 0 0 4px;
 }
 
@@ -51,7 +38,8 @@ h1 {
 }
 
 h2 {
-  font-size: 15px;
+  font: 600 17px/22px var(--font-display);
+  letter-spacing: -0.01em;
   margin: 0 0 2px;
 }
 
@@ -65,7 +53,7 @@ p {
 }
 
 a {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 
 .small {
@@ -81,7 +69,7 @@ a {
 }
 
 .error {
-  color: #dc2626;
+  color: var(--bad);
 }
 
 header {
@@ -127,13 +115,7 @@ button:disabled {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
-}
-
-@media (prefers-color-scheme: dark) {
-  button.primary {
-    color: #1a1917;
-  }
+  color: var(--on-accent);
 }
 
 input[type="password"],
@@ -163,8 +145,7 @@ input[type="checkbox"] {
 }
 
 kbd {
-  font: inherit;
-  font-weight: 600;
+  font: 600 12px/18px var(--font-mono);
   min-width: 28px;
   text-align: center;
   padding: 3px 8px;
@@ -179,11 +160,11 @@ kbd {
 }
 
 .status-recording {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 
 .status-error {
-  color: #dc2626;
+  color: var(--bad);
 }
 
 .status-done {
@@ -265,4 +246,34 @@ textarea {
 
 select {
   appearance: auto;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.chip {
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+
+.chip-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .chip-on {
+    color: #1a1917;
+  }
+}
+
+.instruction {
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+  margin: 0 0 10px;
 }

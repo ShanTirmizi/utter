@@ -21,8 +21,7 @@ html.pill-window body {
   border-radius: 20px;
   background: rgba(24, 23, 21, 0.92);
   color: #f5f3ee;
-  font-size: 13px;
-  font-weight: 500;
+  font: 500 13px/17px var(--font-ui);
   border: 1px solid rgba(255, 255, 255, 0.12);
   animation: pill-in 120ms ease-out;
 }
