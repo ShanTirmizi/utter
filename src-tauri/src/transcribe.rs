@@ -135,8 +135,20 @@ pub fn split_at_pauses(samples: &[f32]) -> Vec<&[f32]> {
     if !rest.is_empty() {
         pieces.push(rest);
     }
+    // A sliver left over at the end (a breath, a key click) is too short to
+    // transcribe by itself and tends to come back as an invented word. Give
+    // it to the piece before, which still fits the model's window.
+    if pieces.len() >= 2 && pieces[pieces.len() - 1].len() < LAST_PIECE_MIN {
+        let tail = pieces.pop().unwrap().len();
+        let previous = pieces.pop().unwrap().len();
+        let start = samples.len() - tail - previous;
+        pieces.push(&samples[start..]);
+    }
     pieces
 }
+
+/// A final piece shorter than this is merged into the one before it.
+const LAST_PIECE_MIN: usize = TARGET_RATE as usize * 2;
 
 /// The middle of the quietest 200 ms stretch in `window`.
 fn quietest_point(window: &[f32]) -> usize {
@@ -261,6 +273,19 @@ mod tests {
         // Every piece fits the model's window, and together they are the whole clip.
         assert!(pieces.iter().all(|p| p.len() <= MAX_PIECE));
         assert_eq!(pieces.iter().map(|p| p.len()).sum::<usize>(), clip.len());
+    }
+
+    #[test]
+    fn a_short_leftover_is_joined_to_the_piece_before_it() {
+        let rate = TARGET_RATE as usize;
+        // 27 s is the most one piece may hold, so 28 s leaves a 1 s tail
+        // at worst; it must not become a piece of its own.
+        let clip = vec![0.2_f32; rate * 28];
+        let pieces = split_at_pauses(&clip);
+        assert!(pieces.iter().all(|p| p.len() >= LAST_PIECE_MIN), "{:?}", pieces.iter().map(|p| p.len()).collect::<Vec<_>>());
+        assert_eq!(pieces.iter().map(|p| p.len()).sum::<usize>(), clip.len());
+        // The model's window is 30 s; a merged piece must still fit.
+        assert!(pieces.iter().all(|p| p.len() <= rate * 30));
     }
 
     #[test]
