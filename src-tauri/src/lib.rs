@@ -6,6 +6,7 @@ pub mod audio;
 mod cleanup;
 mod context;
 mod fnkey;
+mod globe;
 mod history;
 mod hotkey;
 mod insert;
@@ -242,6 +243,10 @@ fn open_privacy_settings(pane: String) -> Result<(), String> {
 /// fn is the dictation hotkey.
 #[tauri::command]
 async fn fn_key_conflict() -> Option<String> {
+    // Not a conflict while Utter itself is keeping it off.
+    if globe::holding() {
+        return None;
+    }
     tauri::async_runtime::spawn_blocking(|| fnkey::system_action().map(str::to_string))
         .await
         .ok()
@@ -485,6 +490,9 @@ pub fn run() {
             app.manage(pipeline::Pipeline::new());
             pipeline::load_history(app.handle());
             pipeline::preload_model(app.handle());
+            // If Utter last stopped while holding the globe-key action off,
+            // it still owes the user their own setting.
+            globe::recover(app.handle());
             // Open the microphone stream now, stopped, so even the first
             // dictation starts quickly. Only once access has been granted:
             // doing this earlier would make macOS ask for it out of the blue.
@@ -539,10 +547,11 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building Utter")
-        .run(|app, event| {
+        .run(|app, event| match event {
             // Clicking the Dock icon brings the settings window back.
-            if let RunEvent::Reopen { .. } = event {
-                show_main_window(app);
-            }
+            RunEvent::Reopen { .. } => show_main_window(app),
+            // Give the user's own globe-key setting back on the way out.
+            RunEvent::Exit => globe::release(app),
+            _ => {}
         });
 }

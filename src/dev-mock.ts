@@ -53,6 +53,7 @@ let settings: Settings = {
   dictionary: query.has("words") ? ["Priya", "Kubernetes", "Q3 roadmap"] : [],
   keepHistory: true,
   handsFree: true,
+  quietGlobe: false,
   model: "base.en",
   onboarded: !query.has("welcome"),
 };
@@ -466,7 +467,7 @@ export function installMock() {
         case "copy_text":
           return;
         case "fn_key_conflict":
-          return query.has("fnconflict") ? "show emoji and symbols" : null;
+          return query.has("fnconflict") && !settings.quietGlobe ? "show emoji and symbols" : null;
         default:
           return;
       }

@@ -296,12 +296,15 @@ function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
 }
 
 /**
- * With fn as the hotkey, Utter holds the fn key's own events back so macOS's
- * action for the globe key (emoji, input source, Apple's dictation) does not
- * fire too. In case it still does on some Mac, point at the setting that
- * turns it off for good. Utter does not change that setting itself.
+ * With fn as the hotkey, macOS's own action for the globe key (emoji
+ * picker, input source, Apple's dictation) fires too: the window server runs
+ * it before Utter sees the key. The only cure is "Press 🌐 key to: Do
+ * Nothing". Utter can hold that setting while it uses fn and give it back
+ * afterwards, but only when the user asks, since it is a system setting.
  */
 function FnKeyAdvice() {
+  const app = useApp();
+  const quiet = app.settings.quietGlobe;
   const [action, setAction] = useState<string | null>(null);
   useEffect(() => {
     let current = true;
@@ -313,19 +316,38 @@ function FnKeyAdvice() {
       current = false;
       window.removeEventListener("focus", check);
     };
-  }, []);
+  }, [quiet]);
+
+  if (quiet) {
+    return (
+      <Notice
+        tone="ok"
+        action={
+          <button className="btn sm quiet" onClick={() => app.update({ quietGlobe: false }).catch(() => undefined)}>
+            Give it back now
+          </button>
+        }
+      >
+        <b>The 🌐 key only dictates while Utter is running.</b> Its own action comes back when you quit Utter or
+        choose another hotkey.
+      </Notice>
+    );
+  }
   if (!action) return null;
   return (
     <Notice
       tone="warn"
       action={
-        <button className="btn sm" onClick={() => openPrivacySettings("keyboard")}>
-          Open Keyboard settings
+        <button className="btn sm" onClick={() => app.update({ quietGlobe: true }).catch(() => undefined)}>
+          Turn it off while Utter runs
         </button>
       }
     >
-      <b>Your 🌐 key is set to {action}.</b> If that pops up when you dictate with fn, set “Press 🌐 key to”
-      to “Do Nothing” in Keyboard settings.
+      <b>Pressing fn also makes macOS {action}.</b> Utter can switch that off while it is running and put it back
+      when you quit.{" "}
+      <button className="link" onClick={() => openPrivacySettings("keyboard")}>
+        Or change it in Keyboard settings
+      </button>
     </Notice>
   );
 }

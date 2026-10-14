@@ -218,11 +218,20 @@ retried every two seconds, and the Hotkey tab says why fn is not working.
 **Input Monitoring is never requested.**
 
 macOS's own globe-key action ("Press 🌐 key to": emoji picker, input source,
-Apple's dictation) would fire as well. So while fn is the hotkey, the tap
-drops fn's own down and up events (key code 63) at the head of the session
-event queue, before any app sees them. What the tap does (installed or not,
-fn down and up, fn dropped from a shortcut) is written to
-`~/Library/Logs/Utter/fn-key.log`; nothing else about the keyboard is.
+Apple's dictation) would fire as well. It runs in the window server before any
+event tap, so dropping fn's events does not stop it (tried, on a real Mac: the
+picker still opened). The only cure is that setting being "Do Nothing". When
+the user asks (a button on the Hotkey tab, `quietGlobe`), `globe.rs` sets it
+to Do Nothing while fn is the hotkey and gives it back on quit, on choosing
+another hotkey, or on request. It uses the same calls Keyboard settings does
+(`TISGetFnUsageType` / `TISUpdateFnUsageType`, looked up at run time), which
+apply at once, and writes the original value to a file first so a crashed
+run's next launch can still restore it. A value the user changed in the
+meantime is left alone. Utter never touches the setting unless asked.
+
+What the tap does (installed or not, fn down and up, fn dropped from a
+shortcut) is written to `~/Library/Logs/Utter/fn-key.log`; nothing else about
+the keyboard is.
 Shortcuts that use fn keep working, because the keys pressed with fn carry the
 fn flag themselves. As a backstop the Hotkey tab reads the setting and, if it
 is not "Do Nothing", links to Keyboard settings. Utter never changes the

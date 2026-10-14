@@ -23,6 +23,8 @@ export type Settings = {
   keepHistory: boolean;
   /** A quick tap starts a recording that runs until the next tap. */
   handsFree: boolean;
+  /** While fn dictates, switch macOS's own globe-key action off, and back afterwards. */
+  quietGlobe: boolean;
   /** Speech model. */
   model: string;
   onboarded: boolean;

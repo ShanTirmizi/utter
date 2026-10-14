@@ -33,6 +33,10 @@ pub struct Settings {
     /// A quick tap of a hotkey starts a recording that runs until the next
     /// tap, instead of having to hold the keys down.
     pub hands_free: bool,
+    /// While fn is the dictation hotkey, switch macOS's own globe-key action
+    /// (emoji picker and so on) off, and put it back afterwards. Off until
+    /// the user turns it on, because it changes a system setting.
+    pub quiet_globe: bool,
     /// Which speech model to use; a name from `models::CATALOG`.
     pub model: String,
     /// Set once the first-run permissions screen has been completed.
@@ -53,6 +57,7 @@ impl Default for Settings {
             dictionary: Vec::new(),
             keep_history: true,
             hands_free: true,
+            quiet_globe: false,
             model: "base.en".into(),
             onboarded: false,
         }

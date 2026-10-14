@@ -124,6 +124,7 @@ pub fn register(app: &AppHandle, settings: &Settings) -> Result<(), String> {
         }
         None => fnkey::enable(app),
     }
+    crate::globe::sync(app, dictate.is_none() && settings.quiet_globe);
     if let Some(rewrite) = rewrite {
         bind(app, rewrite, Mode::Rewrite)?;
     }

@@ -9,11 +9,10 @@
 //! while fn is held (then fn is part of another shortcut, such as fn+arrow,
 //! and the dictation is dropped). Which key that was is never looked at.
 //!
-//! The fn key's own down and up events are held back from other apps while fn
-//! is the hotkey, from as early in the event path as macOS allows, to stop it
-//! also doing whatever "Press 🌐 key to" is set to (the emoji picker, say).
-//! The Hotkey tab also points at that setting, in case macOS acts first.
-//! What the tap sees is logged to ~/Library/Logs/Utter/fn-key.log.
+//! Every event passes through unchanged. macOS's own globe-key action (the
+//! emoji picker, say) cannot be stopped from here, because the window server
+//! runs it before any tap; see `globe` for how that is handled. What the tap
+//! sees is logged to ~/Library/Logs/Utter/fn-key.log.
 //! Every other event passes through unchanged; fn still works in shortcuts,
 //! because the keys pressed with it carry the fn flag themselves.
 
@@ -152,14 +151,15 @@ fn make(location: CGEventTapLocation, app: AppHandle) -> Result<CGEventTap<'stat
             let hold_back = on_event(&app, kind, event.get_flags(), || {
                 event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE)
             });
-            if hold_back { CallbackResult::Drop } else { CallbackResult::Keep }
+            let _ = hold_back;
+            CallbackResult::Keep
         },
     )
 }
 
 /// What the tap does with one event. Kept small: it runs for every key the
 /// user presses, and must hand any real work to the main thread at once.
-/// Returns true for an event to hold back from other apps: the fn key's own.
+/// Returns true for the fn key's own events.
 fn on_event(app: &AppHandle, kind: CGEventType, flags: CGEventFlags, key_code: impl Fn() -> i64) -> bool {
     match kind {
         // macOS switches off a tap it thinks is too slow; switch it back on.
@@ -185,7 +185,7 @@ fn on_event(app: &AppHandle, kind: CGEventType, flags: CGEventFlags, key_code: i
     let own_event = modifier_change && code == FN_KEY_CODE;
     if own_event {
         let down = flags.contains(CGEventFlags::CGEventFlagSecondaryFn);
-        log(&format!("fn {} (held back from other apps)", if down { "down" } else { "up" }));
+        log(&format!("fn {}", if down { "down" } else { "up" }));
     }
     let others = CGEventFlags::CGEventFlagCommand
         | CGEventFlags::CGEventFlagControl
