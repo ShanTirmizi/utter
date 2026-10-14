@@ -542,6 +542,14 @@ async fn process(
     let transcriber = app.state::<Pipeline>().transcriber.clone();
     let terms = settings.dictionary.clone();
 
+    // In a browser, which site is open decides the writing style: Gmail is
+    // email, claude.ai is a prompt. Ask now, while the speech is transcribed.
+    let pressed_in = app.state::<Pipeline>().target.lock().unwrap().clone();
+    let page_lookup = (delivery != Delivery::ClipboardOnly
+        && context::is_browser(&pressed_in.bundle_id)
+        && permissions::accessibility())
+    .then(|| tauri::async_runtime::spawn_blocking(selection::focused_page));
+
     let started = Instant::now();
     let raw = tauri::async_runtime::spawn_blocking(move || {
         transcriber.transcribe_with(&name, &path, &samples, models::language(&name), &terms)
@@ -552,6 +560,20 @@ async fn process(
 
     if raw.is_empty() {
         return Err("No speech detected.".into());
+    }
+
+    if let Some(lookup) = page_lookup {
+        let page = lookup.await.unwrap_or_default();
+        let found = context::site(page.url.as_deref(), page.title.as_deref());
+        // Only if the browser is still in front: the page read must be the
+        // one the dictation is for, not a window the user has moved to.
+        let in_front = on_main(app, context::frontmost).map(|now| now.bundle_id).unwrap_or_default();
+        if let Some((site, category)) = found.filter(|_| in_front == pressed_in.bundle_id) {
+            let pipeline = app.state::<Pipeline>();
+            let mut target = pipeline.target.lock().unwrap();
+            target.name = site.to_string();
+            target.category = category;
+        }
     }
 
     let target = app.state::<Pipeline>().target.lock().unwrap().clone();
@@ -925,7 +947,17 @@ pub fn simulate(app: &AppHandle, samples: Vec<f32>, mode: Mode, selected: Option
         *phase = Phase::Processing;
     }
     *pipeline.mode.lock().unwrap() = mode;
-    *pipeline.target.lock().unwrap() = context::frontmost();
+    let mut target = context::frontmost();
+    // `UTTER_SIMULATE_SITE=https://mail.google.com/` stands in for a browser
+    // showing that page.
+    if let Some((site, category)) = std::env::var("UTTER_SIMULATE_SITE")
+        .ok()
+        .and_then(|url| context::site(Some(&url), None))
+    {
+        target.name = site.to_string();
+        target.category = category;
+    }
+    *pipeline.target.lock().unwrap() = target;
     emit(app, "recording", None, None);
     warm_local_model(app, mode);
     emit_stage(app, "transcribing");

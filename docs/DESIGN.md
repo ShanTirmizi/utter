@@ -107,11 +107,34 @@ permission, and maps it to one of six kinds:
 | Email | Mail, Outlook | Full sentences, short paragraphs |
 | Code | VS Code, Xcode, terminals, JetBrains IDEs | Exact identifiers, no Markdown fences |
 | Notes | Notes, Obsidian, Notion, Pages | Clean prose, lists where spoken |
-| Assistant | AI chat apps | Clear, direct prompt that keeps every detail |
-| Other | Browsers, everything else | Neutral prose |
+| Assistant | Claude, ChatGPT | Clear, direct prompt that keeps every detail |
+| Other | Everything else | Neutral prose |
 
-Only the app's name and kind are sent with the transcript. Utter does not read
-the text already in the field or the window's contents.
+In a browser the app says nothing useful: Gmail and claude.ai are both
+"Chrome". So for a browser, while the speech is being transcribed, Utter asks
+it through the Accessibility API which page the focused field is in: it climbs
+from that field to the web area holding it and reads its address, and falls
+back to the window title (sites put their own name last). A short list of
+known sites maps the address to a name and a kind. Only that name is used,
+never the address or the title, which can contain an email subject or a
+person's name. The page is only trusted if the browser is still in front when
+the answer arrives.
+
+Only the app's (or site's) name and kind are sent with the transcript. Utter
+does not read the text already in the field or the window's contents.
+
+### Layout and dashes
+
+A rewrite is told to lay the text out for reading: a paragraph per topic, a
+hyphen list for three or more parallel items, nothing forced onto a short
+message, and no Markdown beyond those lists. Each kind of destination adds its
+own conventions (a greeting on its own line in email, details as a list in an
+AI prompt).
+
+Every prompt forbids em and en dashes. Models still reach for them, so replies
+are also cleaned afterwards: a dash between two parts of a sentence becomes a
+comma, one between numbers a hyphen, and one opening a line a list item.
+Selected text that already uses dashes keeps them.
 
 ### Rewrite mode
 
@@ -322,7 +345,6 @@ a download work on the first double-click and keep permissions across updates.
 
 ## Not in this version
 
-- Reading the browser's current site to choose a style.
 - Starting a new dictation while the previous one is still being processed.
 - Learning from corrections, or remembering anything about the user beyond the
   word list they write themselves.

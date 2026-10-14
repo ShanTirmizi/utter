@@ -9,6 +9,7 @@ use core_foundation::{
     base::{CFGetTypeID, CFRelease, CFTypeRef, TCFType},
     boolean::CFBoolean,
     string::{CFString, CFStringGetTypeID, CFStringRef},
+    url::{CFURL, CFURLGetTypeID, CFURLRef},
 };
 use objc2_app_kit::NSWorkspace;
 
@@ -109,6 +110,94 @@ pub fn read() -> Selection {
             Selection::Nothing
         } else {
             Selection::Text(text)
+        }
+    }
+}
+
+/// The web page the cursor is in, as far as the browser will say.
+#[derive(Debug, Default, PartialEq)]
+pub struct Page {
+    pub url: Option<String>,
+    pub title: Option<String>,
+}
+
+/// Ask the browser in front which page is being typed into: the address of
+/// the web area holding the focused field, and the window's title. Needs the
+/// Accessibility permission; without it, or in an app that will not say,
+/// both are empty. Nothing is kept: the caller turns this into a site name.
+pub fn focused_page() -> Page {
+    unsafe {
+        let system = AXUIElementCreateSystemWide();
+        if system.is_null() {
+            return Page::default();
+        }
+        AXUIElementSetMessagingTimeout(system, TIMEOUT_SECONDS);
+        let focused = copy(system, "AXFocusedUIElement");
+        let app = copy(system, "AXFocusedApplication");
+        CFRelease(system);
+
+        let mut page = Page::default();
+        // Climb from the focused field to the web page that holds it.
+        let mut element = focused;
+        for _ in 0..40 {
+            if element.is_null() {
+                break;
+            }
+            AXUIElementSetMessagingTimeout(element, TIMEOUT_SECONDS);
+            if text_of(copy(element, "AXRole")).as_deref() == Some("AXWebArea") {
+                page.url = text_of(copy(element, "AXURL"));
+                CFRelease(element);
+                element = std::ptr::null();
+                break;
+            }
+            let parent = copy(element, "AXParent");
+            CFRelease(element);
+            element = parent;
+        }
+        if !element.is_null() {
+            CFRelease(element);
+        }
+
+        if !app.is_null() {
+            AXUIElementSetMessagingTimeout(app, TIMEOUT_SECONDS);
+            let window = copy(app, "AXFocusedWindow");
+            CFRelease(app);
+            if !window.is_null() {
+                AXUIElementSetMessagingTimeout(window, TIMEOUT_SECONDS);
+                page.title = text_of(copy(window, "AXTitle"));
+                if page.url.is_none() {
+                    // Safari also gives the address as the window's document.
+                    page.url = text_of(copy(window, "AXDocument"));
+                }
+                CFRelease(window);
+            }
+        }
+        page
+    }
+}
+
+/// One attribute of an accessibility element, owned by the caller, or null.
+unsafe fn copy(element: CFTypeRef, attribute: &'static str) -> CFTypeRef {
+    let name = CFString::from_static_string(attribute);
+    let mut value: CFTypeRef = std::ptr::null();
+    let status = unsafe { AXUIElementCopyAttributeValue(element, name.as_concrete_TypeRef(), &mut value) };
+    if status != 0 { std::ptr::null() } else { value }
+}
+
+/// A string or web address as text, releasing the value either way.
+unsafe fn text_of(value: CFTypeRef) -> Option<String> {
+    if value.is_null() {
+        return None;
+    }
+    unsafe {
+        let kind = CFGetTypeID(value);
+        if kind == CFStringGetTypeID() {
+            Some(CFString::wrap_under_create_rule(value as CFStringRef).to_string())
+        } else if kind == CFURLGetTypeID() {
+            Some(CFURL::wrap_under_create_rule(value as CFURLRef).get_string().to_string())
+        } else {
+            CFRelease(value);
+            None
         }
     }
 }

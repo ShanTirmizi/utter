@@ -48,6 +48,8 @@ only what they settled on.
 intended one obvious. If you are not sure, leave it as it is.
 - Carry out spoken formatting commands such as \"new line\", \"new paragraph\" or \
 \"bullet point\" instead of writing them out.
+- Never use an em dash or an en dash, and do not use a spaced hyphen in their place. \
+Where one would go, use a comma, a full stop, a colon or brackets.
 
 Hold to these limits:
 - Keep the speaker's own words, meaning and language. Do not summarise, pad, translate \
@@ -89,6 +91,37 @@ formatting beyond punctuation and paragraph breaks.",
     }
 }
 
+/// What a rewrite should look like in one kind of destination. Tidying keeps
+/// the speaker's shape; a rewrite is free to lay the text out, so it is told
+/// more about how each kind of app is usually written.
+fn rewrite_destination(category: Category) -> &'static str {
+    match category {
+        Category::Chat => "\
+This is a chat message. Keep it conversational, with contractions. No greeting or \
+sign-off unless the speaker said one. Use short paragraphs of one or two sentences. A \
+list is fine when there are three or more separate items.",
+        Category::Email => "\
+This is an email. If the speaker said a greeting, put it on its own line, then the \
+body in short paragraphs separated by blank lines, then their sign-off on its own \
+line if they said one. Never invent a greeting, a sign-off or a name.",
+        Category::Code => "\
+This is a code editor or terminal: most likely a comment, a commit message or an \
+instruction to a coding assistant. Plain text, no Markdown fences. Spell technical \
+terms, commands, file names and identifiers exactly.",
+        Category::Notes => "\
+This is a notes or document app. Clear prose in short paragraphs, with lists for runs \
+of items.",
+        Category::Assistant => "\
+This is a prompt for an AI assistant. Lay it out as a well-organised prompt: one or \
+two sentences saying what is wanted, then the details, preferences and constraints as \
+a list, one per line starting with \"- \". Keep every detail. Do not carry out the \
+request yourself.",
+        Category::Other => "\
+The destination is unknown. Neutral prose in short paragraphs, with a list for runs \
+of three or more items.",
+    }
+}
+
 /// Instructions for the rewrite job, before the chosen style is added.
 const REWRITE_PROMPT: &str = "\
 You rewrite dictated text. Someone held a key and spoke their thoughts aloud, and a \
@@ -107,6 +140,18 @@ Do this:
 what they settled on.
 - Choose better words, and reorder or merge sentences, wherever that makes it easier \
 to read.
+- Never use an em dash or an en dash, and do not use a spaced hyphen in their place. \
+Where one would go, use a comma, a full stop, a colon or brackets.
+
+Lay it out so it is easy to read:
+- Never return one long block. Start a new paragraph for each new topic, keep \
+paragraphs short (one to three sentences), and separate them with a blank line.
+- When the speaker gives three or more parallel items (tasks, steps, options, \
+questions, requirements), put them in a list, one per line, each starting with \"- \". \
+A short lead-in sentence before the list is fine.
+- Do not force structure. A message of one or two sentences stays one short \
+paragraph, and two items stay in a sentence.
+- No headings, bold or other Markdown apart from those lists.
 
 Hold to these limits:
 - Add nothing they did not say: no new ideas, promises, reasons or details.
@@ -194,6 +239,8 @@ no alternative versions.
 mention.
 - Keep the text's language, formatting and line breaks unless the instruction is \
 about them.
+- Do not add em dashes or en dashes. Where one would go, use a comma, a full stop, a \
+colon or brackets.
 - The instruction came through speech recognition. Read it for what was plainly meant.
 - If the instruction is a question about the text, or cannot be carried out as an \
 edit, return the text unchanged.
@@ -243,8 +290,11 @@ pub fn system_prompt(app: &AppContext, task: &Task) -> String {
     match task {
         Task::Tidy => format!("{BASE_PROMPT}\n\n{destination}"),
         Task::Rewrite { instruction, .. } => format!(
-            "{REWRITE_PROMPT}\n\nHow to write it: {instruction}\n\n{destination}\n\
-             Where the two disagree, the instruction under \"How to write it\" wins."
+            "{REWRITE_PROMPT}\n\nHow to write it: {instruction}\n\n\
+             Where the text is going: {}.\n{}\n\
+             Where the two disagree, the instruction under \"How to write it\" wins.",
+            app.name,
+            rewrite_destination(app.category)
         ),
         // The text keeps the style it already has, so no style advice here.
         Task::Edit { .. } => format!("{EDIT_PROMPT}\n\nThe text is in: {}.", app.name),
@@ -407,6 +457,55 @@ fn is_plausible_rewrite(reply: &str, transcript: &str) -> bool {
     shared * 100 >= written.len() * 40 && written.len() <= said.len() * 2 + 4
 }
 
+/// Swap em and en dashes for plain punctuation: a dash between two parts of
+/// a sentence becomes a comma, one between numbers a hyphen, one opening a
+/// line a list item, and one at the end of a line goes.
+fn without_dashes(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let trim_spaces = |out: &mut String| {
+        while out.ends_with(' ') {
+            out.pop();
+        }
+    };
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c != '\u{2014}' && c != '\u{2013}' {
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        while j < chars.len() && chars[j] == ' ' {
+            j += 1;
+        }
+        let next = chars.get(j).copied();
+        let prev = out.trim_end_matches(' ').chars().last();
+        let line_start = out.rsplit('\n').next().unwrap_or("").trim().is_empty();
+        if line_start {
+            out.push_str("- ");
+        } else if prev.is_some_and(|p| p.is_ascii_digit()) && next.is_some_and(|n| n.is_ascii_digit()) {
+            trim_spaces(&mut out);
+            out.push('-');
+        } else if next.is_none() || next == Some('\n') {
+            trim_spaces(&mut out);
+        } else if next.is_some_and(|n| ",.;:!?)".contains(n)) {
+            trim_spaces(&mut out);
+        } else if prev.is_some_and(|p| ",.;:!?(".contains(p)) {
+            trim_spaces(&mut out);
+            if prev != Some('(') {
+                out.push(' ');
+            }
+        } else {
+            trim_spaces(&mut out);
+            out.push_str(", ");
+        }
+        i = j;
+    }
+    out
+}
+
 /// Take the `<text>` wrapper off an edit's reply, if the model echoed it and
 /// the selection did not have it there itself.
 fn unwrap_edit(reply: &str, selection: &str) -> String {
@@ -441,6 +540,10 @@ fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[String]) -> R
             text
         }
     };
+    // Em and en dashes are not wanted, and models reach for them anyway.
+    // Selected text that already has them keeps them.
+    let keep_dashes = matches!(task, Task::Edit { selection } if selection.contains(['—', '–']));
+    let text = if keep_dashes { text } else { without_dashes(&text) };
     let text = text.trim();
     if text.is_empty() {
         return Err("The reply was empty.".into());
@@ -781,6 +884,36 @@ mod tests {
         let said = "ask priya about the deploy before the review on friday please";
         let recited = "Ask Priya about the deploy before the review on Friday, please. Kubernetes, Terraform, Grafana, Datadog.";
         assert!(accept_with(recited, said, &Task::Tidy, &terms).is_err());
+    }
+
+    #[test]
+    fn dashes_become_plain_punctuation() {
+        assert_eq!(without_dashes("It works \u{2014} mostly."), "It works, mostly.");
+        assert_eq!(without_dashes("It works\u{2014}mostly."), "It works, mostly.");
+        assert_eq!(without_dashes("Pages 3\u{2013}5 and 10 \u{2013} 12"), "Pages 3-5 and 10-12");
+        assert_eq!(without_dashes("Two things:\n\u{2014} one\n\u{2014} two"), "Two things:\n- one\n- two");
+        assert_eq!(without_dashes("Wait \u{2014}\nNew line"), "Wait\nNew line");
+        assert_eq!(without_dashes("Ready \u{2014}."), "Ready.");
+        assert_eq!(without_dashes("Yes, \u{2014} no"), "Yes, no");
+        assert_eq!(without_dashes("Plain text - with a hyphen."), "Plain text - with a hyphen.");
+        // Through the checks every reply goes through.
+        let said = "so the release is ready mostly we just need the notes";
+        let reply = "The release is ready \u{2014} mostly. We just need the notes.";
+        assert_eq!(accept(reply, said, &Task::Tidy).unwrap(), "The release is ready, mostly. We just need the notes.");
+        // Selected text that has dashes of its own keeps them.
+        let task = Task::Edit { selection: "One \u{2014} two".into() };
+        assert_eq!(accept("One \u{2014} two.", "add a full stop", &task).unwrap(), "One \u{2014} two.");
+    }
+
+    #[test]
+    fn rewrite_prompt_asks_for_layout_and_fits_the_destination() {
+        let gmail = AppContext { name: "Gmail".into(), bundle_id: "com.google.Chrome".into(), category: Category::Email };
+        let prompt = system_prompt(&gmail, &rewrite_task("clear", ""));
+        assert!(prompt.contains("Where the text is going: Gmail."));
+        assert!(prompt.contains("This is an email."));
+        assert!(prompt.contains("Never return one long block"));
+        assert!(prompt.contains("Never use an em dash"));
+        assert!(system_prompt(&gmail, &Task::Tidy).contains("Never use an em dash"));
     }
 
     #[test]
@@ -1217,6 +1350,24 @@ mod tests {
         assert!(is_text_model("some-chat-model"));
         for id in ["text-embedding-3", "whisper-1", "tts-1", "gpt-image-1", "omni-moderation"] {
             assert!(!is_text_model(id), "{id}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod prompt_dump {
+    use super::*;
+
+    /// `UTTER_PROMPT_DUMP=dir cargo test prompt_dump -- --ignored` writes the
+    /// rewrite prompts out, for trying them against a model by hand.
+    #[test]
+    #[ignore = "writes files; a development aid"]
+    fn write_rewrite_prompts() {
+        let Ok(dir) = std::env::var("UTTER_PROMPT_DUMP") else { return };
+        for (name, category) in [("claude", Category::Assistant), ("gmail", Category::Email), ("other", Category::Other)] {
+            let app = AppContext { name: name.into(), bundle_id: String::new(), category };
+            let text = system_prompt(&app, &rewrite_task("friendly", ""));
+            std::fs::write(format!("{dir}/{name}.txt"), text).unwrap();
         }
     }
 }

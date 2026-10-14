@@ -162,6 +162,11 @@ dictation hotkey and Utter rewrites what you said before inserting it.
   "Translate into French".
 - **What it keeps.** With the built-in styles, every point, name and number you
   said, and nothing you did not say. Your own instruction can ask for anything.
+- **How it looks.** Short paragraphs instead of one block, and a list where you
+  named several items. A short message stays short. It is written for where it
+  is going: an email gets a greeting on its own line if you said one, a chat
+  message stays casual, a prompt for Claude or ChatGPT gets its details as a
+  list. No em dashes, anywhere.
 - **What it needs.** A cleanup model, set up as above. It works even when
   "Clean up dictations" is switched off, since pressing the rewrite hotkey is
   an explicit request.
@@ -236,7 +241,7 @@ under "Why macOS objects to the download".
 
 - **Audio:** never.
 - **Text:** only when cleanup is set up. Then the transcript, the name of the
-  focused app and your word list are sent to the provider you chose. When you
+  app (or, in a browser, the site) and your word list are sent to the provider you chose. When you
   edit selected text, that text is sent too. With Ollama, all of it stays on
   your Mac.
 - **History:** never. It is a file on your Mac.
@@ -246,8 +251,13 @@ under "Why macOS objects to the download".
 ## Limits in this version
 
 - macOS only.
-- Browsers get the neutral writing style, because Utter does not read which
-  site is open.
+- In a browser, Utter recognises common sites (Gmail, Outlook, Slack, Discord,
+  WhatsApp, Teams, Claude, ChatGPT, Gemini, Notion, Google Docs and a few
+  more) from the address of the page you are typing in. It reads the address
+  through Accessibility, on your Mac, and sends only the site's name. Other
+  sites get the neutral style.
+- Small local models follow the layout rules less reliably than hosted ones:
+  a prompt for an AI assistant may stay one paragraph.
 - With a Bluetooth microphone the first word can be clipped if you speak the
   instant you press the key. Utter keeps other microphones ready between
   dictations (without listening), but leaves Bluetooth ones alone so your
