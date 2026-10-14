@@ -224,10 +224,10 @@ whether another key is pressed while fn is held; it never looks at which key.
 
 macOS has its own action for the globe key ("Press 🌐 key to" in Keyboard
 settings), such as opening the emoji picker, and it runs before any app sees
-the key. If it is on, the Hotkey tab offers **Turn it off while Utter runs**:
-Utter then sets that option to Do Nothing while it is using fn and puts your
-own choice back when you quit, pick another hotkey, or click **Give it back
-now**. Your original choice is saved first, so it comes back even after a
+the key. So, by default, while Utter is using fn it sets that option to Do
+Nothing, and puts your own choice back when you quit, pick another hotkey, or
+click **Give it back now** on the Hotkey tab (which turns this off; **Turn it
+off while Utter runs** turns it on again). Your original choice is saved first, so it comes back even after a
 crash, at the next launch. Or change it yourself in Keyboard settings.
 
 ## Your words

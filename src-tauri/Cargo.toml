@@ -1,6 +1,6 @@
 [package]
 name = "utter"
-version = "0.2.9"
+version = "0.2.10"
 description = "Hold a hotkey, speak, release. Cleaned-up text lands in the app you are using."
 authors = ["Shan Tirmizi"]
 license = "MIT"

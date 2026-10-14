@@ -184,9 +184,14 @@ export function useAppState(): AppState | null {
   }, [refreshModels, refreshHistory]);
 
   // Permissions change outside the app, so ask the system once a second.
+  // Whether the hotkeys work can change with them (the fn key starts working
+  // a moment after Accessibility is allowed), so ask about that too.
   useEffect(() => {
     let alive = true;
-    const check = () => permissionStatus().then((s) => alive && setPermissions(s));
+    const check = () => {
+      permissionStatus().then((s) => alive && setPermissions(s));
+      loadHotkeyProblem().then((problem) => alive && setHotkeyProblem(problem), () => undefined);
+    };
     check();
     const timer = setInterval(check, 1000);
     return () => {

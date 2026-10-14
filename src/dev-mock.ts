@@ -53,7 +53,7 @@ let settings: Settings = {
   dictionary: query.has("words") ? ["Priya", "Kubernetes", "Q3 roadmap"] : [],
   keepHistory: true,
   handsFree: true,
-  quietGlobe: false,
+  quietGlobe: !query.has("fnconflict"),
   model: "base.en",
   onboarded: !query.has("welcome"),
 };

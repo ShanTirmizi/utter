@@ -220,14 +220,14 @@ retried every two seconds, and the Hotkey tab says why fn is not working.
 macOS's own globe-key action ("Press 🌐 key to": emoji picker, input source,
 Apple's dictation) would fire as well. It runs in the window server before any
 event tap, so dropping fn's events does not stop it (tried, on a real Mac: the
-picker still opened). The only cure is that setting being "Do Nothing". When
-the user asks (a button on the Hotkey tab, `quietGlobe`), `globe.rs` sets it
+picker still opened). The only cure is that setting being "Do Nothing". Unless
+the user has switched it off (`quietGlobe`, on by default), `globe.rs` sets it
 to Do Nothing while fn is the hotkey and gives it back on quit, on choosing
 another hotkey, or on request. It uses the same calls Keyboard settings does
 (`TISGetFnUsageType` / `TISUpdateFnUsageType`, looked up at run time), which
 apply at once, and writes the original value to a file first so a crashed
 run's next launch can still restore it. A value the user changed in the
-meantime is left alone. Utter never touches the setting unless asked.
+meantime is left alone, and so is a saved "off" from the Hotkey tab.
 
 What the tap does (installed or not, fn down and up, fn dropped from a
 shortcut) is written to `~/Library/Logs/Utter/fn-key.log`; nothing else about
