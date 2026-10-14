@@ -12,8 +12,8 @@
 //! The fn key's own down and up events are held back from other apps while fn
 //! is the hotkey, from as early in the event path as macOS allows, to stop it
 //! also doing whatever "Press 🌐 key to" is set to (the emoji picker, say).
-//! On at least one Mac a later, session-level tap did not stop the picker;
-//! the Hotkey tab therefore also points at that setting.
+//! The Hotkey tab also points at that setting, in case macOS acts first.
+//! What the tap sees is logged to ~/Library/Logs/Utter/fn-key.log.
 //! Every other event passes through unchanged; fn still works in shortcuts,
 //! because the keys pressed with it carry the fn flag themselves.
 
@@ -64,6 +64,9 @@ unsafe extern "C" {
 /// once and then kept; if macOS refuses it, because Accessibility is not
 /// allowed yet, it is tried again every few seconds until it works.
 pub fn enable(app: &AppHandle) {
+    if !WANTED.load(Ordering::SeqCst) {
+        log(&format!("fn key wanted as the dictation hotkey (Utter {})", env!("CARGO_PKG_VERSION")));
+    }
     WANTED.store(true, Ordering::SeqCst);
     PAUSED.store(false, Ordering::SeqCst);
     if STARTED.swap(true, Ordering::SeqCst) {
@@ -109,14 +112,29 @@ pub fn problem() -> Option<String> {
 /// Put the tap in and run it on this thread. Returns only if it could not
 /// be made.
 fn install(app: AppHandle) -> Result<(), ()> {
-    // As early as possible: where key events enter the window server, before
-    // macOS acts on the globe key. A session tap, later on, is the fallback.
-    let tap = make(CGEventTapLocation::HID, app.clone()).or_else(|_| make(CGEventTapLocation::Session, app))?;
+    // A session-level tap at the head of the queue: it sees key events
+    // before any app does, which is where the fn key's own events can be held
+    // back from macOS's globe-key handling.
+    static LAST_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
+    let tap = match make(CGEventTapLocation::Session, app) {
+        Ok(tap) => tap,
+        Err(()) => {
+            if !LAST_FAILURE_LOGGED.swap(true, Ordering::SeqCst) {
+                log(&format!(
+                    "could not install the fn key tap (Accessibility allowed: {}); retrying every 2 s",
+                    crate::permissions::accessibility()
+                ));
+            }
+            return Err(());
+        }
+    };
+    LAST_FAILURE_LOGGED.store(false, Ordering::SeqCst);
     let source = tap.mach_port().create_runloop_source(0).map_err(|_| ())?;
     CFRunLoop::get_current().add_source(&source, unsafe { kCFRunLoopCommonModes });
     tap.enable();
     PORT.store(tap.mach_port().as_concrete_TypeRef() as *mut _, Ordering::SeqCst);
     RUNNING.store(true, Ordering::SeqCst);
+    log("fn key tap installed and listening");
     CFRunLoop::run_current();
     // The run loop only stops if the tap is torn down.
     RUNNING.store(false, Ordering::SeqCst);
@@ -146,6 +164,7 @@ fn on_event(app: &AppHandle, kind: CGEventType, flags: CGEventFlags, key_code: i
     match kind {
         // macOS switches off a tap it thinks is too slow; switch it back on.
         CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput => {
+            log("macOS switched the fn key tap off; switching it back on");
             let port = PORT.load(Ordering::SeqCst);
             if !port.is_null() {
                 unsafe { CGEventTapEnable(port as CFMachPortRef, true) };
@@ -164,6 +183,10 @@ fn on_event(app: &AppHandle, kind: CGEventType, flags: CGEventFlags, key_code: i
     let modifier_change = matches!(kind, CGEventType::FlagsChanged);
     let code = if modifier_change { key_code() } else { -1 };
     let own_event = modifier_change && code == FN_KEY_CODE;
+    if own_event {
+        let down = flags.contains(CGEventFlags::CGEventFlagSecondaryFn);
+        log(&format!("fn {} (held back from other apps)", if down { "down" } else { "up" }));
+    }
     let others = CGEventFlags::CGEventFlagCommand
         | CGEventFlags::CGEventFlagControl
         | CGEventFlags::CGEventFlagAlternate
@@ -171,7 +194,10 @@ fn on_event(app: &AppHandle, kind: CGEventType, flags: CGEventFlags, key_code: i
     match step(kind, code, flags.contains(CGEventFlags::CGEventFlagSecondaryFn), flags.intersects(others)) {
         Some(Action::Press) => dispatch(app, |app| pipeline::on_press(app, Mode::Tidy)),
         Some(Action::Release) => dispatch(app, |app| pipeline::on_release(app, Mode::Tidy)),
-        Some(Action::Cancel) => dispatch(app, pipeline::cancel),
+        Some(Action::Cancel) => {
+            log("another key was pressed with fn: dictation dropped");
+            dispatch(app, pipeline::cancel)
+        }
         None => {}
     }
     own_event
@@ -214,6 +240,30 @@ fn step(kind: CGEventType, key_code: i64, fn_held: bool, other_modifiers: bool) 
 fn dispatch(app: &AppHandle, work: impl FnOnce(&AppHandle) + Send + 'static) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || work(&handle));
+}
+
+/// A line in `~/Library/Logs/Utter/fn-key.log`, for finding out why fn does
+/// or does not work on a given Mac. Only the fn key's own state is ever
+/// written: never another key, never anything typed or said.
+pub fn log(line: &str) {
+    use std::io::Write;
+    let Some(home) = std::env::var_os("HOME") else { return };
+    let dir = std::path::Path::new(&home).join("Library/Logs/Utter");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join("fn-key.log");
+    // Kept small: start again once it passes 200 KB.
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 200_000) {
+        let _ = std::fs::remove_file(&path);
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{stamp} {line}");
+    }
 }
 
 /// What macOS itself does when the fn (globe) key is pressed, if that would

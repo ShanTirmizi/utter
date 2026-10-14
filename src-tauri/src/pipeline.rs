@@ -325,6 +325,7 @@ pub fn preload_model(app: &AppHandle) {
 
 /// A hotkey went down: start recording. `mode` says which hotkey.
 pub fn on_press(app: &AppHandle, mode: Mode) {
+    crate::fnkey::log(&format!("hotkey pressed ({mode:?})"));
     let pipeline = app.state::<Pipeline>();
     let mut phase = pipeline.phase.lock().unwrap();
     match *phase {
@@ -445,6 +446,7 @@ fn warm_local_model(app: &AppHandle, mode: Mode) {
 
 /// A hotkey came up: stop recording and process the audio off the main thread.
 pub fn on_release(app: &AppHandle, mode: Mode) {
+    crate::fnkey::log(&format!("hotkey released ({mode:?})"));
     let pipeline = app.state::<Pipeline>();
     // The release of the tap that ended a hands-free recording.
     if pipeline.swallow_release.swap(false, Ordering::SeqCst) {

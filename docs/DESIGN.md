@@ -219,9 +219,10 @@ retried every two seconds, and the Hotkey tab says why fn is not working.
 
 macOS's own globe-key action ("Press 🌐 key to": emoji picker, input source,
 Apple's dictation) would fire as well. So while fn is the hotkey, the tap
-drops fn's own down and up events (key code 63), at the HID level where it
-can, with a session-level tap as the fallback. A session-level tap was not
-enough on the first Mac it was tried on: the emoji picker still opened.
+drops fn's own down and up events (key code 63) at the head of the session
+event queue, before any app sees them. What the tap does (installed or not,
+fn down and up, fn dropped from a shortcut) is written to
+`~/Library/Logs/Utter/fn-key.log`; nothing else about the keyboard is.
 Shortcuts that use fn keep working, because the keys pressed with fn carry the
 fn flag themselves. As a backstop the Hotkey tab reads the setting and, if it
 is not "Do Nothing", links to Keyboard settings. Utter never changes the
