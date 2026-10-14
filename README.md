@@ -223,8 +223,10 @@ pasting) and no other. The tap looks only at fn going down and up and at
 whether another key is pressed while fn is held; it never looks at which key.
 
 macOS has its own action for the globe key ("Press 🌐 key to" in Keyboard
-settings), which would fire too. Set it to **Do Nothing**; Utter warns you and
-links to the setting if it is not.
+settings), such as opening the emoji picker. While fn is your dictation key,
+Utter holds fn's own key events back from other apps so that action does not
+fire. If it still does on your Mac, set "Press 🌐 key to" to **Do Nothing**;
+the Hotkey tab links to the setting.
 
 ## Your words
 

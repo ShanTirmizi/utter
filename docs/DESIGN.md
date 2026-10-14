@@ -217,9 +217,13 @@ never read. If the tap cannot be made (Accessibility not yet allowed), it is
 retried every two seconds, and the Hotkey tab says why fn is not working.
 **Input Monitoring is never requested.**
 
-macOS's own globe-key action ("Press 🌐 key to") would fire as well. Utter
-reads that setting and, if it is not "Do Nothing", says so with a link to
-Keyboard settings. It does not change the setting itself.
+macOS's own globe-key action ("Press 🌐 key to": emoji picker, input source,
+Apple's dictation) would fire as well. So while fn is the hotkey, the tap
+drops fn's own down and up events (key code 63) before they reach other apps.
+Shortcuts that use fn keep working, because the keys pressed with fn carry the
+fn flag themselves. As a backstop the Hotkey tab reads the setting and, if it
+is not "Do Nothing", links to Keyboard settings. Utter never changes the
+setting itself.
 
 | Permission | Used for | Asked when |
 | --- | --- | --- |

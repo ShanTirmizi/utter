@@ -4,11 +4,16 @@
 //! macOS will not register a lone modifier key as a hotkey, so the key is
 //! watched with an event tap instead. A tap that may act on events needs the
 //! Accessibility permission, which Utter already asks for to paste; no
-//! keystroke-monitoring permission is involved. The tap passes every event on
-//! unchanged and looks at only two things: the fn key going down and up, and
-//! whether any other key is pressed while fn is held (then fn is part of
-//! another shortcut, such as fn+arrow, and the dictation is dropped). Which
-//! key that was is never looked at.
+//! keystroke-monitoring permission is involved. The tap looks at only two
+//! things: the fn key going down and up, and whether any other key is pressed
+//! while fn is held (then fn is part of another shortcut, such as fn+arrow,
+//! and the dictation is dropped). Which key that was is never looked at.
+//!
+//! The fn key's own down and up events are held back from other apps while fn
+//! is the hotkey. Otherwise macOS would also do whatever "Press 🌐 key to" is
+//! set to, such as opening the emoji picker, every time the user dictates.
+//! Every other event passes through unchanged; fn still works in shortcuts,
+//! because the keys pressed with it carry the fn flag themselves.
 
 use crate::pipeline::{self, Mode};
 use core_foundation::{
@@ -108,10 +113,10 @@ fn install(app: AppHandle) -> Result<(), ()> {
         CGEventTapOptions::Default,
         vec![CGEventType::FlagsChanged, CGEventType::KeyDown],
         move |_proxy, kind, event| {
-            on_event(&app, kind, event.get_flags(), || {
+            let hold_back = on_event(&app, kind, event.get_flags(), || {
                 event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE)
             });
-            CallbackResult::Keep
+            if hold_back { CallbackResult::Drop } else { CallbackResult::Keep }
         },
     )?;
     let source = tap.mach_port().create_runloop_source(0).map_err(|_| ())?;
@@ -128,7 +133,8 @@ fn install(app: AppHandle) -> Result<(), ()> {
 
 /// What the tap does with one event. Kept small: it runs for every key the
 /// user presses, and must hand any real work to the main thread at once.
-fn on_event(app: &AppHandle, kind: CGEventType, flags: CGEventFlags, key_code: impl Fn() -> i64) {
+/// Returns true for an event to hold back from other apps: the fn key's own.
+fn on_event(app: &AppHandle, kind: CGEventType, flags: CGEventFlags, key_code: impl Fn() -> i64) -> bool {
     match kind {
         // macOS switches off a tap it thinks is too slow; switch it back on.
         CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput => {
@@ -136,25 +142,31 @@ fn on_event(app: &AppHandle, kind: CGEventType, flags: CGEventFlags, key_code: i
             if !port.is_null() {
                 unsafe { CGEventTapEnable(port as CFMachPortRef, true) };
             }
-            return;
+            return false;
         }
         _ => {}
     }
     if !WANTED.load(Ordering::SeqCst) || PAUSED.load(Ordering::SeqCst) {
         DOWN.store(false, Ordering::SeqCst);
         ACTIVE.store(false, Ordering::SeqCst);
-        return;
+        return false;
     }
+    // Only modifier changes are looked at closely. For a key press, all that
+    // matters is that one happened: which key it was is never read.
+    let modifier_change = matches!(kind, CGEventType::FlagsChanged);
+    let code = if modifier_change { key_code() } else { -1 };
+    let own_event = modifier_change && code == FN_KEY_CODE;
     let others = CGEventFlags::CGEventFlagCommand
         | CGEventFlags::CGEventFlagControl
         | CGEventFlags::CGEventFlagAlternate
         | CGEventFlags::CGEventFlagShift;
-    match step(kind, key_code(), flags.contains(CGEventFlags::CGEventFlagSecondaryFn), flags.intersects(others)) {
+    match step(kind, code, flags.contains(CGEventFlags::CGEventFlagSecondaryFn), flags.intersects(others)) {
         Some(Action::Press) => dispatch(app, |app| pipeline::on_press(app, Mode::Tidy)),
         Some(Action::Release) => dispatch(app, |app| pipeline::on_release(app, Mode::Tidy)),
         Some(Action::Cancel) => dispatch(app, pipeline::cancel),
         None => {}
     }
+    own_event
 }
 
 #[derive(Debug, PartialEq)]

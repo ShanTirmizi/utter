@@ -296,9 +296,10 @@ function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
 }
 
 /**
- * With fn as the hotkey, macOS's own action for the globe key (emoji,
- * input source, Apple's dictation) would fire as well. Say so, and point at
- * the one setting that turns it off. Utter does not change it itself.
+ * With fn as the hotkey, Utter holds the fn key's own events back so macOS's
+ * action for the globe key (emoji, input source, Apple's dictation) does not
+ * fire too. In case it still does on some Mac, point at the setting that
+ * turns it off for good. Utter does not change that setting itself.
  */
 function FnKeyAdvice() {
   const [action, setAction] = useState<string | null>(null);
@@ -316,15 +317,15 @@ function FnKeyAdvice() {
   if (!action) return null;
   return (
     <Notice
-      tone="warn"
+      tone="info"
       action={
         <button className="btn sm" onClick={() => openPrivacySettings("keyboard")}>
           Open Keyboard settings
         </button>
       }
     >
-      <b>macOS will also {action} when you press fn.</b> In Keyboard settings, set “Press 🌐 key to” to “Do
-      Nothing”.
+      Your 🌐 key is set to {action}. Utter stops that while you dictate. If it still happens, set “Press 🌐
+      key to” to “Do Nothing” in Keyboard settings.
     </Notice>
   );
 }
