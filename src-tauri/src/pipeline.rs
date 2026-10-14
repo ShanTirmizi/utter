@@ -619,7 +619,12 @@ async fn process(
         }
     }
 
-    let tidied = improve(app, &raw, &target, &settings, mode).await;
+    let mut tidied = improve(app, &raw, &target, &settings, mode).await;
+    // However it was produced, a long dictation never goes in as one block,
+    // except where line breaks have meaning of their own: code and terminals.
+    if target.category != context::Category::Code {
+        tidied.text = cleanup::paragraphs(&tidied.text);
+    }
     let (inserted, delivery_note) = deliver(app, &tidied.text, delivery, true).await?;
 
     Ok(Some(Dictation {

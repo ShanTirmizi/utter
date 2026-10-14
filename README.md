@@ -44,8 +44,8 @@ flowchart LR
    instead of a hold starts a hands-free recording that runs until the next tap.
 3. **Transcribe.** A Whisper model runs on your Mac, using the GPU through Metal.
 4. **Clean up (optional).** The transcript goes to the model you chose, with a
-   prompt that removes filler words, fixes punctuation, and matches the app you
-   are typing in. With the rewrite hotkey, the prompt asks for better wording
+   prompt that removes filler words, fixes punctuation, splits a long dictation
+   into short paragraphs, and matches the app you are typing in. With the rewrite hotkey, the prompt asks for better wording
    instead, or, if you have text selected, for that text changed the way you
    said. If this step fails for any reason, the raw transcript is used (and
    selected text is left alone).
@@ -247,6 +247,15 @@ under "Why macOS objects to the download".
 - **History:** never. It is a file on your Mac.
 - **Speech models:** downloaded once from Hugging Face, on request.
 - Utter has no account, no analytics and no telemetry.
+
+## Long dictations
+
+Whatever you dictate, a long message never goes in as one giant paragraph. The
+model is asked for short paragraphs, a new one for each new point. If it
+returns one long block anyway, or there is no model and the text is the raw
+transcription, Utter splits it into paragraphs of a few sentences itself,
+breaking where a sentence moves on ("So", "Also", "Oh, and"). Code editors and
+terminals are left alone.
 
 ## Limits in this version
 

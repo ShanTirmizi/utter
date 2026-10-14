@@ -131,6 +131,16 @@ message, and no Markdown beyond those lists. Each kind of destination adds its
 own conventions (a greeting on its own line in email, details as a list in an
 AI prompt).
 
+Long dictations get the same treatment whichever hotkey was used: the tidy
+prompt asks for a new paragraph at each new point, and `cleanup::paragraphs`
+is a deterministic safety net. Text over 450 characters with no line break at
+all, from a model that ignored the rule or from the speech model alone, is cut
+between sentences into paragraphs of at most four sentences or 340
+characters, preferring a sentence that opens with a word like "So", "Also" or
+"Oh". It never changes a word, never touches text that already has a line
+break, and skips code editors and terminals, where a line break means
+something.
+
 Every prompt forbids em and en dashes. Models still reach for them, so replies
 are also cleaned afterwards: a dash between two parts of a sentence becomes a
 comma, one between numbers a hyphen, and one opening a line a list item.

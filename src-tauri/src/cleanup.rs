@@ -43,7 +43,11 @@ Fix these things:
 know\" when they carry no meaning. Drop stutters and accidentally repeated words.
 - When the speaker changes their mind mid-sentence (\"at five, no wait, six\"), keep \
 only what they settled on.
-- Add the punctuation, capital letters and paragraph breaks the speech implies.
+- Add the punctuation and capital letters the speech implies.
+- Break a long dictation into short paragraphs, never one long block: start a new \
+paragraph whenever the speaker moves to a new point, keep each to about two to four \
+sentences, and put a blank line between them. A dictation of a few sentences stays \
+one paragraph.
 - Correct a word the recogniser clearly misheard when the surrounding words make the \
 intended one obvious. If you are not sure, leave it as it is.
 - Carry out spoken formatting commands such as \"new line\", \"new paragraph\" or \
@@ -86,8 +90,8 @@ This is a prompt for an AI assistant. Keep every detail and constraint the speak
 gave, in their order. Make it clear and direct, with one paragraph per separate \
 point. Do not carry out the request yourself.",
         Category::Other => "\
-The destination is unknown. Write neutral, tidy prose in full sentences, and add no \
-formatting beyond punctuation and paragraph breaks.",
+The destination is unknown. Write neutral, tidy prose in full sentences, in short \
+paragraphs, with no formatting beyond punctuation and paragraph breaks.",
     }
 }
 
@@ -457,6 +461,115 @@ fn is_plausible_rewrite(reply: &str, transcript: &str) -> bool {
     shared * 100 >= written.len() * 40 && written.len() <= said.len() * 2 + 4
 }
 
+/// Text longer than this with no line breaks at all is split into paragraphs.
+const LONG_BLOCK: usize = 450;
+/// Paragraphs are built up to about this long before a break is looked for
+/// at a sentence that moves on to a new point.
+const PARAGRAPH_SOFT: usize = 140;
+/// A paragraph never grows past this, or past this many sentences.
+const PARAGRAPH_HARD: usize = 340;
+const PARAGRAPH_SENTENCES: usize = 4;
+
+/// Words that open a sentence moving on to a new point: good places for a
+/// paragraph to start.
+const NEW_POINT: &[&str] = &[
+    "so", "also", "anyway", "oh", "but", "however", "then", "next", "another", "finally",
+    "first", "firstly", "second", "secondly", "third", "thirdly", "lastly", "besides",
+    "meanwhile", "separately", "okay", "ok", "right", "now", "plus", "and another",
+    "on top of that", "the other thing", "one more thing", "other than that", "apart from that",
+];
+
+/// Short words that end in a full stop without ending a sentence.
+const ABBREVIATIONS: &[&str] = &[
+    "mr", "mrs", "ms", "dr", "prof", "st", "vs", "etc", "e.g", "i.e", "inc", "ltd", "jr", "sr", "no",
+    "approx", "dept",
+];
+
+/// The safety net for "one giant paragraph". A long dictation that comes
+/// back as a single block, from a model that ignored the layout rules or
+/// from the speech model alone, is split into short paragraphs: a few
+/// sentences each, breaking where a sentence moves on to a new point when it
+/// can. Text that already has any line break is left exactly as it is.
+pub fn paragraphs(text: &str) -> String {
+    let text = text.trim();
+    if text.chars().count() < LONG_BLOCK || text.contains('\n') {
+        return text.to_string();
+    }
+    let sentences = sentences(text);
+    if sentences.len() < 3 {
+        return text.to_string();
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut count = 0;
+    for sentence in sentences {
+        let length = current.chars().count();
+        let moves_on = {
+            let lower = sentence.to_lowercase();
+            NEW_POINT.iter().any(|w| {
+                lower.strip_prefix(w).is_some_and(|rest| rest.starts_with([' ', ',']))
+            })
+        };
+        let full = count >= PARAGRAPH_SENTENCES || length + sentence.chars().count() > PARAGRAPH_HARD;
+        if !current.is_empty() && length >= 80 && ((length >= PARAGRAPH_SOFT && moves_on) || full) {
+            out.push(std::mem::take(&mut current));
+            count = 0;
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(sentence);
+        count += 1;
+    }
+    // A last line on its own ("Thanks. Talk soon.") reads fine; a sliver of
+    // a sentence does not, so a very short end joins the paragraph before it.
+    if current.chars().count() < 40 && !out.is_empty() && !current.trim_end().ends_with(['.', '!', '?']) {
+        let last = out.pop().unwrap_or_default();
+        current = format!("{last} {current}");
+    }
+    out.push(current);
+    out.join("\n\n")
+}
+
+/// Split text into sentences, keeping their punctuation. A full stop after
+/// an abbreviation, an initial or inside a number does not end a sentence.
+fn sentences(text: &str) -> Vec<&str> {
+    let mut found = Vec::new();
+    let mut start = 0;
+    let bytes: Vec<(usize, char)> = text.char_indices().collect();
+    for (k, &(at, c)) in bytes.iter().enumerate() {
+        if !matches!(c, '.' | '?' | '!') {
+            continue;
+        }
+        // The end of a sentence is followed by a space and then a capital
+        // letter, a digit or an opening quote.
+        let Some(&(_, after)) = bytes.get(k + 1) else { continue };
+        let Some(&(_, next)) = bytes.get(k + 2) else { continue };
+        if after != ' ' || !(next.is_uppercase() || next.is_ascii_digit() || next == '"' || next == '\u{201c}') {
+            continue;
+        }
+        if c == '.' {
+            let word: String = text[start..at]
+                .rsplit(' ')
+                .next()
+                .unwrap_or("")
+                .trim_start_matches(['(', '"'])
+                .to_lowercase();
+            if ABBREVIATIONS.contains(&word.as_str()) || (word.chars().count() == 1 && word.chars().all(char::is_alphabetic)) {
+                continue;
+            }
+        }
+        let end = at + c.len_utf8();
+        found.push(text[start..end].trim());
+        start = end;
+    }
+    let rest = text[start..].trim();
+    if !rest.is_empty() {
+        found.push(rest);
+    }
+    found
+}
+
 /// Swap em and en dashes for plain punctuation: a dash between two parts of
 /// a sentence becomes a comma, one between numbers a hyphen, one opening a
 /// line a list item, and one at the end of a line goes.
@@ -544,6 +657,8 @@ fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[String]) -> R
     // Selected text that already has them keeps them.
     let keep_dashes = matches!(task, Task::Edit { selection } if selection.contains(['—', '–']));
     let text = if keep_dashes { text } else { without_dashes(&text) };
+    // Models leave a space before a line break; it does nothing but harm.
+    let text = text.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
     let text = text.trim();
     if text.is_empty() {
         return Err("The reply was empty.".into());
@@ -887,6 +1002,29 @@ mod tests {
     }
 
     #[test]
+    fn a_long_block_becomes_short_paragraphs() {
+        let block = "Hi Sam, I wanted to give you a quick update on the launch. We are mostly ready. \
+The website is done and the app builds fine. But there are still a few things left. We need to \
+finish the release notes. We need to test the installer on an older Mac. And we need to send the \
+announcement email to the beta list. I think we can still make Friday if nothing else comes up. \
+Oh, and also can you check whether Legal signed off on the privacy page? Dr. Patel asked about it \
+on Monday. Thanks. Talk soon.";
+        let laid_out = paragraphs(block);
+        let parts: Vec<&str> = laid_out.split("\n\n").collect();
+        assert!(parts.len() >= 3, "{laid_out}");
+        assert!(parts.iter().all(|p| p.chars().count() <= PARAGRAPH_HARD + 120), "{laid_out}");
+        // Breaks fall between sentences, and a new point starts a paragraph.
+        assert!(parts.iter().any(|p| p.starts_with("Oh, and also")), "{laid_out}");
+        assert!(laid_out.contains("Dr. Patel"), "an abbreviation is not a sentence end");
+        // Nothing was lost or changed apart from the breaks.
+        assert_eq!(laid_out.split_whitespace().collect::<Vec<_>>(), block.split_whitespace().collect::<Vec<_>>());
+        // Short text, or text the model already laid out, is left alone.
+        assert_eq!(paragraphs("One sentence. Two sentences."), "One sentence. Two sentences.");
+        let listed = format!("Intro line.\n\n- one\n- two {}", "x".repeat(500));
+        assert_eq!(paragraphs(&listed), listed);
+    }
+
+    #[test]
     fn dashes_become_plain_punctuation() {
         assert_eq!(without_dashes("It works \u{2014} mostly."), "It works, mostly.");
         assert_eq!(without_dashes("It works\u{2014}mostly."), "It works, mostly.");
@@ -896,6 +1034,8 @@ mod tests {
         assert_eq!(without_dashes("Ready \u{2014}."), "Ready.");
         assert_eq!(without_dashes("Yes, \u{2014} no"), "Yes, no");
         assert_eq!(without_dashes("Plain text - with a hyphen."), "Plain text - with a hyphen.");
+        let spaced = "First point is long enough.  \n\nSecond point follows here. ";
+        assert_eq!(accept(spaced, "first point is long enough second point follows here", &Task::Tidy).unwrap(), "First point is long enough.\n\nSecond point follows here.");
         // Through the checks every reply goes through.
         let said = "so the release is ready mostly we just need the notes";
         let reply = "The release is ready \u{2014} mostly. We just need the notes.";
