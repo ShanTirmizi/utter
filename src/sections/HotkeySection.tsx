@@ -278,7 +278,20 @@ function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
                 Record new hotkey
               </button>
               {hotkey !== FN && (
-                <button className="btn" onClick={() => save(FN)}>
+                <button
+                  className="btn"
+                  title="Also switches macOS's own 🌐 key action off while Utter is running"
+                  onClick={() => {
+                    setOutcome(null);
+                    // Choosing fn means wanting fn to dictate and do nothing else, so
+                    // macOS's own globe action is held off too, as other dictation
+                    // apps do. It comes back on quit, or from the Hotkey tab.
+                    app
+                      .update({ hotkey: FN, quietGlobe: true })
+                      .then(() => setOutcome({ kind: "saved" }))
+                      .catch((err) => setOutcome({ kind: "bad", attempt: FN, message: String(err) }));
+                  }}
+                >
                   Use the fn key
                 </button>
               )}
