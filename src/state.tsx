@@ -88,9 +88,6 @@ export type AppState = {
   setTab: (tab: TabId) => void;
 };
 
-/** How the backend's "one at a time" refusal begins. */
-export const BUSY_NOTE = "Still finishing the last dictation";
-
 const IDLE: Live = { phase: "idle", mode: "tidy", handsFree: false, stage: null, app: null, message: null, since: 0 };
 const TABS: TabId[] = ["try", "hotkey", "model", "cleanup", "permissions"];
 
@@ -157,9 +154,6 @@ export function useAppState(): AppState | null {
     refreshModels();
 
     const stopPipeline = listen<PipelineUpdate>("pipeline", ({ payload }) => {
-      // A press while the last dictation is still being processed is refused
-      // with a note; the dictation itself carries on, so the state stands.
-      if (payload.phase === "error" && payload.message?.startsWith(BUSY_NOTE)) return;
       setLive((before) => ({
         phase: payload.phase,
         mode: payload.mode,

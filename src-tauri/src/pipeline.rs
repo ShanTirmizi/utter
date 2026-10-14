@@ -352,10 +352,12 @@ pub fn on_press(app: &AppHandle, mode: Mode) {
             }
             return;
         }
-        // Say so, rather than silently losing what the user is about to say.
+        // The last dictation is still being transcribed or tidied. A press
+        // now is ignored, so it can neither interrupt that nor start a
+        // second one; the pill keeps showing the work under way.
         Phase::Processing => {
             drop(phase);
-            emit(app, "error", Some("Still finishing the last dictation. Try again in a moment.".into()), None);
+            crate::fnkey::log("hotkey pressed while still working: ignored");
             return;
         }
     }

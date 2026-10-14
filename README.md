@@ -303,8 +303,8 @@ terminals are left alone.
 - If the pill ever stays on "Listening" after you let go, tap the same hotkey
   once to end it. A held recording that is never released is closed and
   discarded after five minutes.
-- While one dictation is still being processed, a new one cannot start; the
-  pill says so.
+- While one dictation is still being transcribed or tidied, pressing the hotkey
+  again does nothing; the pill keeps showing the work under way.
 - Small local models make mistakes when tidying and rewriting: they can miss a
   self-correction or drop a detail. Utter checks that a reply is a version of
   what you said and falls back to your raw words if not, but it cannot catch

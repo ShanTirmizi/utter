@@ -77,6 +77,11 @@ fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Settings, Str
     if settings.model != previous.model {
         pipeline::preload_model(&app);
     }
+    // Switching the globe-key option takes effect now, not at the next
+    // launch. (A hotkey change already did this while registering.)
+    if settings.quiet_globe != previous.quiet_globe && !hotkeys_changed {
+        globe::sync(&app, settings.hotkey.trim() == fnkey::FN && settings.quiet_globe);
+    }
     Ok(settings)
 }
 

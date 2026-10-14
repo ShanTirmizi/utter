@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { PipelineUpdate } from "./api";
-import { BUSY_NOTE, useElapsed, useLevels, useReducedMotion } from "./state";
+import { useElapsed, useLevels, useReducedMotion } from "./state";
 import { clock } from "./ui";
 
 type Note = {
@@ -145,8 +145,6 @@ export default function Pill() {
       const hold = note.problem ? HOLD_PROBLEM : note.detail ? HOLD_TWO_LINES : HOLD_ONE_LINE;
       timer = setTimeout(after, hold);
     };
-    // The label shown while working, to come back to after an interruption.
-    let working: { label: string; chip: string | null } | null = null;
     // When the recording under way began; a tap that turns it hands-free keeps the clock.
     let began = 0;
 
@@ -164,7 +162,6 @@ export default function Pill() {
         }
         case "processing": {
           const next = workLabel(payload);
-          working = next;
           setWorkView(next);
           setView({ kind: "work", ...next });
           break;
@@ -180,13 +177,6 @@ export default function Pill() {
           }
           break;
         case "error":
-          if (before === "processing" && working && payload.message?.startsWith(BUSY_NOTE)) {
-            // A press that came too soon. Say so, then show the dictation
-            // that is still under way; its own "done" will follow.
-            const resume = working;
-            show(readNote(payload.message, false), () => setView({ kind: "work", ...resume }));
-            return;
-          }
           show(readNote(payload.message ?? "Something went wrong.", true));
           break;
         default:
