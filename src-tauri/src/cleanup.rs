@@ -570,6 +570,11 @@ fn sentences(text: &str) -> Vec<&str> {
     found
 }
 
+/// Curly quotes and apostrophes as the straight ones a keyboard types.
+fn straight_quotes(text: &str) -> String {
+    text.replace(['\u{2018}', '\u{2019}'], "'").replace(['\u{201c}', '\u{201d}'], "\"")
+}
+
 /// Swap em and en dashes for plain punctuation: a dash between two parts of
 /// a sentence becomes a comma, one between numbers a hyphen, one opening a
 /// line a list item, and one at the end of a line goes.
@@ -657,6 +662,11 @@ fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[String]) -> R
     // Selected text that already has them keeps them.
     let keep_dashes = matches!(task, Task::Edit { selection } if selection.contains(['—', '–']));
     let text = if keep_dashes { text } else { without_dashes(&text) };
+    // Keyboards and the speech model type straight quotes; models often
+    // answer with curly ones. Keep what is typed consistent, unless the
+    // selected text being edited already uses curly ones.
+    let keep_curly = matches!(task, Task::Edit { selection } if selection.contains(['\u{2018}', '\u{2019}', '\u{201c}', '\u{201d}']));
+    let text = if keep_curly { text } else { straight_quotes(&text) };
     // Models leave a space before a line break; it does nothing but harm.
     let text = text.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
     let text = text.trim();
@@ -1034,6 +1044,12 @@ on Monday. Thanks. Talk soon.";
         assert_eq!(without_dashes("Ready \u{2014}."), "Ready.");
         assert_eq!(without_dashes("Yes, \u{2014} no"), "Yes, no");
         assert_eq!(without_dashes("Plain text - with a hyphen."), "Plain text - with a hyphen.");
+        assert_eq!(
+            accept("Here\u{2019}s what I\u{2019}ve got: \u{201c}done\u{201d}.", "heres what ive got done", &Task::Tidy).unwrap(),
+            "Here's what I've got: \"done\"."
+        );
+        let task = Task::Edit { selection: "It\u{2019}s fine".into() };
+        assert_eq!(accept("It\u{2019}s fine.", "add a full stop", &task).unwrap(), "It\u{2019}s fine.");
         let spaced = "First point is long enough.  \n\nSecond point follows here. ";
         assert_eq!(accept(spaced, "first point is long enough second point follows here", &Task::Tidy).unwrap(), "First point is long enough.\n\nSecond point follows here.");
         // Through the checks every reply goes through.

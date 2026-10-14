@@ -380,9 +380,16 @@ function Changes({ heard, written }: { heard: string; written: string }) {
   return (
     <>
       <p className="diff">
-        {words.map((word, i) => (
+        {words.map((word, i) =>
+          word[0].kind === "break" ? (
+            // A new line, or a blank line for a new paragraph.
+            <Fragment key={i}>
+              <br />
+              {word[0].text.length > 1 && <br />}
+            </Fragment>
+          ) : (
           <Fragment key={i}>
-            {i > 0 && " "}
+            {i > 0 && words[i - 1][0].kind !== "break" && " "}
             {word.map((piece, j) =>
               piece.kind === "del" ? (
                 <del key={j}>{piece.text}</del>
@@ -393,7 +400,8 @@ function Changes({ heard, written }: { heard: string; written: string }) {
               ),
             )}
           </Fragment>
-        ))}
+          ),
+        )}
       </p>
       <div className="legend" aria-hidden="true">
         <del>removed</del>

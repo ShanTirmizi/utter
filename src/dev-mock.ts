@@ -107,8 +107,8 @@ let turn = 0;
 let last: Dictation | null = query.has("empty") || query.has("welcome")
   ? null
   : {
-      raw: lines[1].raw,
-      text: lines[1].tidy,
+      raw: "um so here's the thing i've moved the release to thursday and like we still need to tell the design team",
+      text: "So here\u2019s the thing: I\u2019ve moved the release to Thursday.\n\nWe still need to tell the design team.",
       mode: "tidy",
       selection: null,
       cleaned: true,
