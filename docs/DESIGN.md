@@ -206,10 +206,20 @@ The hotkey is registered with macOS as a system hotkey. macOS then delivers the
 press and release to Utter and withholds that combination from other apps. This
 needs no permission at all.
 
-The alternative, watching every key event, would allow a lone modifier key as
-the trigger but requires Input Monitoring (to listen) or Accessibility (to also
-swallow the key). Utter does not do this, so **Input Monitoring is never
-requested**.
+A lone modifier key cannot be registered that way. For the fn key, which users
+asked for, Utter installs an event tap. A tap that is allowed to act on events
+needs Accessibility, which Utter already has for pasting; a listen-only tap
+would need Input Monitoring instead, so the tap is the acting kind and passes
+everything through unchanged. It is consulted only for fn going down and up
+and for "another key went down while fn is held", in which case fn is part of
+a shortcut and the recording is dropped without a note. Which key that was is
+never read. If the tap cannot be made (Accessibility not yet allowed), it is
+retried every two seconds, and the Hotkey tab says why fn is not working.
+**Input Monitoring is never requested.**
+
+macOS's own globe-key action ("Press 🌐 key to") would fire as well. Utter
+reads that setting and, if it is not "Do Nothing", says so with a link to
+Keyboard settings. It does not change the setting itself.
 
 | Permission | Used for | Asked when |
 | --- | --- | --- |
@@ -222,10 +232,12 @@ Monitoring as not required so nobody goes looking for it.
 ### Hold or tap
 
 Holding the hotkey is the main gesture: the release is an unambiguous "done".
-A press released within 300 ms is a tap, and starts a hands-free recording that
-the next tap of either hotkey ends. One gesture serves both because the key is
-already under the user's fingers and a tap was otherwise wasted (it used to
-produce "Nothing heard").
+A press released within 300 ms is a tap. A second press within 400 ms of it
+makes a double tap, which turns the recording (already running since the first
+press) hands-free until the next tap of either hotkey. A single tap on its own
+is let go after those 400 ms, with a reminder of how to start. A double tap
+rather than a single one, because a single tap of fn happens by accident far
+too often.
 
 Nobody is holding a key during a hands-free recording, so it has to be able to
 end without the user: after 30 seconds below speaking level, or at the five

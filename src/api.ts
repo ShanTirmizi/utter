@@ -156,5 +156,7 @@ export const hotkeyProblem = () => invoke<string | null>("hotkey_problem");
 
 /** Clears a stale Accessibility entry for Utter and asks macOS again. */
 export const resetAccessibility = () => invoke<void>("reset_accessibility");
-export const openPrivacySettings = (pane: "microphone" | "accessibility") =>
+/** What macOS also does when fn is pressed ("show emoji and symbols"), or null. */
+export const fnKeyConflict = () => invoke<string | null>("fn_key_conflict");
+export const openPrivacySettings = (pane: "microphone" | "accessibility" | "keyboard") =>
   invoke<void>("open_privacy_settings", { pane });

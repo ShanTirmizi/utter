@@ -5,6 +5,7 @@
 pub mod audio;
 mod cleanup;
 mod context;
+mod fnkey;
 mod history;
 mod hotkey;
 mod insert;
@@ -235,6 +236,16 @@ fn hotkey_problem() -> Option<String> {
 #[tauri::command]
 fn open_privacy_settings(pane: String) -> Result<(), String> {
     permissions::open_settings(&pane)
+}
+
+/// What macOS also does when fn is pressed, if anything: worth knowing when
+/// fn is the dictation hotkey.
+#[tauri::command]
+async fn fn_key_conflict() -> Option<String> {
+    tauri::async_runtime::spawn_blocking(|| fnkey::system_action().map(str::to_string))
+        .await
+        .ok()
+        .flatten()
 }
 
 #[tauri::command]
@@ -503,6 +514,7 @@ pub fn run() {
             request_microphone,
             request_accessibility,
             reset_accessibility,
+            fn_key_conflict,
             pause_hotkeys,
             resume_hotkeys,
             hotkey_problem,

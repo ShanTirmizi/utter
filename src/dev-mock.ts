@@ -17,6 +17,8 @@
 //   ?empty            no last dictation and no history
 //   ?words            a few terms already in the dictionary
 //   ?selected         the rewrite hotkey edits a pretend selection
+//   ?fn               the fn key is the dictation hotkey
+//   ?fnconflict       and macOS also shows emoji when it is pressed
 //   ?fail=cleanup|test|download|hotkey   make that step fail
 //   ?fail=startup-hotkey   macOS refused the hotkey at launch
 //   ?pill=listen|handsfree|transcribe|tidy|rewrite|edit|note|note2|paste|blocked
@@ -40,7 +42,7 @@ const fail = query.get("fail");
 const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 let settings: Settings = {
-  hotkey: "Control+Alt+Space",
+  hotkey: query.has("fn") ? "Fn" : "Control+Alt+Space",
   cleanupEnabled: query.get("cleanup") !== "off",
   provider: "anthropic",
   cleanupModel: "",
@@ -159,9 +161,11 @@ function modelStepRuns(mode: Mode): boolean {
 let voice: ReturnType<typeof setInterval> | undefined;
 let pressedAt = 0;
 let recording: Mode | null = null;
-// A tap started the recording, so it runs until the next tap.
+// A double tap started the recording, so it runs until the next tap.
 let latched = false;
 let swallowRelease = false;
+// A quick tap just ended; a second press soon makes it a double tap.
+let awaiting: ReturnType<typeof setTimeout> | null = null;
 function startVoice() {
   let beat = 0;
   clearInterval(voice);
@@ -174,6 +178,17 @@ function startVoice() {
 }
 
 function press(mode: Mode) {
+  if (recording && awaiting) {
+    // The second tap of a double tap: hands-free.
+    clearTimeout(awaiting);
+    awaiting = null;
+    latched = true;
+    swallowRelease = true;
+    return pipeline(
+      { phase: "recording", handsFree: true, message: "Hands-free. Tap the hotkey again to finish." },
+      recording,
+    );
+  }
   if (recording && latched) {
     // The second tap ends a hands-free recording.
     latched = false;
@@ -199,13 +214,17 @@ function release() {
     swallowRelease = false;
     return;
   }
-  if (!recording || latched) return;
+  if (!recording || latched || awaiting) return;
   if (performance.now() - pressedAt < 300 && settings.handsFree) {
-    latched = true;
-    return pipeline(
-      { phase: "recording", handsFree: true, message: "Hands-free. Tap the hotkey again to finish." },
-      recording,
-    );
+    const mode = recording;
+    awaiting = setTimeout(() => {
+      // Only a single tap: let it go, and say how hands-free starts.
+      awaiting = null;
+      recording = null;
+      clearInterval(voice);
+      pipeline({ phase: "idle", message: "Hold to talk, or double-tap for hands-free." }, mode);
+    }, 400);
+    return;
   }
   finish();
 }
@@ -446,6 +465,8 @@ export function installMock() {
           return;
         case "copy_text":
           return;
+        case "fn_key_conflict":
+          return query.has("fnconflict") ? "show emoji and symbols" : null;
         default:
           return;
       }

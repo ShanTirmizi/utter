@@ -15,8 +15,10 @@ cleaned-up text appears in whatever app is focused.
   one rewrites what you said so it reads better, in a style you choose.
 - **Edit by voice.** Select some text, hold the rewrite hotkey and say what to
   change: "make this shorter", "turn this into bullet points".
-- **Hands-free.** Tap the hotkey instead of holding it, talk for up to five
-  minutes, and tap again to finish.
+- **One key if you like.** Use the fn (globe) key on its own: hold it to
+  talk, double-tap it for hands-free.
+- **Hands-free.** Double-tap the hotkey instead of holding it, talk for up to
+  five minutes, and tap once more to finish.
 - **Your words.** A personal dictionary for the names and jargon that speech
   recognition gets wrong.
 - **History.** Your recent dictations, kept on your Mac only, to search and
@@ -38,9 +40,9 @@ flowchart LR
     F -. "any error" .-> G
 ```
 
-1. **Hotkey.** `⌃ ⌥ Space` to dictate, `⌃ ⌥ R` to dictate and rewrite. Change
-   either in settings.
-2. **Record.** Utter listens only while you are dictating. A quick tap
+1. **Hotkey.** `⌃ ⌥ Space` (or the fn key on its own) to dictate, `⌃ ⌥ R` to
+   dictate and rewrite. Change either in settings.
+2. **Record.** Utter listens only while you are dictating. A double tap
    instead of a hold starts a hands-free recording that runs until the next tap.
 3. **Transcribe.** A Whisper model runs on your Mac, using the GPU through Metal.
 4. **Clean up (optional).** The transcript goes to the model you chose, with a
@@ -194,15 +196,35 @@ Spanish". Utter replaces the selection with the result.
 
 ## Hands-free
 
-Tap the hotkey (press and let go within a third of a second) and Utter keeps
-listening. Tap either hotkey again to finish; the text goes in as usual.
+Double-tap the hotkey (two quick presses) and Utter keeps listening. Tap
+either hotkey once more to finish; the text goes in as usual. A single quick
+tap does nothing but remind you how to start.
 
 - The pill shows "tap to finish" while it runs.
 - If you walk away, it stops by itself after 30 seconds without a sound, or
   after five minutes at most. What you said is then copied to the clipboard
   rather than typed, so it cannot land in the wrong place.
-- Switch it off under **Hotkey** if you tap the hotkey by accident. A tap is
-  then ignored, as before.
+- Switch it off under **Hotkey** if you never want it. A double tap is then
+  ignored.
+
+## The fn key
+
+Under **Hotkey**, click **Use the fn key** to dictate with fn (the globe key)
+on its own, like this:
+
+- **Hold fn** and speak; let go to insert.
+- **Double-tap fn** for hands-free; tap once more to finish.
+- **fn in a shortcut** (fn+arrow, fn+Delete) still works as usual: the
+  moment another key is pressed with fn, Utter drops that recording.
+
+macOS will not register a lone modifier key as a hotkey, so Utter watches for
+fn with an event tap. That needs the Accessibility permission (already used for
+pasting) and no other. The tap looks only at fn going down and up and at
+whether another key is pressed while fn is held; it never looks at which key.
+
+macOS has its own action for the globe key ("Press 🌐 key to" in Keyboard
+settings), which would fire too. Set it to **Do Nothing**; Utter warns you and
+links to the setting if it is not.
 
 ## Your words
 
@@ -227,7 +249,7 @@ them, copy one again, forget one, or clear them all.
 | --- | --- | --- |
 | Microphone | Yes | To hear you while the hotkey is held. |
 | Accessibility | Recommended | To press `⌘V` in the app you are typing in, and to see the text you selected when you edit by voice. Without it, Utter copies the text and you paste it yourself. |
-| Input Monitoring | No | The hotkey is registered with macOS as a system hotkey, so Utter never sees your other keystrokes. |
+| Input Monitoring | No | A key combination is registered with macOS as a system hotkey, so Utter never sees your other keystrokes. With the fn key option, Utter notices only that some other key was pressed while fn is held, never which (see "The fn key"). |
 
 You can change these under System Settings > Privacy & Security.
 

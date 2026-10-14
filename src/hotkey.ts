@@ -1,5 +1,9 @@
 // Hotkeys are stored as "Modifier+Modifier+Code", e.g. "Control+Alt+Space",
-// using the browser's physical key codes (KeyD, Digit1, F5, Space).
+// using the browser's physical key codes (KeyD, Digit1, F5, Space). The
+// dictation hotkey may instead be "Fn": the fn (globe) key on its own.
+
+/** The stored value for the fn (globe) key. */
+export const FN = "Fn";
 
 const MODIFIER_SYMBOLS: Record<string, string> = {
   Control: "⌃",
@@ -16,6 +20,7 @@ const MODIFIER_CODES = new Set([
 /** Human-readable keycaps for a stored hotkey: ["⌃", "⌥", "Space"]. */
 export function keycaps(hotkey: string): string[] {
   return hotkey.split("+").map((part) => {
+    if (part === FN) return "fn";
     if (MODIFIER_SYMBOLS[part]) return MODIFIER_SYMBOLS[part];
     if (part.startsWith("Key")) return part.slice(3);
     if (part.startsWith("Digit")) return part.slice(5);
@@ -42,6 +47,7 @@ export function fromKeyEvent(e: KeyboardEvent): string | null {
 }
 
 const MODIFIER_NAMES: Record<string, string> = {
+  Fn: "globe",
   Control: "Control",
   Alt: "Option",
   Shift: "Shift",

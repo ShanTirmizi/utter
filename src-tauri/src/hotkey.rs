@@ -1,11 +1,14 @@
 //! The global push-to-talk hotkeys: one to dictate, and an optional second
 //! one to dictate and have the result rewritten.
 //!
-//! They are registered with the system as hotkeys, so macOS delivers the
-//! press and the release to Utter and to no other app, and no
-//! keystroke-monitoring permission is needed.
+//! Key combinations are registered with the system as hotkeys, so macOS
+//! delivers the press and the release to Utter and to no other app, and no
+//! keystroke-monitoring permission is needed. The dictation hotkey can
+//! instead be the fn key on its own, which is watched another way (see
+//! `fnkey`).
 
 use crate::{
+    fnkey,
     pipeline::{self, Mode},
     settings::Settings,
 };
@@ -38,19 +41,26 @@ fn reserved(hotkey: &str) -> Option<String> {
 }
 
 /// The two shortcuts described by the settings, checked for clashes. The
-/// rewrite shortcut is `None` when that feature is switched off.
-pub fn plan(settings: &Settings) -> Result<(Shortcut, Option<Shortcut>), String> {
+/// dictation shortcut is `None` when it is the fn key, and the rewrite one
+/// when that feature is switched off.
+pub fn plan(settings: &Settings) -> Result<(Option<Shortcut>, Option<Shortcut>), String> {
     for hotkey in [&settings.hotkey, &settings.rewrite_hotkey] {
         if let Some(why) = reserved(hotkey) {
             return Err(why);
         }
     }
-    let dictate = parse(&settings.hotkey)?;
+    if settings.rewrite_hotkey.trim() == fnkey::FN {
+        return Err("The fn key can be the dictation hotkey, not the rewrite one.".into());
+    }
+    let dictate = match settings.hotkey.trim() {
+        fnkey::FN => None,
+        text => Some(parse(text)?),
+    };
     let rewrite = match settings.rewrite_hotkey.trim() {
         "" => None,
         text => Some(parse(text)?),
     };
-    if rewrite.is_some_and(|r| r.id() == dictate.id()) {
+    if rewrite.is_some_and(|r| dictate.is_some_and(|d| r.id() == d.id())) {
         return Err("The rewrite hotkey must be different from the dictation hotkey.".into());
     }
     Ok((dictate, rewrite))
@@ -61,7 +71,7 @@ pub fn plan(settings: &Settings) -> Result<(Shortcut, Option<Shortcut>), String>
 static PROBLEM: Mutex<Option<String>> = Mutex::new(None);
 
 pub fn problem() -> Option<String> {
-    PROBLEM.lock().unwrap().clone()
+    PROBLEM.lock().unwrap().clone().or_else(fnkey::problem)
 }
 
 pub fn clear_problem() {
@@ -72,6 +82,7 @@ pub fn clear_problem() {
 /// them live, pressing an existing hotkey during recording would start a
 /// dictation instead of being captured.
 pub fn pause(app: &AppHandle) -> Result<(), String> {
+    fnkey::pause();
     app.global_shortcut()
         .unregister_all()
         .map_err(|e| e.to_string())
@@ -106,7 +117,13 @@ pub fn register(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     app.global_shortcut()
         .unregister_all()
         .map_err(|e| e.to_string())?;
-    bind(app, dictate, Mode::Tidy)?;
+    match dictate {
+        Some(dictate) => {
+            fnkey::disable();
+            bind(app, dictate, Mode::Tidy)?;
+        }
+        None => fnkey::enable(app),
+    }
     if let Some(rewrite) = rewrite {
         bind(app, rewrite, Mode::Rewrite)?;
     }
@@ -139,6 +156,14 @@ mod tests {
         for hotkey in ["Control+Alt+Space", "Alt+KeyD", "Control+Shift+Digit1", "F5", "Super+Shift+KeyU"] {
             assert!(parse(hotkey).is_ok(), "{hotkey} should parse");
         }
+    }
+
+    #[test]
+    fn the_fn_key_can_be_the_dictation_hotkey_only() {
+        let (dictate, rewrite) = plan(&settings("Fn", "Control+Alt+KeyR")).unwrap();
+        assert!(dictate.is_none() && rewrite.is_some());
+        assert!(plan(&settings("Control+Alt+Space", "Fn")).is_err());
+        assert!(plan(&settings("Fn", "")).is_ok());
     }
 
     #[test]

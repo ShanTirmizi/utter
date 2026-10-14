@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { Mode } from "../api";
-import { fromKeyEvent, heldIds, hotkeyLabel } from "../hotkey";
+import { fnKeyConflict, openPrivacySettings, type Mode } from "../api";
+import { FN, fromKeyEvent, heldIds, hotkeyLabel } from "../hotkey";
 import { useApp } from "../state";
 import { Keycaps, Notice, Switch } from "../ui";
 
@@ -45,13 +45,14 @@ export default function HotkeySection() {
         </Notice>
       )}
       <HotkeyStage which="tidy" held={held} />
+      {settings.hotkey === FN && <FnKeyAdvice />}
       <HotkeyStage which="rewrite" held={held} />
       <div className="card optrow">
         <span className="opttext">
           <b>Hands-free</b>
           <span className="hint">
-            Tap a hotkey once to start, and again to finish. For when you have a lot to say. It stops by
-            itself after 30 seconds of silence and copies what you said.
+            Double-tap a hotkey to start, and tap it once more to finish. For when you have a lot to
+            say. It stops by itself after 30 seconds of silence and copies what you said.
           </span>
         </span>
         <Switch
@@ -72,12 +73,16 @@ export default function HotkeySection() {
           <span>Text goes in wherever your cursor is.</span>
         </li>
         <li>
-          <b>Quick tap</b>
+          <b>Double-tap</b>
           <span>
             {settings.handsFree
-              ? "Starts hands-free. Tap again to finish and insert."
-              : "Ignored, with a “Nothing heard” note."}
+              ? "Starts hands-free. Tap once more to finish and insert."
+              : "Ignored. Switch on hands-free above to use it."}
           </span>
+        </li>
+        <li>
+          <b>Quick tap</b>
+          <span>Ignored, with a reminder of how to start.</span>
         </li>
         {settings.rewriteHotkey && (
           <li>
@@ -200,6 +205,8 @@ function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
             "Not saved."
           ) : !hotkey ? (
             "Rewriting is off. Set a hotkey to turn it on."
+          ) : main && hotkey === FN ? (
+            "Hold fn (the globe key) to dictate, and let go to insert. It keeps working as fn in shortcuts such as fn+arrow."
           ) : main ? (
             "Press it now to check it. Keys light up while held."
           ) : (
@@ -270,6 +277,11 @@ function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
               <button className="btn" onClick={record}>
                 Record new hotkey
               </button>
+              {hotkey !== FN && (
+                <button className="btn" onClick={() => save(FN)}>
+                  Use the fn key
+                </button>
+              )}
               {hotkey !== DEFAULT_HOTKEY.tidy && DEFAULT_HOTKEY.tidy !== other && (
                 <button className="btn quiet" onClick={() => save(DEFAULT_HOTKEY.tidy)}>
                   Reset to {hotkeyLabel(DEFAULT_HOTKEY.tidy)}
@@ -280,5 +292,39 @@ function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * With fn as the hotkey, macOS's own action for the globe key (emoji,
+ * input source, Apple's dictation) would fire as well. Say so, and point at
+ * the one setting that turns it off. Utter does not change it itself.
+ */
+function FnKeyAdvice() {
+  const [action, setAction] = useState<string | null>(null);
+  useEffect(() => {
+    let current = true;
+    const check = () => fnKeyConflict().then((found) => current && setAction(found), () => undefined);
+    check();
+    // The user may change it in System Settings while this is open.
+    window.addEventListener("focus", check);
+    return () => {
+      current = false;
+      window.removeEventListener("focus", check);
+    };
+  }, []);
+  if (!action) return null;
+  return (
+    <Notice
+      tone="warn"
+      action={
+        <button className="btn sm" onClick={() => openPrivacySettings("keyboard")}>
+          Open Keyboard settings
+        </button>
+      }
+    >
+      <b>macOS will also {action} when you press fn.</b> In Keyboard settings, set “Press 🌐 key to” to “Do
+      Nothing”.
+    </Notice>
   );
 }

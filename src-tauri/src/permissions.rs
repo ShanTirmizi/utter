@@ -130,6 +130,13 @@ pub fn status() -> PermissionStatus {
 
 /// Open the matching pane of System Settings > Privacy & Security.
 pub fn open_settings(pane: &str) -> Result<(), String> {
+    if pane == "keyboard" {
+        return Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.Keyboard-Settings.extension")
+            .status()
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
     let anchor = match pane {
         "microphone" => "Privacy_Microphone",
         "accessibility" => "Privacy_Accessibility",

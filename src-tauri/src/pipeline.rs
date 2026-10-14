@@ -120,6 +120,9 @@ pub struct Pipeline {
     ready_at: Mutex<Option<Instant>>,
     /// Set while a tap-started, hands-free recording is running.
     latched: AtomicBool,
+    /// A quick tap just ended; a second press soon after makes it a double
+    /// tap, which turns the recording hands-free.
+    awaiting_second_tap: AtomicBool,
     /// Set when a key press ended a hands-free recording; its own release
     /// must then do nothing.
     swallow_release: AtomicBool,
@@ -133,6 +136,8 @@ pub struct Pipeline {
 
 /// A hold shorter than this is a tap.
 const TAP: Duration = Duration::from_millis(300);
+/// How long after a quick tap a second press still counts as a double tap.
+const DOUBLE_TAP: Duration = Duration::from_millis(400);
 /// A release handled this soon after its press was dealt with had already
 /// happened while the press was being handled.
 const QUEUED: Duration = Duration::from_millis(25);
@@ -154,6 +159,7 @@ impl Pipeline {
             pressed_at: Mutex::new(None),
             ready_at: Mutex::new(None),
             latched: AtomicBool::new(false),
+            awaiting_second_tap: AtomicBool::new(false),
             swallow_release: AtomicBool::new(false),
             last: Mutex::new(None),
             history: Mutex::new(Vec::new()),
@@ -324,6 +330,14 @@ pub fn on_press(app: &AppHandle, mode: Mode) {
     match *phase {
         Phase::Idle => {}
         Phase::Recording => {
+            // The second tap of a double tap: keep recording, hands-free.
+            if pipeline.awaiting_second_tap.swap(false, Ordering::SeqCst) {
+                pipeline.latched.store(true, Ordering::SeqCst);
+                drop(phase);
+                pipeline.swallow_release.store(true, Ordering::SeqCst);
+                emit(app, "recording", Some("Hands-free. Tap the hotkey again to finish.".into()), None);
+                return;
+            }
             // A tap of either hotkey ends a hands-free recording. Its own
             // release, which follows, must then do nothing. Otherwise this
             // is the key repeating while held, and only the first press counts.
@@ -355,6 +369,7 @@ pub fn on_press(app: &AppHandle, mode: Mode) {
     }
     *pipeline.target.lock().unwrap() = context::frontmost();
     pipeline.latched.store(false, Ordering::SeqCst);
+    pipeline.awaiting_second_tap.store(false, Ordering::SeqCst);
     pipeline.swallow_release.store(false, Ordering::SeqCst);
     *pipeline.pressed_at.lock().unwrap() = Some(Instant::now());
     *pipeline.ready_at.lock().unwrap() = None;
@@ -441,10 +456,11 @@ pub fn on_release(app: &AppHandle, mode: Mode) {
         if *phase != Phase::Recording || *pipeline.mode.lock().unwrap() != mode {
             return;
         }
-        if pipeline.latched.load(Ordering::SeqCst) {
+        if pipeline.latched.load(Ordering::SeqCst) || pipeline.awaiting_second_tap.load(Ordering::SeqCst) {
             return;
         }
-        // A quick tap, not a hold: keep recording until the next tap.
+        // A quick tap, not a hold. Wait a moment for a second tap, which
+        // makes it hands-free; on its own, a tap is let go.
         let held = pipeline.pressed_at.lock().unwrap().map(|at| at.elapsed());
         // Presses and releases are handled one after the other. If opening
         // the microphone was slow (Bluetooth, say), the release has been
@@ -452,9 +468,10 @@ pub fn on_release(app: &AppHandle, mode: Mode) {
         // before any audio could be captured, so that was a tap too.
         let waiting = pipeline.ready_at.lock().unwrap().is_some_and(|at| at.elapsed() < QUEUED);
         if (held.is_some_and(|held| held < TAP) || waiting) && settings::load(app).hands_free {
-            pipeline.latched.store(true, Ordering::SeqCst);
+            pipeline.awaiting_second_tap.store(true, Ordering::SeqCst);
+            let id = pipeline.recording_id.load(Ordering::SeqCst);
             drop(phase);
-            emit(app, "recording", Some("Hands-free. Tap the hotkey again to finish.".into()), None);
+            let_go_unless_tapped_again(app, id);
             return;
         }
         *phase = Phase::Processing;
@@ -462,6 +479,45 @@ pub fn on_release(app: &AppHandle, mode: Mode) {
     };
     emit_stage(app, "transcribing");
     finish(app.clone(), samples, Delivery::Paste);
+}
+
+/// After a single quick tap, give the second tap of a double tap a moment to
+/// arrive. If it does not, the tap was just a tap: stop listening, keep
+/// nothing, and say how hands-free is started.
+fn let_go_unless_tapped_again(app: &AppHandle, id: u64) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(DOUBLE_TAP).await;
+        let pipeline = app.state::<Pipeline>();
+        {
+            let mut phase = pipeline.phase.lock().unwrap();
+            let same_recording = pipeline.recording_id.load(Ordering::SeqCst) == id;
+            if *phase != Phase::Recording || !same_recording || !pipeline.awaiting_second_tap.swap(false, Ordering::SeqCst) {
+                return;
+            }
+            pipeline.recorder.stop();
+            *phase = Phase::Idle;
+        }
+        emit(&app, "idle", Some("Hold to talk, or double-tap for hands-free.".into()), None);
+    });
+}
+
+/// Drop the recording under way without a word, because its key turned out
+/// to be part of another shortcut (fn held with an arrow key, say). A
+/// hands-free recording is left alone: nobody is holding a key for it.
+pub fn cancel(app: &AppHandle) {
+    let pipeline = app.state::<Pipeline>();
+    {
+        let mut phase = pipeline.phase.lock().unwrap();
+        if *phase != Phase::Recording || pipeline.latched.load(Ordering::SeqCst) {
+            return;
+        }
+        pipeline.awaiting_second_tap.store(false, Ordering::SeqCst);
+        pipeline.recorder.stop();
+        *phase = Phase::Idle;
+    }
+    // An empty message tells the pill to go without a note.
+    emit(app, "idle", Some(String::new()), None);
 }
 
 /// How the finished text reaches the user.

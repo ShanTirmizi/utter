@@ -191,7 +191,10 @@ export default function Pill() {
           break;
         default:
           // Back to idle straight after a press: the key was only tapped.
-          if (before === "recording" || before === "processing") {
+          if (payload.message === "") {
+            // Dropped on purpose (fn turned out to be part of a shortcut).
+            hide();
+          } else if (before === "recording" || before === "processing") {
             show(readNote(payload.message ?? "Nothing heard. Hold the keys while you speak.", false));
           } else {
             hide();
