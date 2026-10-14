@@ -224,9 +224,9 @@ whether another key is pressed while fn is held; it never looks at which key.
 
 macOS has its own action for the globe key ("Press 🌐 key to" in Keyboard
 settings), such as opening the emoji picker. While fn is your dictation key,
-Utter holds fn's own key events back from other apps so that action does not
-fire. If it still does on your Mac, set "Press 🌐 key to" to **Do Nothing**;
-the Hotkey tab links to the setting.
+Utter tries to hold fn's own key events back so that action does not fire,
+but macOS can act on the key before Utter sees it. If the picker opens, set
+"Press 🌐 key to" to **Do Nothing**; the Hotkey tab links to the setting.
 
 ## Your words
 

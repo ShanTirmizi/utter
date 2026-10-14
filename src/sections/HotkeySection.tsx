@@ -317,15 +317,15 @@ function FnKeyAdvice() {
   if (!action) return null;
   return (
     <Notice
-      tone="info"
+      tone="warn"
       action={
         <button className="btn sm" onClick={() => openPrivacySettings("keyboard")}>
           Open Keyboard settings
         </button>
       }
     >
-      Your 🌐 key is set to {action}. Utter stops that while you dictate. If it still happens, set “Press 🌐
-      key to” to “Do Nothing” in Keyboard settings.
+      <b>Your 🌐 key is set to {action}.</b> If that pops up when you dictate with fn, set “Press 🌐 key to”
+      to “Do Nothing” in Keyboard settings.
     </Notice>
   );
 }

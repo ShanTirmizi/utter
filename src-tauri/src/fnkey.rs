@@ -10,8 +10,10 @@
 //! and the dictation is dropped). Which key that was is never looked at.
 //!
 //! The fn key's own down and up events are held back from other apps while fn
-//! is the hotkey. Otherwise macOS would also do whatever "Press 🌐 key to" is
-//! set to, such as opening the emoji picker, every time the user dictates.
+//! is the hotkey, from as early in the event path as macOS allows, to stop it
+//! also doing whatever "Press 🌐 key to" is set to (the emoji picker, say).
+//! On at least one Mac a later, session-level tap did not stop the picker;
+//! the Hotkey tab therefore also points at that setting.
 //! Every other event passes through unchanged; fn still works in shortcuts,
 //! because the keys pressed with it carry the fn flag themselves.
 
@@ -107,18 +109,9 @@ pub fn problem() -> Option<String> {
 /// Put the tap in and run it on this thread. Returns only if it could not
 /// be made.
 fn install(app: AppHandle) -> Result<(), ()> {
-    let tap = CGEventTap::new(
-        CGEventTapLocation::Session,
-        CGEventTapPlacement::HeadInsertEventTap,
-        CGEventTapOptions::Default,
-        vec![CGEventType::FlagsChanged, CGEventType::KeyDown],
-        move |_proxy, kind, event| {
-            let hold_back = on_event(&app, kind, event.get_flags(), || {
-                event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE)
-            });
-            if hold_back { CallbackResult::Drop } else { CallbackResult::Keep }
-        },
-    )?;
+    // As early as possible: where key events enter the window server, before
+    // macOS acts on the globe key. A session tap, later on, is the fallback.
+    let tap = make(CGEventTapLocation::HID, app.clone()).or_else(|_| make(CGEventTapLocation::Session, app))?;
     let source = tap.mach_port().create_runloop_source(0).map_err(|_| ())?;
     CFRunLoop::get_current().add_source(&source, unsafe { kCFRunLoopCommonModes });
     tap.enable();
@@ -129,6 +122,21 @@ fn install(app: AppHandle) -> Result<(), ()> {
     RUNNING.store(false, Ordering::SeqCst);
     drop(tap);
     Err(())
+}
+
+fn make(location: CGEventTapLocation, app: AppHandle) -> Result<CGEventTap<'static>, ()> {
+    CGEventTap::new(
+        location,
+        CGEventTapPlacement::HeadInsertEventTap,
+        CGEventTapOptions::Default,
+        vec![CGEventType::FlagsChanged, CGEventType::KeyDown],
+        move |_proxy, kind, event| {
+            let hold_back = on_event(&app, kind, event.get_flags(), || {
+                event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE)
+            });
+            if hold_back { CallbackResult::Drop } else { CallbackResult::Keep }
+        },
+    )
 }
 
 /// What the tap does with one event. Kept small: it runs for every key the
