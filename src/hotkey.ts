@@ -47,11 +47,11 @@ export function fromKeyEvent(e: KeyboardEvent): string | null {
 }
 
 const MODIFIER_NAMES: Record<string, string> = {
-  Fn: "globe",
-  Control: "Control",
-  Alt: "Option",
-  Shift: "Shift",
-  Super: "Command",
+  Fn: "fn",
+  Control: "control",
+  Alt: "option",
+  Shift: "shift",
+  Super: "command",
 };
 
 /** One key of a hotkey, ready to draw: "⌥" with "Option" underneath. */
@@ -68,9 +68,9 @@ export function keyParts(hotkey: string): KeyPart[] {
   }));
 }
 
-/** "⌃ ⌥ Space", for sentences. */
+/** "⌃⌥Space", for sentences. */
 export function hotkeyLabel(hotkey: string): string {
-  return keycaps(hotkey).join(" ");
+  return keycaps(hotkey).join("");
 }
 
 /** The parts of a hotkey that a key event shows as held, by id. */

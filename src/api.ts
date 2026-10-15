@@ -35,8 +35,17 @@ export type Settings = {
   quietGlobe: boolean;
   /** Speech model. */
   model: string;
+  /** The language the multilingual model expects, a Whisper code; "" detects it. */
+  language: string;
+  /** Words removed in the last 30 days, newest first. */
+  removed: Removed[];
+  /** Ask GitHub once a day for a newer release. Off by default. */
+  checkUpdates: boolean;
   onboarded: boolean;
 };
+
+/** A removed word, restorable for 30 days. */
+export type Removed = { word: Word; removedAt: number };
 
 /** A name seen on screen that you then said. */
 export type Suggestion = {
@@ -190,6 +199,25 @@ export type DownloadProgress = { name: string; received: number; total: number }
 
 export const modelStatuses = () => invoke<ModelStatus[]>("model_statuses");
 export const downloadModel = (name: string) => invoke<void>("download_model", { name });
+/** Stop a running download; it then fails with "Stopped." */
+export const stopDownload = (name: string) => invoke<void>("stop_download", { name });
+
+/** The window's status, for the menu bar's header and icon. */
+export type TrayStatus = { title: string; detail: string; tone: string; action: string | null; fix: string | null };
+export const setTrayStatus = (status: TrayStatus) => invoke<void>("set_tray_status", { status });
+
+export type UpdateStatus = {
+  current: string;
+  latest: string | null;
+  newer: boolean;
+  summary: string | null;
+  url: string | null;
+  /** Milliseconds since 1970; 0 if never checked. */
+  checkedAt: number;
+  error: string | null;
+};
+export const updateStatus = () => invoke<UpdateStatus>("update_status");
+export const checkForUpdates = () => invoke<UpdateStatus>("check_for_updates");
 
 export type MicStatus = "undetermined" | "granted" | "denied";
 export type PermissionStatus = { microphone: MicStatus; accessibility: boolean };

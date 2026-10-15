@@ -3,8 +3,8 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
 import Pill from "./Pill";
-import "./styles/tokens.css";
-import "./styles/utter.css";
+import "./styles/quiet.css";
+import "./styles/app.css";
 
 async function start() {
   const inApp = "__TAURI_INTERNALS__" in window;
@@ -21,6 +21,15 @@ async function start() {
     ? getCurrentWindow().label === "pill"
     : window.location.hash === "#pill";
   document.documentElement.classList.add(isPill ? "pill-window" : "main-window");
+
+  // Quiet in light, Graphite in dark, following the system appearance.
+  const dark = window.matchMedia("(prefers-color-scheme: dark)");
+  const follow = () => {
+    document.documentElement.classList.toggle("q-dark", dark.matches);
+    document.documentElement.classList.toggle("q-light", !dark.matches);
+  };
+  follow();
+  dark.addEventListener("change", follow);
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>{isPill ? <Pill /> : <App />}</React.StrictMode>,

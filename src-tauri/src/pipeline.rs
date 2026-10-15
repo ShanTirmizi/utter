@@ -244,6 +244,7 @@ pub fn correct(app: &AppHandle, finished_at: u64, wrong: &str, right: &str) -> R
 }
 
 fn emit(app: &AppHandle, phase: &'static str, message: Option<String>, dictation: Option<Dictation>) {
+    crate::tray::set_phase(app, phase);
     let pipeline = app.state::<Pipeline>();
     let mode = *pipeline.mode.lock().unwrap();
     let hands_free = pipeline.latched.load(Ordering::SeqCst);
@@ -255,6 +256,7 @@ fn emit(app: &AppHandle, phase: &'static str, message: Option<String>, dictation
 
 /// Say which step of processing has begun, so the pill can name it.
 fn emit_stage(app: &AppHandle, stage: &'static str) {
+    crate::tray::set_phase(app, "processing");
     let pipeline = app.state::<Pipeline>();
     let mode = *pipeline.mode.lock().unwrap();
     let target = pipeline.target.lock().unwrap().clone();
@@ -697,9 +699,10 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
             }
             let screen = screen_terms(&app, id);
             let piece_terms = speech_terms(&settings, &screen);
-            let (transcriber, name, path) = (pipeline.transcriber.clone(), name.clone(), path.clone());
+            let (transcriber, name, path, language) =
+                (pipeline.transcriber.clone(), name.clone(), path.clone(), settings.language.clone());
             let text = tauri::async_runtime::spawn_blocking(move || {
-                transcriber.transcribe_with(&name, &path, &piece, models::language(&name), &piece_terms)
+                transcriber.transcribe_with(&name, &path, &piece, &models::language(&name, &language), &piece_terms)
             })
             .await;
             // A piece that fails is simply left for the end.
@@ -801,6 +804,7 @@ async fn process(
 
     let mut settings = settings::load(app);
     let name = settings.model.clone();
+    let language = settings.language.clone();
     let path = models::path(app, &name)?;
     let transcriber = app.state::<Pipeline>().transcriber.clone();
     // Names on screen help with this dictation only: they join the user's
@@ -835,7 +839,7 @@ async fn process(
     let early_texts = early.texts.clone();
     let early_cleaned = early.cleaned;
     let rest = tauri::async_runtime::spawn_blocking(move || {
-        transcriber.transcribe_with(&name, &path, &samples[rest_from..], models::language(&name), &terms)
+        transcriber.transcribe_with(&name, &path, &samples[rest_from..], &models::language(&name, &language), &terms)
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -1358,7 +1362,7 @@ fn replay_early(app: &AppHandle, id: u64, samples: &[f32]) {
                 &settings.model,
                 &path,
                 piece,
-                models::language(&settings.model),
+                &models::language(&settings.model, &settings.language),
                 &crate::words::spellings(&settings.dictionary),
             ) {
                 eprintln!("[pipeline] early piece {:.1} s: {text}", cut as f32 / TARGET_RATE as f32);

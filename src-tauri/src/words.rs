@@ -179,6 +179,35 @@ pub fn remember(words: &mut Vec<Word>, word: &str, heard: Option<&str>, source: 
     Remembered::Added
 }
 
+/// A word the user removed, kept for a while so it can be restored with its
+/// mishearings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Removed {
+    pub word: Word,
+    /// Milliseconds since 1970.
+    pub removed_at: u64,
+}
+
+/// How long a removed word can still be restored.
+const KEEP_REMOVED_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+
+/// Removed words still within their 30 days, newest first, leaving out any
+/// that are back in the list.
+pub fn clean_removed(removed: &[Removed], words: &[Word], now: u64) -> Vec<Removed> {
+    let mut seen = std::collections::HashSet::new();
+    let mut kept: Vec<Removed> = removed
+        .iter()
+        .filter(|r| now.saturating_sub(r.removed_at) < KEEP_REMOVED_MS)
+        .filter(|r| !words.iter().any(|w| w.word.to_lowercase() == r.word.word.to_lowercase()))
+        .filter(|r| seen.insert(r.word.word.to_lowercase()))
+        .cloned()
+        .collect();
+    kept.sort_by_key(|r| std::cmp::Reverse(r.removed_at));
+    kept.truncate(MAX_WORDS);
+    kept
+}
+
 /// How a removed mishearing is kept on the forgotten list: "cloud→claude".
 pub fn forgotten_pair(heard: &str, word: &str) -> String {
     format!("{}→{}", heard_form(heard), squeeze(word).to_lowercase())
@@ -520,6 +549,17 @@ mod tests {
         assert_eq!(sound_key("Rupert"), "R163");
         assert_eq!(sound_key("Ashcraft"), "A261");
         assert_eq!(sound_key("Claude"), sound_key("cloud"));
+    }
+
+    #[test]
+    fn removed_words_are_kept_for_thirty_days_unless_restored() {
+        let day = 24 * 60 * 60 * 1000;
+        let now = 100 * day;
+        let gone = |w: &str, at: u64| Removed { word: Word::new(w, Source::Added), removed_at: at };
+        let removed = vec![gone("Kafka", now - day), gone("Jira", now - 31 * day), gone("Ola", now - 2 * day), gone("kafka", now)];
+        let kept = clean_removed(&removed, &plain(&["Ola"]), now);
+        let names: Vec<&str> = kept.iter().map(|r| r.word.word.as_str()).collect();
+        assert_eq!(names, ["Kafka"]);
     }
 
     #[test]

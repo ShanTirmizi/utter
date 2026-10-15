@@ -1,5 +1,7 @@
-import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { setTrayStatus } from "./api";
 import { readiness, tabFlags } from "./readiness";
+import AboutSection from "./sections/AboutSection";
 import CleanupSection from "./sections/CleanupSection";
 import HotkeySection from "./sections/HotkeySection";
 import ModelSection from "./sections/ModelSection";
@@ -7,17 +9,28 @@ import PermissionsSection from "./sections/PermissionsSection";
 import TrySection from "./sections/TrySection";
 import WordsSection from "./sections/WordsSection";
 import { AppContextProvider, useApp, useAppState, type TabId } from "./state";
-import { TabIconCleanup, TabIconHotkey, TabIconModel, TabIconPermissions, TabIconTry, TabIconWords } from "./ui";
+import {
+  IconChevron,
+  IconChip,
+  IconCleanup,
+  IconHotkey,
+  IconSettings,
+  IconShield,
+  IconTry,
+  IconWords,
+  Logo,
+} from "./ui";
 import Welcome from "./Welcome";
 
-const TABS: { id: TabId; label: string; icon: ReactNode }[] = [
-  { id: "try", label: "Try it", icon: <TabIconTry /> },
-  { id: "words", label: "Words", icon: <TabIconWords /> },
-  { id: "hotkey", label: "Hotkey", icon: <TabIconHotkey /> },
-  { id: "model", label: "Model", icon: <TabIconModel /> },
-  { id: "cleanup", label: "Cleanup", icon: <TabIconCleanup /> },
-  { id: "permissions", label: "Permissions", icon: <TabIconPermissions /> },
+const SETTINGS: { id: TabId; label: string; icon: ReactNode }[] = [
+  { id: "hotkey", label: "Hotkey", icon: <IconHotkey /> },
+  { id: "model", label: "Speech model", icon: <IconChip /> },
+  { id: "cleanup", label: "Cleanup", icon: <IconCleanup /> },
+  { id: "permissions", label: "Permissions", icon: <IconShield /> },
 ];
+
+/** Every section in sidebar order, for the arrow keys. */
+const ORDER: TabId[] = ["try", "words", "hotkey", "model", "cleanup", "permissions", "about"];
 
 export default function App() {
   const app = useAppState();
@@ -32,68 +45,135 @@ export default function App() {
 
 function MainWindow() {
   const app = useApp();
-  const { tab, setTab } = app;
+  const { tab, setTab, updateInfo } = app;
   const ready = readiness(app);
   const flags = tabFlags(app);
-  const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
+  const [settingsOpen, setSettingsOpen] = useState(true);
+  const navRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
+  const main = useRef<HTMLElement>(null);
 
-  // Arrow keys move between tabs, as in any macOS segmented control.
-  const onTabKey = (e: KeyboardEvent) => {
-    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-    if (!step) return;
+  // The menu bar says what the status card says.
+  const trayKey = `${ready.tone}|${ready.title}|${ready.detail}|${ready.action}|${ready.tab}`;
+  useEffect(() => {
+    setTrayStatus({
+      title: ready.title,
+      detail: ready.tone === "" ? `${ready.detail} in any app` : ready.detail,
+      tone: ready.tone === "note" ? "" : ready.tone,
+      action: ready.action,
+      fix: ready.tab,
+    }).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trayKey]);
+
+  // A new section starts at the top.
+  useEffect(() => {
+    main.current?.scrollTo({ top: 0 });
+    if (SETTINGS.some((s) => s.id === tab)) setSettingsOpen(true);
+  }, [tab]);
+
+  // Up and down arrows move through the sidebar, as in a macOS source list.
+  const onNavKey = (e: KeyboardEvent) => {
+    const step = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+    if (!step || !(e.target instanceof HTMLElement) || !e.target.dataset.section) return;
     e.preventDefault();
-    const at = TABS.findIndex((t) => t.id === tab);
-    const next = TABS[(at + step + TABS.length) % TABS.length].id;
+    const visible = ORDER.filter((id) => settingsOpen || !SETTINGS.some((s) => s.id === id));
+    // Move from the item that has focus, which is not always the one selected.
+    const at = visible.indexOf(e.target.dataset.section as TabId);
+    const next = visible[(at + step + visible.length) % visible.length];
     setTab(next);
-    tabRefs.current[next]?.focus();
+    navRefs.current[next]?.focus();
   };
 
+  const nav = (id: TabId, label: string, icon: ReactNode | null, tree = false) => (
+    <button
+      key={id}
+      ref={(el) => {
+        navRefs.current[id] = el;
+      }}
+      data-section={id}
+      className={`qnav ${tab === id ? "sel" : ""}`}
+      aria-current={tab === id ? "page" : undefined}
+      title={label}
+      onClick={() => setTab(id)}
+    >
+      {tree ? <span className="ico">{icon}</span> : icon}
+      <span className="lbl">{label}</span>
+      {flags[id] && (
+        <span className={`qbdg ${flags[id]}`} aria-label="Needs you">
+          !
+        </span>
+      )}
+    </button>
+  );
+
   return (
-    <div className="win">
-      {/* The title bar is hidden, so this strip is what drags the window. */}
-      <div className="tb" data-tauri-drag-region>
+    <div className="qwin">
+      {/* The title bar is hidden; this strip drags the window. */}
+      <div className="qdrag" data-tauri-drag-region />
+      <nav className="qside" aria-label="Sections" onKeyDown={onNavKey}>
+        <div className="qbrand" data-tauri-drag-region>
+          <Logo />
+          <span>Utter</span>
+        </div>
+        {nav("try", "Try it", <IconTry />)}
+        {nav("words", "Words", <IconWords />)}
         <button
-          className={`state ${ready.tone}`}
+          className="qnav on qgroup"
+          aria-expanded={settingsOpen}
+          onClick={() => setSettingsOpen((open) => !open)}
+        >
+          <IconSettings />
+          <span className="lbl">Settings</span>
+          <IconChevron />
+        </button>
+        {(settingsOpen || SETTINGS.some((s) => flags[s.id])) && (
+          <div className="qtree">
+            {SETTINGS.filter((s) => settingsOpen || flags[s.id] || tab === s.id).map((s) => nav(s.id, s.label, s.icon, true))}
+          </div>
+        )}
+        <button
+          className="qstat"
+          aria-label={`${ready.title}. ${ready.detail}`}
+          title={`${ready.title}. ${ready.detail}`}
           disabled={!ready.tab}
           onClick={() => ready.tab && setTab(ready.tab)}
-          aria-label={`${ready.text}${ready.go ? `. ${ready.go}` : ""}`}
         >
-          <span className="dot" />
-          <span>{ready.text}</span>
-          <span className="go">{ready.go}</span>
+          <span className="r">
+            <span className={`d ${ready.tone === "note" ? "" : ready.tone}`} />
+            <span className="t">{ready.title}</span>
+          </span>
+          <span className={`s ${ready.tone === "bad" || ready.tone === "pe" ? ready.tone : ""}`}>{ready.detail}</span>
+          {ready.bar !== null && (
+            <span className="bar">
+              <b style={{ width: `${Math.round(ready.bar * 100)}%` }} />
+            </span>
+          )}
         </button>
-      </div>
+        <button
+          ref={(el) => {
+            navRefs.current.about = el;
+          }}
+          data-section="about"
+          className={`qabout ${tab === "about" ? "sel" : ""}`}
+          aria-current={tab === "about" ? "page" : undefined}
+          onClick={() => setTab("about")}
+        >
+          <span className="lbl">About</span>
+          <span className="sp" />
+          {updateInfo?.newer && <span className="dot" aria-label="Update available" />}
+          {updateInfo?.current ?? ""}
+        </button>
+      </nav>
 
-      <div className="tabs" role="tablist" aria-label="Sections" onKeyDown={onTabKey}>
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            ref={(el) => {
-              tabRefs.current[t.id] = el;
-            }}
-            className={`tab ${flags[t.id] ?? ""}`}
-            role="tab"
-            id={`tab-${t.id}`}
-            aria-selected={t.id === tab}
-            aria-controls="panel"
-            tabIndex={t.id === tab ? 0 : -1}
-            title={t.label}
-            onClick={() => setTab(t.id)}
-          >
-            {t.icon}
-            <span className="tl">{t.label}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="body" role="tabpanel" id="panel" aria-labelledby={`tab-${tab}`}>
+      <main className="qmain" ref={main} aria-label={tab}>
         {tab === "try" && <TrySection />}
         {tab === "words" && <WordsSection />}
         {tab === "hotkey" && <HotkeySection />}
         {tab === "model" && <ModelSection />}
         {tab === "cleanup" && <CleanupSection />}
         {tab === "permissions" && <PermissionsSection />}
-      </div>
+        {tab === "about" && <AboutSection />}
+      </main>
     </div>
   );
 }

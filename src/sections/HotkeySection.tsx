@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { fnKeyConflict, openPrivacySettings, type Mode } from "../api";
 import { FN, fromKeyEvent, heldIds, hotkeyLabel } from "../hotkey";
 import { useApp } from "../state";
-import { Keycaps, Notice, Switch } from "../ui";
+import { IconInfoLine, IconOut, Keycaps, Notice, Switch } from "../ui";
 
 const DEFAULT_HOTKEY: Record<Mode, string> = {
   tidy: "Control+Alt+Space",
@@ -30,90 +30,12 @@ function useHeldKeys(): Set<string> {
   return held;
 }
 
-export default function HotkeySection() {
+/** Check a new hotkey and save it, reporting how that went. */
+function useRecorder(which: Mode) {
   const app = useApp();
   const { settings } = app;
-  const held = useHeldKeys();
-  return (
-    <>
-      <div className="sechead">
-        <h2 className="h">Hotkey</h2>
-      </div>
-      {app.hotkeyProblem && !app.capturing && (
-        <Notice tone="bad">
-          <b>A hotkey isn’t working.</b> {app.hotkeyProblem} Record a different combination below.
-        </Notice>
-      )}
-      <HotkeyStage which="tidy" held={held} />
-      {settings.hotkey === FN && <FnKeyAdvice />}
-      <HotkeyStage which="rewrite" held={held} />
-      <div className="card optrow">
-        <span className="opttext">
-          <b>Hands-free</b>
-          <span className="hint">
-            Double-tap a hotkey to start, and tap it once more to finish. For when you have a lot to
-            say. It stops by itself after 30 seconds of silence and copies what you said.
-          </span>
-        </span>
-        <Switch
-          label="Hands-free"
-          checked={settings.handsFree}
-          onChange={(handsFree) => {
-            app.update({ handsFree }).catch(() => undefined);
-          }}
-        />
-      </div>
-      <ul className="rules">
-        <li>
-          <b>Hold</b>
-          <span>Listening starts once every key is down.</span>
-        </li>
-        <li>
-          <b>Let go</b>
-          <span>Text goes in wherever your cursor is.</span>
-        </li>
-        <li>
-          <b>Double-tap</b>
-          <span>
-            {settings.handsFree
-              ? "Starts hands-free. Tap once more to finish and insert."
-              : "Ignored. Switch on hands-free above to use it."}
-          </span>
-        </li>
-        <li>
-          <b>Quick tap</b>
-          <span>Ignored, with a reminder of how to start.</span>
-        </li>
-        {settings.rewriteHotkey && (
-          <li>
-            <b>Rewrite</b>
-            <span>Hold {hotkeyLabel(settings.rewriteHotkey)} instead and Utter rewords what you said.</span>
-          </li>
-        )}
-        {settings.rewriteHotkey && (
-          <li>
-            <b>Edit</b>
-            <span>
-              Select some text first, hold {hotkeyLabel(settings.rewriteHotkey)} and say what to change. Utter
-              replaces the selection.
-            </span>
-          </li>
-        )}
-      </ul>
-    </>
-  );
-}
-
-/**
- * One hotkey as keycaps, with a way to record a new one. `tidy` is the main
- * dictation hotkey; `rewrite` is the optional second one, drawn a size down.
- */
-function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
-  const app = useApp();
-  const { settings, live } = app;
   const main = which === "tidy";
   const field = main ? "hotkey" : "rewriteHotkey";
-  const hotkey = settings[field];
   const other = main ? settings.rewriteHotkey : settings.hotkey;
   const capturing = app.capturing === which;
   const [outcome, setOutcome] = useState<Outcome>(null);
@@ -123,14 +45,13 @@ function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
     const parts = next.split("+");
     if (next === other) {
       const use = main ? "rewriting" : "dictating";
-      return setOutcome({ kind: "bad", attempt: next, message: `It is already your hotkey for ${use}.` });
+      return setOutcome({ kind: "bad", attempt: next, message: `${label} is already your hotkey for ${use}.` });
     }
     if (parts.length === 2 && parts[0] === "Shift") {
-      return setOutcome({
-        kind: "bad",
-        attempt: next,
-        message: `You could no longer type that character. Add ⌃, ⌥ or ⌘ to ${label}.`,
-      });
+      return setOutcome({ kind: "bad", attempt: next, message: `You could no longer type that character. Add ⌃, ⌥ or ⌘.` });
+    }
+    if (next === "Super+Space") {
+      return setOutcome({ kind: "bad", attempt: next, message: "⌘Space opens Spotlight." });
     }
     app
       .update({ [field]: next })
@@ -152,168 +73,292 @@ function HotkeyStage({ which, held }: { which: Mode; held: Set<string> }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // `app` is new on every render, so the listener always sees current settings.
-  }, [capturing, app]);
+  }, [capturing, app]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const record = () => {
     setOutcome(null);
     app.setCapturing(which);
   };
+  return { capturing, outcome, setOutcome, save, record, field };
+}
+
+export default function HotkeySection() {
+  const app = useApp();
+  const { settings } = app;
+  const held = useHeldKeys();
+  const hk = hotkeyLabel(settings.hotkey);
+  const rw = settings.rewriteHotkey ? hotkeyLabel(settings.rewriteHotkey) : null;
+  return (
+    <>
+      <div className="qhead">
+        <div className="t">
+          <h1>Hotkey</h1>
+          <p>Hold it to dictate. Let go to insert.</p>
+        </div>
+      </div>
+      <MainHotkey held={held} />
+      <RewriteHotkey held={held} />
+      <div className="qcard tight">
+        <div className="qsw">
+          <div className="tx">
+            <b>Hands-free</b>
+            <span>
+              Double-tap {hk} to start and tap once to finish. After 30 s of silence it stops and copies what it
+              heard, so nothing is lost.
+            </span>
+          </div>
+          <Switch label="Hands-free" checked={settings.handsFree} onChange={(handsFree) => app.update({ handsFree }).catch(() => undefined)} />
+        </div>
+      </div>
+      <div className="qcard">
+        <div className="qlab">How it works</div>
+        <div className="qrules">
+          <div>
+            <b>Hold</b>
+            <span>Listens while you hold {hk}.</span>
+          </div>
+          <div>
+            <b>Let go</b>
+            <span>Types where your cursor is.</span>
+          </div>
+          <div>
+            <b>Double-tap</b>
+            <span>{settings.handsFree ? "Hands-free. Tap to finish." : "Ignored while hands-free is off."}</span>
+          </div>
+          <div>
+            <b>Quick tap</b>
+            <span>Ignored, so nothing fires by accident.</span>
+          </div>
+          <div>
+            <b>Rewrite</b>
+            <span>{rw ? `Hold ${rw} to dictate in your style.` : "Set a rewrite hotkey above."}</span>
+          </div>
+          <div>
+            <b>Edit</b>
+            <span>{rw ? `Select text, hold ${rw}, say the change.` : "Needs the rewrite hotkey."}</span>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function MainHotkey({ held }: { held: Set<string> }) {
+  const app = useApp();
+  const { settings, live } = app;
+  const { capturing, outcome, setOutcome, save, record } = useRecorder("tidy");
+  const hotkey = settings.hotkey;
+  const fn = hotkey === FN;
+  const broken = !!app.hotkeyProblem && !capturing;
 
   // Keys light up while held. The system keeps the last key of a registered
   // hotkey to itself, so the pipeline starting to listen stands in for it.
-  const firing = live.phase === "recording" && live.mode === which;
+  const firing = live.phase === "recording" && live.mode === "tidy";
   const down = new Set(firing ? hotkey.split("+") : held);
-
   const modifiersHeld = ["Control", "Alt", "Shift", "Super"].filter((m) => held.has(m));
-  const stageClass = ["card", "keystage", main ? "" : "compact", capturing ? "rec" : "", outcome?.kind === "bad" ? "bad" : ""];
+
+  const label = capturing ? "Recording" : outcome?.kind === "bad" ? "Not saved" : "Dictate";
+  const right = capturing ? "esc cancels" : outcome || broken ? "" : "Press it now to test it";
+  const reset = hotkey !== DEFAULT_HOTKEY.tidy && DEFAULT_HOTKEY.tidy !== settings.rewriteHotkey;
+
+  const useFn = () => {
+    setOutcome(null);
+    // Choosing fn means wanting fn to dictate and do nothing else, so macOS's
+    // own globe action is held off too. It comes back on quit.
+    app
+      .update({ hotkey: FN, quietGlobe: true })
+      .then(() => setOutcome({ kind: "saved" }))
+      .catch((err) => setOutcome({ kind: "bad", attempt: FN, message: String(err) }));
+  };
 
   return (
     <>
-      {main && (
-        <p className="sub">
-          {capturing || outcome?.kind === "bad"
-            ? "Hold the keys you want, all together, then let go."
-            : "Hold it to dictate. Let go to insert the text."}
-        </p>
-      )}
-
-      <div className={stageClass.join(" ")}>
-        {!main && <span className="stagelabel">Rewrite hotkey</span>}
-        {capturing && <span className="recdot">Recording</span>}
-
-        {capturing ? (
-          <Keycaps hotkey={modifiersHeld.join("+")} down={new Set(modifiersHeld)} small={!main} ghost />
-        ) : outcome?.kind === "bad" ? (
-          <Keycaps hotkey={outcome.attempt} look="bad" small={!main} />
-        ) : hotkey ? (
-          <Keycaps key={hotkey} hotkey={hotkey} down={down} look={outcome?.kind === "saved" ? "pop" : undefined} small={!main} />
-        ) : (
-          <div className="keys">
-            <kbd className="key sm wide off">Off</kbd>
-          </div>
-        )}
-
-        <p className="hint">
-          {capturing ? (
-            <>
-              {modifiersHeld.length > 0
-                ? `Holding ${hotkeyLabel(modifiersHeld.join("+"))}. Add one more key. `
-                : "Hold at least one of ⌃ ⌥ ⌘, then one other key. "}
-              <kbd className="k">esc</kbd> cancels.
-            </>
-          ) : outcome?.kind === "bad" ? (
-            "Not saved."
-          ) : !hotkey ? (
-            "Rewriting is off. Set a hotkey to turn it on."
-          ) : main && hotkey === FN ? (
-            "Hold fn (the globe key) to dictate, and let go to insert. It keeps working as fn in shortcuts such as fn+arrow."
-          ) : main ? (
-            "Press it now to check it. Keys light up while held."
-          ) : (
-            "Hold this one instead and Utter rewords what you said, in the style set under Cleanup. With text selected, it changes that text the way you ask."
-          )}
-        </p>
-
-        {!main && !capturing && outcome?.kind !== "bad" && (
-          <div className="stageacts">
-            <button className="btn sm" onClick={record}>
-              {hotkey ? "Record new hotkey" : "Set a rewrite hotkey"}
+      {broken && (
+        <Notice
+          tone="bad"
+          action={
+            <button className="qbtn sm" onClick={record}>
+              Record new hotkey
             </button>
-            {hotkey && (
-              <button
-                className="btn sm quiet"
-                onClick={() => {
-                  setOutcome(null);
-                  app.update({ rewriteHotkey: "" });
-                }}
-              >
-                Turn off
-              </button>
-            )}
-          </div>
-        )}
-        {!main && capturing && (
-          <div className="stageacts">
-            <button className="btn sm" onClick={() => app.setCapturing(null)}>
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
-
-      {outcome?.kind === "bad" && (
-        <>
-          <Notice tone="bad">
-            <b>{hotkeyLabel(outcome.attempt)} can’t be used.</b> {outcome.message}
-          </Notice>
-          <div className="acts">
-            <button className="btn primary" onClick={record}>
-              Try again
-            </button>
-            <button className="btn" onClick={() => setOutcome(null)}>
-              {hotkey ? `Keep ${hotkeyLabel(hotkey)}` : "Leave it off"}
-            </button>
-          </div>
-        </>
-      )}
-
-      {outcome?.kind === "saved" && hotkey && (
-        <Notice tone="ok">
-          <b>Saved.</b> Hold {hotkeyLabel(hotkey)} to {main ? "dictate" : "rewrite"}, in any app.
+          }
+        >
+          <b>A hotkey isn’t working.</b> <span>{app.hotkeyProblem}</span>
         </Notice>
       )}
+      <div className="qcard">
+        <div className="qlab">
+          {label}
+          {right && <span className="r">{right}</span>}
+        </div>
+        {capturing ? (
+          <Keycaps hotkey={modifiersHeld.join("+")} down={new Set(modifiersHeld)} slot />
+        ) : outcome?.kind === "bad" ? (
+          <Keycaps hotkey={outcome.attempt} look="bad" />
+        ) : (
+          <Keycaps key={hotkey} hotkey={hotkey} down={down} look={outcome?.kind === "saved" ? "pop" : undefined} />
+        )}
 
-      {main && outcome?.kind !== "bad" && (
-        <div className="acts">
+        {outcome?.kind === "bad" ? (
+          <div className="qtags">
+            <span className="qtag pe">{outcome.message.replace(/\.$/, "")}</span>
+            <span className="qnote">Pick another combination.</span>
+          </div>
+        ) : outcome?.kind === "saved" ? (
+          <div className="qtags">
+            <span className="qtag mi">Saved</span>
+            <span className="qnote">Hold {hotkeyLabel(hotkey)} in any app.</span>
+          </div>
+        ) : broken ? (
+          <div className="qtags">
+            <span className="qtag bad">Not working</span>
+            <span className="qnote">Another app may have it.</span>
+          </div>
+        ) : null}
+
+        {capturing && (
+          <p className="qp">
+            {modifiersHeld.length > 0
+              ? `Holding ${hotkeyLabel(modifiersHeld.join("+"))}. Add one more key. esc cancels.`
+              : "Hold at least one of ⌃ ⌥ ⌘, then one other key. esc cancels."}
+          </p>
+        )}
+
+        {fn && !capturing && outcome?.kind !== "bad" && <FnKeyAdvice />}
+
+        <div className="qrowb">
           {capturing ? (
             <>
-              <button className="btn" onClick={() => app.setCapturing(null)}>
+              <button className="qbtn" onClick={() => app.setCapturing(null)}>
                 Cancel
               </button>
-              <span className="hint">Both hotkeys are paused while you record.</span>
+              <span className="qnote" style={{ marginLeft: 6 }}>
+                Both hotkeys are paused while you record.
+              </span>
+            </>
+          ) : outcome?.kind === "bad" ? (
+            <>
+              <button className="qbtn pri" onClick={record}>
+                Try again
+              </button>
+              <button className="qbtn" onClick={() => setOutcome(null)}>
+                Keep {hotkeyLabel(hotkey)}
+              </button>
             </>
           ) : (
             <>
-              <button className="btn" onClick={record}>
-                Record new hotkey
-              </button>
-              {hotkey !== FN && (
-                <button
-                  className="btn"
-                  title="Also switches macOS's own 🌐 key action off while Utter is running"
-                  onClick={() => {
-                    setOutcome(null);
-                    // Choosing fn means wanting fn to dictate and do nothing else, so
-                    // macOS's own globe action is held off too, as other dictation
-                    // apps do. It comes back on quit, or from the Hotkey tab.
-                    app
-                      .update({ hotkey: FN, quietGlobe: true })
-                      .then(() => setOutcome({ kind: "saved" }))
-                      .catch((err) => setOutcome({ kind: "bad", attempt: FN, message: String(err) }));
-                  }}
-                >
+              {!broken && (
+                <button className={`qbtn ${outcome || fn ? "" : "pri"}`} onClick={record}>
+                  Record new hotkey
+                </button>
+              )}
+              {!fn && (
+                <button className="qbtn" title="Also switches macOS's own 🌐 key action off while Utter is running" onClick={useFn}>
                   Use the fn key
                 </button>
               )}
-              {hotkey !== DEFAULT_HOTKEY.tidy && DEFAULT_HOTKEY.tidy !== other && (
-                <button className="btn quiet" onClick={() => save(DEFAULT_HOTKEY.tidy)}>
+              {reset && (
+                <button className="qbtn ghost" onClick={() => save(DEFAULT_HOTKEY.tidy)}>
                   Reset to {hotkeyLabel(DEFAULT_HOTKEY.tidy)}
                 </button>
               )}
             </>
           )}
         </div>
-      )}
+      </div>
     </>
+  );
+}
+
+function RewriteHotkey({ held }: { held: Set<string> }) {
+  const app = useApp();
+  const { settings, live } = app;
+  const { capturing, outcome, setOutcome, record } = useRecorder("rewrite");
+  const hotkey = settings.rewriteHotkey;
+  const otherRecording = app.capturing === "tidy";
+  const firing = live.phase === "recording" && live.mode === "rewrite";
+  const down = new Set(firing ? hotkey.split("+") : capturing ? held : []);
+  const modifiersHeld = ["Control", "Alt", "Shift", "Super"].filter((m) => held.has(m));
+
+  return (
+    <div className={`qcard ${otherRecording ? "dim2" : ""}`}>
+      <div className="qlab">
+        Rewrite
+        <span className="r">{otherRecording ? "Paused" : capturing ? "esc cancels" : hotkey ? "Hold" : ""}</span>
+      </div>
+      <div className="qrow" style={{ marginTop: 12 }}>
+        {capturing ? (
+          <Keycaps small hotkey={modifiersHeld.join("+")} down={new Set(modifiersHeld)} slot style={{ marginTop: 0 }} />
+        ) : outcome?.kind === "bad" ? (
+          <Keycaps small hotkey={outcome.attempt} look="bad" style={{ marginTop: 0 }} />
+        ) : hotkey ? (
+          <Keycaps small key={hotkey} hotkey={hotkey} down={down} look={outcome?.kind === "saved" ? "pop" : undefined} style={{ marginTop: 0 }} />
+        ) : (
+          <span className="qkey s off" style={{ width: 120 }}>
+            Off
+          </span>
+        )}
+        <span className="sp" />
+        {capturing ? (
+          <button className="qbtn" onClick={() => app.setCapturing(null)}>
+            Cancel
+          </button>
+        ) : outcome?.kind === "bad" ? (
+          <>
+            <button className="qbtn" onClick={record}>
+              Try again
+            </button>
+            <button className="qbtn ghost" onClick={() => setOutcome(null)}>
+              {hotkey ? `Keep ${hotkeyLabel(hotkey)}` : "Leave it off"}
+            </button>
+          </>
+        ) : hotkey ? (
+          <>
+            <button className="qbtn" disabled={otherRecording} onClick={record}>
+              Record
+            </button>
+            <button
+              className="qbtn ghost"
+              disabled={otherRecording}
+              onClick={() => {
+                setOutcome(null);
+                app.update({ rewriteHotkey: "" }).catch(() => undefined);
+              }}
+            >
+              Turn off
+            </button>
+          </>
+        ) : (
+          <button className="qbtn" disabled={otherRecording} onClick={record}>
+            Set a rewrite hotkey
+          </button>
+        )}
+      </div>
+      {outcome?.kind === "bad" ? (
+        <div className="qtags">
+          <span className="qtag pe">{outcome.message.replace(/\.$/, "")}</span>
+          <span className="qnote">Pick another combination.</span>
+        </div>
+      ) : outcome?.kind === "saved" && hotkey ? (
+        <div className="qtags">
+          <span className="qtag mi">Saved</span>
+          <span className="qnote">Hold {hotkeyLabel(hotkey)} to rewrite.</span>
+        </div>
+      ) : null}
+      <p className="qp">
+        {capturing
+          ? "Hold at least one of ⌃ ⌥ ⌘, then one other key."
+          : hotkey
+            ? "Hold to dictate in your rewrite style. With text selected, hold it and say how to change it, like “make it shorter”."
+            : "Rewriting and editing a selection both need this hotkey."}
+      </p>
+    </div>
   );
 }
 
 /**
  * With fn as the hotkey, macOS's own action for the globe key (emoji
- * picker, input source, Apple's dictation) fires too: the window server runs
- * it before Utter sees the key. The only cure is "Press 🌐 key to: Do
- * Nothing". Utter can hold that setting while it uses fn and give it back
- * afterwards, but only when the user asks, since it is a system setting.
+ * picker, input source, Apple's dictation) fires too. Utter can hold that
+ * setting off while it uses fn and give it back afterwards.
  */
 function FnKeyAdvice() {
   const app = useApp();
@@ -334,33 +379,31 @@ function FnKeyAdvice() {
   if (quiet) {
     return (
       <Notice
-        tone="ok"
+        tone="mi"
+        icon={<IconInfoLine />}
         action={
-          <button className="btn sm quiet" onClick={() => app.update({ quietGlobe: false }).catch(() => undefined)}>
+          <button className="qbtn sm" onClick={() => app.update({ quietGlobe: false }).catch(() => undefined)}>
             Give it back now
           </button>
         }
       >
-        <b>The 🌐 key only dictates while Utter is running.</b> Its own action comes back when you quit Utter or
-        choose another hotkey.
+        The 🌐 key only dictates while Utter is running. Quit Utter and it goes back to what macOS does with it.
       </Notice>
     );
   }
   if (!action) return null;
   return (
-    <Notice
-      tone="warn"
-      action={
-        <button className="btn sm" onClick={() => app.update({ quietGlobe: true }).catch(() => undefined)}>
+    <Notice tone="pe">
+      Pressing fn also makes macOS {action}.
+      <div className="qrow" style={{ marginTop: 10, flexWrap: "wrap" }}>
+        <button className="qbtn sm" onClick={() => app.update({ quietGlobe: true }).catch(() => undefined)}>
           Turn it off while Utter runs
         </button>
-      }
-    >
-      <b>Pressing fn also makes macOS {action}.</b> Utter can switch that off while it is running and put it back
-      when you quit.{" "}
-      <button className="link" onClick={() => openPrivacySettings("keyboard")}>
-        Or change it in Keyboard settings
-      </button>
+        <button className="qlink" style={{ fontSize: 12.5 }} onClick={() => openPrivacySettings("keyboard")}>
+          Or change it in Keyboard settings
+          <IconOut />
+        </button>
+      </div>
     </Notice>
   );
 }

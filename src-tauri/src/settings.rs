@@ -51,6 +51,14 @@ pub struct Settings {
     pub quiet_globe: bool,
     /// Which speech model to use; a name from `models::CATALOG`.
     pub model: String,
+    /// The language the multilingual model should expect, as a Whisper code
+    /// ("fr"). Empty means detect it for each dictation.
+    pub language: String,
+    /// Words the user removed, kept for 30 days so they can be restored.
+    pub removed: Vec<crate::words::Removed>,
+    /// Ask GitHub once a day whether a newer release is out. Off unless the
+    /// user turns it on: it is a network request.
+    pub check_updates: bool,
     /// Set once the first-run permissions screen has been completed.
     pub onboarded: bool,
 }
@@ -75,6 +83,9 @@ impl Default for Settings {
             hands_free: true,
             quiet_globe: true,
             model: "base.en".into(),
+            language: String::new(),
+            removed: Vec::new(),
+            check_updates: false,
             onboarded: false,
         }
     }

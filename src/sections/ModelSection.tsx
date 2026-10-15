@@ -1,50 +1,199 @@
+import { useEffect, useRef, useState } from "react";
+import type { ModelStatus } from "../api";
 import { selectedModel } from "../readiness";
 import { shortName, useApp } from "../state";
-import { IconCheck, Notice, WaveProgress } from "../ui";
+import { IconDown, IconTick, Notice, WaveProgress } from "../ui";
+
+/** The languages offered first, then the rest Whisper knows. Codes are Whisper's. */
+const COMMON: [string, string][] = [
+  ["en", "English"],
+  ["fr", "French"],
+  ["de", "German"],
+  ["es", "Spanish"],
+  ["ur", "Urdu"],
+];
+const MORE: [string, string][] = [
+  ["ar", "Arabic"], ["bn", "Bengali"], ["bg", "Bulgarian"], ["ca", "Catalan"], ["zh", "Chinese"], ["hr", "Croatian"],
+  ["cs", "Czech"], ["da", "Danish"], ["nl", "Dutch"], ["et", "Estonian"], ["fi", "Finnish"], ["el", "Greek"],
+  ["gu", "Gujarati"], ["he", "Hebrew"], ["hi", "Hindi"], ["hu", "Hungarian"], ["is", "Icelandic"], ["id", "Indonesian"],
+  ["it", "Italian"], ["ja", "Japanese"], ["kn", "Kannada"], ["ko", "Korean"], ["lv", "Latvian"], ["lt", "Lithuanian"],
+  ["ms", "Malay"], ["ml", "Malayalam"], ["mr", "Marathi"], ["no", "Norwegian"], ["fa", "Persian"], ["pl", "Polish"],
+  ["pt", "Portuguese"], ["pa", "Punjabi"], ["ro", "Romanian"], ["ru", "Russian"], ["sr", "Serbian"], ["sk", "Slovak"],
+  ["sl", "Slovenian"], ["sw", "Swahili"], ["sv", "Swedish"], ["tl", "Tagalog"], ["ta", "Tamil"], ["te", "Telugu"],
+  ["th", "Thai"], ["tr", "Turkish"], ["uk", "Ukrainian"], ["vi", "Vietnamese"], ["cy", "Welsh"],
+];
+const ALL = [...COMMON, ...MORE];
+
+const MB = 1_000_000;
+
+/** "English only." in the label becomes words in the note. */
+function sizeNote(m: ModelStatus): string {
+  return `${m.sizeMb} MB · ${/\(English\)/.test(m.label) ? "English only" : "Any language"}`;
+}
+
+/** Seconds left, guessed from how fast it has gone so far. */
+function useTimeLeft(received: number, total: number, active: boolean): string | null {
+  const start = useRef<{ at: number; received: number } | null>(null);
+  if (!active) start.current = null;
+  else if (!start.current) start.current = { at: performance.now(), received };
+  if (!active || !start.current || total <= 0) return null;
+  const elapsed = (performance.now() - start.current.at) / 1000;
+  const done = received - start.current.received;
+  if (elapsed < 2 || done <= 0) return null;
+  const left = ((total - received) / done) * elapsed;
+  if (left < 10) return "A few seconds left.";
+  if (left < 90) return `About ${Math.max(10, Math.round(left / 10) * 10)} seconds left.`;
+  return `About ${Math.round(left / 60)} minutes left.`;
+}
 
 export default function ModelSection() {
   const app = useApp();
+  const { models, progress, downloadFault, settings } = app;
   const selected = selectedModel(app);
   const name = selected ? shortName(selected.label) : "";
-  const downloadingSelected = app.progress?.name === selected?.name;
+  const busy = progress ? models.find((m) => m.name === progress.name) : undefined;
+  const busyTotal = progress ? progress.total || (busy?.sizeMb ?? 0) * MB : 0;
+  const fault = downloadFault && !models.find((m) => m.name === downloadFault.name)?.downloaded ? downloadFault : null;
+  const faultModel = fault ? models.find((m) => m.name === fault.name) : undefined;
+  const timeLeft = useTimeLeft(progress?.received ?? 0, busyTotal, !!progress);
+  const multilingual = !!selected && !/\(English\)/.test(selected.label);
+
+  // The "In use" card follows the selected model, or the one downloading for it.
+  const showing = busy && !selected?.downloaded ? busy : selected;
 
   return (
     <>
-      <div className="sechead">
-        <h2 className="h">Speech model</h2>
+      <div className="qhead">
+        <div className="t">
+          <h1>Speech model</h1>
+          <p>Turns your voice into text, here on this Mac.</p>
+        </div>
       </div>
-      <p className="sub">
-        Turns your voice into text, here on this Mac. Bigger is more accurate and a little slower.
-      </p>
 
-      {selected && !selected.downloaded && !app.progress && (
+      {fault && !progress && (
         <Notice
-          tone="warn"
+          tone="pe"
           action={
-            <button className="btn primary sm" onClick={() => app.download(selected.name)}>
-              Download {name}
+            <button className="qbtn sm pri" onClick={() => app.download(fault.name)}>
+              Retry
             </button>
           }
         >
-          <b>{name} is selected but not downloaded.</b> Dictation won’t work until it is.
+          <b>Download stopped:</b>{" "}
+          <span>{fault.message.replace(/^Download (interrupted|failed): /, "").replace(/\.?$/, ".")} Retry starts again from the beginning.</span>
         </Notice>
       )}
 
-      <ModelRows />
-
-      {downloadingSelected && (
-        <Notice tone="info">
-          Dictation starts working when {name} finishes. You can close this window; the download carries on.
-        </Notice>
+      {showing && (
+        <div className="qcard" style={{ overflow: "visible" }}>
+          <div className="qlab">
+            In use
+            {progress && busy && <span className="r">{shortName(busy.label)}</span>}
+          </div>
+          {progress && busy && busy === showing ? (
+            <>
+              <div className="qbig">
+                {Math.round(progress.received / MB)}
+                <small>of {busy.sizeMb} MB</small>
+              </div>
+              <WaveProgress fraction={busyTotal ? progress.received / busyTotal : 0} label={`${shortName(busy.label)} download`} />
+              <div className="qtags">
+                <span className="qtag nt">{busyTotal ? Math.round((progress.received / busyTotal) * 100) : 0}%</span>
+                <span className="qnote">{[timeLeft, "Dictation starts when it’s done."].filter(Boolean).join(" ")}</span>
+              </div>
+              <div className="qrowb">
+                <button className="qbtn" onClick={app.stopDownloading}>
+                  Stop
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={`qbig ${shortName(showing.label).length > 8 ? "md" : ""}`}>{shortName(showing.label)}</div>
+              {faultModel === showing && fault && (
+                <WaveProgress fraction={fault.total ? fault.received / fault.total : 0} failed label="Download stopped" />
+              )}
+              <div className="qtags">
+                {showing.downloaded ? (
+                  <span className="qtag mi">Ready</span>
+                ) : faultModel === showing && fault ? (
+                  <span className="qtag pe">Stopped at {Math.round(fault.received / MB)} MB</span>
+                ) : (
+                  <span className="qtag pe">Not downloaded</span>
+                )}
+                <span className="qnote">
+                  {showing.downloaded || fault ? sizeNote(showing) : "Dictation can’t start without it."}
+                </span>
+              </div>
+              {!showing.downloaded && !fault && (
+                <div className="qrowb">
+                  <button className="qbtn pri" disabled={!!progress} onClick={() => app.download(showing.name)}>
+                    Download {name}
+                  </button>
+                </div>
+              )}
+              {showing.downloaded && multilingual && <LanguagePicker />}
+            </>
+          )}
+        </div>
       )}
-      <p className="foot">
-        Models download once from Hugging Face and are saved on this Mac. Switching takes effect from the
-        next dictation.
-      </p>
 
-      <p className="foot">
+      <div className="qcard">
+        <div className="qlab">Models</div>
+        <div className="qlist">
+          {models.map((m) => {
+            const inUse = settings.model === m.name;
+            const downloading = progress?.name === m.name;
+            const stopped = fault?.name === m.name;
+            return (
+              <div className="qmrow" key={m.name}>
+                <div className="tx">
+                  <b>
+                    {shortName(m.label)}
+                    <small>{m.sizeMb} MB</small>
+                  </b>
+                  <span>
+                    {m.note}
+                    {/\(English\)/.test(m.label) ? " English only." : ""}
+                  </span>
+                </div>
+                <div className="a">
+                  {downloading ? (
+                    <span className="qtag sm nt">{busyTotal ? Math.round((progress.received / busyTotal) * 100) : 0}%</span>
+                  ) : stopped ? (
+                    <>
+                      <span className="qtag sm pe">Stopped</span>
+                      {!inUse && (
+                        <button className="qbtn sm" disabled={!!progress} onClick={() => app.download(m.name)}>
+                          Retry
+                        </button>
+                      )}
+                    </>
+                  ) : inUse && m.downloaded ? (
+                    <span className="qtag sm mi">In use</span>
+                  ) : inUse ? (
+                    <span className="qtag sm pe">Not downloaded</span>
+                  ) : m.downloaded ? (
+                    <>
+                      <span className="qtag sm nt">Downloaded</span>
+                      <button className="qbtn sm" onClick={() => app.update({ model: m.name }).catch(() => undefined)}>
+                        Use
+                      </button>
+                    </>
+                  ) : (
+                    <button className="qbtn sm" disabled={!!progress} onClick={() => app.download(m.name)}>
+                      Download
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <p className="qp" style={{ margin: "0 4px" }}>
         Names and jargon it gets wrong? Teach it under{" "}
-        <button className="link" onClick={() => app.setTab("words")}>
+        <button className="qlink" onClick={() => app.setTab("words")}>
           Words
         </button>
         .
@@ -53,93 +202,68 @@ export default function ModelSection() {
   );
 }
 
-/** The three speech models as selectable rows. Shared with the welcome screen. */
-export function ModelRows({ suggest = false }: { suggest?: boolean }) {
-  const app = useApp();
-  const { models, progress, downloadFault, settings } = app;
+/** Which language the multilingual model should expect. */
+function LanguagePicker() {
+  const { settings, update } = useApp();
+  const [open, setOpen] = useState(false);
+  const [more, setMore] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const current = settings.language;
+  const label = current ? (ALL.find(([code]) => code === current)?.[1] ?? current) : "Detect automatically";
+
+  // Clicking elsewhere or pressing Escape closes the list.
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("mousedown", away);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("mousedown", away);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  const pick = (code: string) => {
+    setOpen(false);
+    setMore(false);
+    update({ language: code }).catch(() => undefined);
+  };
+  const option = (code: string, name: string) => (
+    <button key={code || "auto"} className="qopt" role="option" aria-selected={current === code} onClick={() => pick(code)}>
+      <span className="ck">{current === code && <IconTick />}</span>
+      {name}
+    </button>
+  );
+  // A language chosen from the longer list stays in view in the short one.
+  const shortList = COMMON.some(([code]) => code === current) || !current ? COMMON : [...COMMON, [current, label] as [string, string]];
 
   return (
-    <div className="models" role="radiogroup" aria-label="Speech model">
-      {models.map((m, index) => {
-        const name = shortName(m.label);
-        const selected = settings.model === m.name;
-        const busy = progress?.name === m.name;
-        const fault = downloadFault?.name === m.name && !m.downloaded ? downloadFault : null;
-        const total = (busy && progress.total) || fault?.total || m.sizeMb * 1_000_000;
-        const received = busy ? progress.received : (fault?.received ?? 0);
-        // "(English)" in the label becomes a plain sentence in the description.
-        const englishOnly = /\(English\)/.test(m.label) ? " English only." : "";
-
-        return (
-          <div className={`mrow ${selected ? "sel" : ""}`} key={m.name}>
-            <div className="mtop">
-              <button
-                className="pick"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => !selected && app.update({ model: m.name })}
-              >
-                <span className="radio" />
-                <span className="mtext">
-                  <span className="mname">
-                    {name}
-                    <span className="msize">{m.sizeMb} MB</span>
-                  </span>
-                  <span className="mdesc">
-                    {m.note}
-                    {englishOnly}
-                  </span>
-                </span>
-              </button>
-
-              {busy ? (
-                <span className="chip accent">Downloading</span>
-              ) : m.downloaded ? (
-                selected ? (
-                  <span className="chip ok">
-                    <IconCheck width={2.4} />
-                    In use
-                  </span>
-                ) : (
-                  <span className="chip plain">Downloaded</span>
-                )
-              ) : fault ? (
-                <button className="btn sm" disabled={!!progress} onClick={() => app.download(m.name)}>
-                  Retry
+    <>
+      <div className="qrow" style={{ marginTop: 16, position: "relative" }} ref={box}>
+        <span style={{ font: "600 14px/1 var(--qf)" }}>Language</span>
+        <span className="sp" />
+        <button className="qsel" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {label}
+          <IconDown />
+        </button>
+        {open && (
+          <div className="qpop" role="listbox" aria-label="Language">
+            {option("", "Detect automatically")}
+            {(more ? ALL : shortList).map(([code, name]) => option(code, name))}
+            {!more && (
+              <>
+                <hr />
+                <button className="qopt more" onClick={() => setMore(true)}>
+                  <span className="ck" />
+                  More languages…
                 </button>
-              ) : suggest && index === 0 ? (
-                <button className="btn primary sm" disabled={!!progress} onClick={() => app.download(m.name)}>
-                  Download
-                </button>
-              ) : (
-                <>
-                  {selected && !progress && <span className="chip warn">Not downloaded</span>}
-                  <button className="btn sm" disabled={!!progress} onClick={() => app.download(m.name)}>
-                    Download
-                  </button>
-                </>
-              )}
-            </div>
-
-            {(busy || fault) && (
-              <div className="dl">
-                <WaveProgress fraction={total > 0 ? received / total : 0} failed={!!fault} label={`${name} download`} />
-                <span className="dlnum">
-                  {Math.round(received / 1_000_000)} of {m.sizeMb} MB
-                </span>
-              </div>
-            )}
-            {fault && (
-              <div className="mnote">
-                <p className="hint" style={{ color: "var(--bad)" }}>
-                  <b>Download stopped:</b> {fault.message.replace(/^Download (interrupted|failed): /, "")} Retry starts
-                  again from the beginning.
-                </p>
-              </div>
+              </>
             )}
           </div>
-        );
-      })}
-    </div>
+        )}
+      </div>
+      <p className="qp">Pick one if it guesses wrong. Only Large understands languages other than English.</p>
+    </>
   );
 }

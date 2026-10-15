@@ -15,11 +15,14 @@ import {
   resumeHotkeys,
   providers as loadProviders,
   saveSettings,
+  stopDownload as stopModelDownload,
+  updateStatus as loadUpdateStatus,
   type AppContext,
   type AudioLevel,
   type Dictation,
   type DownloadProgress,
   type Learned,
+  type UpdateStatus,
   type Mode,
   type ModelStatus,
   type PermissionStatus,
@@ -29,7 +32,7 @@ import {
   type Stage,
 } from "./api";
 
-export type TabId = "try" | "words" | "hotkey" | "model" | "cleanup" | "permissions";
+export type TabId = "try" | "words" | "hotkey" | "model" | "cleanup" | "permissions" | "about";
 
 /** What the dictation pipeline is doing right now. */
 export type Live = {
@@ -93,10 +96,18 @@ export type AppState = {
   addWordAsked: number;
   /** Words learned from corrections since the window opened, newest first. */
   justLearned: Learned[];
+  dismissLearned: () => void;
+  /** Goes up each time "Fix Last Word…" is chosen from the menu bar. */
+  fixLastAsked: number;
+  /** What the last update check found. */
+  updateInfo: UpdateStatus | null;
+  setUpdateInfo: (status: UpdateStatus) => void;
+  /** Stop the model download under way. */
+  stopDownloading: () => void;
 };
 
 const IDLE: Live = { phase: "idle", mode: "tidy", handsFree: false, stage: null, app: null, message: null, since: 0 };
-const TABS: TabId[] = ["try", "words", "hotkey", "model", "cleanup", "permissions"];
+const TABS: TabId[] = ["try", "words", "hotkey", "model", "cleanup", "permissions", "about"];
 
 /** `pnpm dev` only: "?tab=cleanup" opens the window on that section. */
 function firstTab(): TabId {
@@ -126,6 +137,8 @@ export function useAppState(): AppState | null {
   const [tab, setTabNow] = useState<TabId>(firstTab);
   const [addWordAsked, setAddWordAsked] = useState(0);
   const [justLearned, setJustLearned] = useState<Learned[]>([]);
+  const [fixLastAsked, setFixLastAsked] = useState(0);
+  const [updateInfo, setUpdateInfo] = useState<UpdateStatus | null>(null);
   // Leaving a section abandons a hotkey recording begun there.
   const setTab = useCallback((next: TabId) => {
     setCapturing(null);
@@ -186,6 +199,22 @@ export function useAppState(): AppState | null {
       lastProgress.current = payload;
       setProgress(payload);
     });
+    loadUpdateStatus().then(setUpdateInfo, () => undefined);
+    const stopUpdate = listen<UpdateStatus>("update-status", ({ payload }) => setUpdateInfo(payload));
+    // The menu bar opens a section: About, or the one that fixes a problem.
+    const stopSection = listen<string>("open-section", ({ payload }) => {
+      const wanted = payload as TabId;
+      if (TABS.includes(wanted)) {
+        setCapturing(null);
+        setTabNow(wanted);
+      }
+    });
+    // "Fix Last Word…" opens Try it on Fix a word for the last dictation.
+    const stopFixLast = listen("fix-last", () => {
+      setCapturing(null);
+      setTabNow("try");
+      setFixLastAsked((n) => n + 1);
+    });
     // "Add a Word…" in the menu bar opens the word list, ready to type into.
     const stopAddWord = listen("add-word", () => {
       setCapturing(null);
@@ -216,6 +245,9 @@ export function useAppState(): AppState | null {
       stopLearned.then((unlisten) => unlisten());
       stopUnlearned.then((unlisten) => unlisten());
       stopSuggested.then((unlisten) => unlisten());
+      stopUpdate.then((unlisten) => unlisten());
+      stopSection.then((unlisten) => unlisten());
+      stopFixLast.then((unlisten) => unlisten());
     };
   }, [refreshModels, refreshHistory]);
 
@@ -300,7 +332,10 @@ export function useAppState(): AppState | null {
         await downloadModel(name);
       } catch (err) {
         const reached = lastProgress.current ?? { received: 0, total: 0 };
-        setDownloadFault({ name, message: String(err), received: reached.received, total: reached.total });
+        // Stopped by the user: not a fault to report.
+        if (String(err) !== "Stopped.") {
+          setDownloadFault({ name, message: String(err), received: reached.received, total: reached.total });
+        }
       }
       // Learn that the model is there before dropping the progress bar, so the
       // window never flashes "Download a speech model" in between.
@@ -310,6 +345,11 @@ export function useAppState(): AppState | null {
     },
     [refreshModels],
   );
+
+  const stopDownloading = useCallback(() => {
+    if (downloading.current) stopModelDownload(downloading.current).catch(() => undefined);
+  }, []);
+  const dismissLearned = useCallback(() => setJustLearned([]), []);
 
   if (!settings) return null;
 
@@ -340,6 +380,11 @@ export function useAppState(): AppState | null {
     setTab,
     addWordAsked,
     justLearned,
+    dismissLearned,
+    fixLastAsked,
+    updateInfo,
+    setUpdateInfo,
+    stopDownloading,
   };
 }
 

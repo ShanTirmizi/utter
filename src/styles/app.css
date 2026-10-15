@@ -1,0 +1,153 @@
+/* What the real windows need on top of quiet.css: the window fills its
+   frame, content scrolls, the sidebar folds to icons when narrow, and the
+   pieces the boards drew as pictures (menus, first run, the pill window). */
+
+html,body,#root{height:100%}
+html{background:var(--bg);color:var(--ink);font:400 14px/20px var(--qf)}
+body{overflow:hidden}
+button{cursor:default}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- settings window ---------- */
+.main-window .qwin{width:100vw;height:100vh;border-radius:0;box-shadow:none}
+.qdrag{position:absolute;left:0;right:0;top:0;height:44px;z-index:2}
+.qside{position:relative;z-index:3;user-select:none;-webkit-user-select:none}
+.qbrand{margin-top:0}
+.qnav .ico{display:none}
+.qnav .lbl{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.qnav .qbdg{margin-left:auto;flex:none}
+.qnav .chev{width:12px;height:12px;transition:transform .2s var(--ease)}
+.qnav[aria-expanded="false"] .chev{transform:rotate(180deg)}
+.qnav:hover:not(.sel){color:var(--ink)}
+.qstat:focus-visible,.qabout:focus-visible,.qsrch input:focus-visible,.qarea:focus-visible,.qsel:focus-visible,.qchk:focus-visible,.qprac textarea:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.qstat .r{align-items:flex-start}
+.qstat .r .d{margin-top:5px}
+.qmain{overflow-y:auto;overflow-x:hidden;position:relative}
+.qmain::after{content:"";display:block;height:4px;flex:none}
+.qabout .lbl{flex:none}
+
+/* Under 680 wide the sidebar shrinks to icons. */
+@media (max-width:679px){
+  .qside{width:68px;padding:60px 10px 16px;align-items:center}
+  .qbrand{margin:0 0 22px}
+  .qbrand span,.qnav .lbl,.qnav .sp,.qnav .chev,.qstat .s,.qstat .r .t,.qstat .bar,.qabout .lbl,.qabout .sp,.qgroup{display:none}
+  .qnav{width:44px;padding:0;justify-content:center}
+  .qnav .ico{display:block}
+  .qtree{margin:0;padding:0;align-items:center}
+  .qtree::before,.qtree .qnav::before{display:none}
+  .qtree .qnav{padding:0}
+  .qnav .qbdg{position:absolute;top:2px;right:0;min-width:15px;height:15px;font-size:10px;padding:0 3px;border-radius:5px}
+  .qstat{width:44px;height:44px;padding:0;align-items:center;justify-content:center}
+  .qabout{justify-content:center;padding:0;width:44px;font-size:11px}
+}
+
+.qseg button:disabled{opacity:.4}
+.qseg button:not(:disabled):not([aria-selected="true"]):hover{color:var(--ink)}
+
+/* lists and rows that were static in the boards */
+.qhv .qx{margin-left:2px}
+.qhv.add:hover,.qhv.add:focus-visible{color:var(--ink);outline-color:var(--mid)}
+.qli .tx p.open{-webkit-line-clamp:unset;display:block}
+.qli.w .wd{max-width:36%;overflow-wrap:anywhere}
+.qli.w .under .qfld input{font-family:var(--qmono);font-size:13px}
+.qfld input:focus-visible{outline:none}
+.qfld:focus-within{box-shadow:inset 0 0 0 1.5px var(--ink2),0 0 0 4px var(--focus)}
+.qsrch:focus-within{box-shadow:inset 0 0 0 1.5px var(--ink2)}
+.qsrch input:focus-visible{outline:none}
+.qsrch input::-webkit-search-cancel-button{filter:grayscale(1) opacity(.6)}
+.qwd:hover:not(.sel){background-color:var(--bg)}
+.qbtn:not(:disabled):active{transform:translateY(.5px)}
+.qbtn.ghost:hover:not(:disabled){color:var(--ink)}
+.qlink:hover{text-decoration-color:var(--mid)}
+.qnote b{color:var(--ink);font-weight:600}
+.qp .qlink{font-size:inherit}
+.qchk{appearance:none;border:0;background:none;padding:0}
+.qcard .qntc{margin-top:14px}
+.qmuted{color:var(--mid)}
+.qdiff-legend{display:flex;gap:12px;margin-top:10px;font-size:12px;color:var(--mid)}
+.qdiff-legend del{text-decoration:line-through;text-decoration-color:var(--pe-fg);text-decoration-thickness:1.5px}
+.qdiff-legend ins{text-decoration:none;color:var(--mi-fg)}
+.qsaid .br{display:block;height:8px}
+
+/* the practice box is a real text area */
+.qprac textarea{display:block;width:100%;min-height:88px;padding:14px 16px;border:0;background:none;resize:none;font:400 15px/23px var(--qf);color:var(--ink);outline:none}
+.qprac textarea::placeholder{color:var(--light)}
+.qprac:focus-within{box-shadow:inset 0 0 0 1.5px var(--ink2),0 0 0 4px var(--focus)}
+.qstrip{overflow:hidden}
+.qstrip b{flex:none}
+.qstrip .rt{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.qstrip .lw{display:flex;align-items:center;gap:2px;height:16px}
+.qstrip .lw i{display:block;width:2.5px;border-radius:2px;background:var(--ink2);transition:height 50ms linear}
+
+/* a textarea styled like .qarea */
+textarea.qarea{display:block;width:100%;border:0;resize:vertical;font:400 14px/21px var(--qf);outline:none}
+textarea.qarea:focus{box-shadow:inset 0 0 0 1.5px var(--ink2),0 0 0 4px var(--focus)}
+
+/* model field with suggestions */
+.qfld.mono input{font-family:var(--qmono);font-size:13px}
+
+/* a pop-up list, like the language picker */
+.qpop{position:absolute;right:0;top:42px;width:240px;max-height:300px;overflow-y:auto;padding:5px;border-radius:12px;background:var(--card2);box-shadow:0 0 0 .5px var(--hair),0 18px 40px -12px rgba(0,0,0,.35);z-index:5;font-size:13.5px}
+.qopt{appearance:none;border:0;background:none;width:100%;display:flex;align-items:center;gap:8px;height:28px;padding:0 9px;border-radius:7px;text-align:left;color:var(--ink);font:inherit}
+.qopt .ck{display:inline-flex;width:14px;height:14px;flex:none}
+.qopt .ck svg{width:14px;height:14px}
+.qopt:hover,.qopt:focus-visible{background:var(--bg);outline:none}
+.qopt.more{color:var(--mid)}
+.qpop hr{height:1px;margin:4px 8px;border:0;background:var(--hair)}
+
+/* keycaps drawn as buttons on first run */
+.qkeysbtn{appearance:none;border:0;background:none;padding:6px;border-radius:18px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.qkeys.wrap{flex-wrap:wrap}
+.qkey .sy.tx{font-size:15px;font-weight:600;right:auto;left:12px;top:auto;bottom:10px}
+
+/* ---------- first run ---------- */
+.ob-h1{margin:0;font:700 32px/38px var(--qfd);letter-spacing:-.03em}
+.ob-lead{margin:10px 0 0;font-size:15px;line-height:22px;color:var(--mid)}
+.ob-pt{display:flex;gap:14px;align-items:flex-start}
+.ob-pt b{display:block;font-size:14.5px}
+.ob-pt .qnote{display:block}
+.ob-card{display:flex;align-items:center;gap:14px;padding:14px 18px}
+.ob-card .tx{flex:1;min-width:0}
+.ob-card .tx b{display:block;font-size:14px;line-height:19px}
+.ob-card .tx span{font-size:12.5px;line-height:17px;color:var(--mid)}
+.ob-pm .qbig{margin-top:4px;font-size:26px;letter-spacing:-.03em;white-space:nowrap}
+.ob-vis{width:318px;flex:none;margin:14px 0 14px 14px;border-radius:22px;background:var(--card);box-shadow:0 0 0 .5px var(--hair);position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
+.ob-body{flex:1;min-width:0;padding:52px 34px 24px 32px;display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+.ob-step{font:600 12.5px/1 var(--qf);color:var(--mid);margin-bottom:14px}
+.ob-foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding-top:14px}
+.ob-foot .dl{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ob-foot .qbtn.lg.ghost{padding:0 10px}
+.ob-foot .qbtn{flex:none}
+.ob-vis .qkeys{flex-wrap:wrap;justify-content:center;max-width:240px;gap:8px}
+.ob-vis .qkey{width:64px;height:60px}
+.ob-vis .qkey.sp{width:144px;height:54px}
+.ob-dots{display:flex;gap:4px}
+.ob-dots i{display:block;width:22px;height:4px;border-radius:2px;background:var(--line)}
+.ob-dots i.done{background:var(--light)}
+.ob-dots i.now{background:var(--ink2)}
+.ob-ax{width:260px;border-radius:16px;background:var(--bg);box-shadow:inset 0 0 0 .5px var(--hair);padding:10px;display:flex;flex-direction:column;gap:4px}
+.ob-ax .h{font:600 12px/16px var(--qf);color:var(--mid);padding:2px 6px 6px}
+.ob-ax .row{display:flex;align-items:center;gap:10px;height:40px;padding:0 8px;border-radius:10px}
+.ob-ax .row.me{height:44px;background:var(--card2);box-shadow:var(--selsh)}
+.ob-ax .row .ic{width:22px;height:22px;border-radius:6px;background:var(--line)}
+.ob-ax .row .nm{height:7px;border-radius:4px;background:var(--line)}
+.ob-ax .qtog{transform:scale(.8);pointer-events:none}
+.ob-done{width:92px;height:92px;border-radius:50%;background:var(--mi-bg);box-shadow:inset 0 0 0 1px var(--mi-ln);color:var(--mi-fg);display:flex;align-items:center;justify-content:center}
+.mbi{display:flex;align-items:center;gap:10px;height:28px;padding:0 10px;border-radius:8px;background:var(--bg);font-size:12px;color:var(--mid);flex:none}
+.mbi span{display:flex;align-items:center;justify-content:center;width:28px;height:20px;border-radius:5px;background:var(--card2);box-shadow:var(--selsh);color:var(--ink)}
+@media (max-width:679px){.ob-vis{display:none}}
+
+/* ---------- the pill window ---------- */
+.pill-window,.pill-window body,.pill-window #root{background:transparent!important}
+.pillwin{width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
+.pillwin .qpill{transition:opacity .2s var(--ease),transform .28s var(--spring)}
+.pillwin .qpill.off{opacity:0;transform:translateY(10px) scale(.96)}
+.qpill .lw{display:flex;align-items:center;gap:3px;height:26px}
+.qpill .lw i{display:block;width:4px;border-radius:2px;background:linear-gradient(90deg,#6b6b6b,#dcdcdc 45%,#8f8f8f);transition:height 50ms linear}
+.q-dark .qpill .lw i{background:linear-gradient(90deg,#8a8a8a,#f2f2f2 45%,#a5a5a5)}
+.qpill .ln{min-width:0}
+.qpill .ln > span,.qpill .ln small{overflow:hidden;text-overflow:ellipsis}
+.qpill .k{height:16px;min-width:16px;font-size:10.5px}
+.qpill > span > svg{width:17px;height:17px;display:block}
+.qpill .bdg{flex:none}
+@media (prefers-reduced-motion:reduce){.pillwin .qpill{transition:opacity .2s linear!important}}

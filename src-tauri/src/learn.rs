@@ -254,7 +254,7 @@ fn learn(app: &AppHandle, found: Vec<Correction>) {
                     new_word: outcome == Remembered::Added,
                 };
                 log(&format!("learned a word from a correction ({})", if learned.new_word { "new" } else { "new mishearing" }));
-                crate::offer_undo(app, &learned);
+                crate::tray::set_learned(app, Some(learned.clone()));
                 let _ = app.emit("learned", learned);
             }
             Ok(_) => {}

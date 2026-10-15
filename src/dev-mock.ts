@@ -17,6 +17,12 @@
 //   ?empty            no last dictation and no history
 //   ?words            a few terms already in the dictionary
 //   ?learned          a word is learned from a correction shortly after loading
+//   ?removed          a few words removed recently, restorable
+//   ?large            the multilingual model is downloaded and in use
+//   ?small            Small is downloaded too
+//   ?update=new|current  what the update check finds
+//   ?failed           the last dictation's cleanup failed
+//   ?edit             the last dictation edited a selection
 //   ?selected         the rewrite hotkey edits a pretend selection
 //   ?fn               the fn key is the dictation hotkey
 //   ?fnconflict       and macOS also shows emoji when it is pressed
@@ -72,7 +78,16 @@ let settings: Settings = {
   keepHistory: true,
   handsFree: true,
   quietGlobe: !query.has("fnconflict"),
-  model: "base.en",
+  model: query.has("large") ? "large-v3-turbo-q5_0" : "base.en",
+  language: "",
+  removed: query.has("removed")
+    ? [
+        { word: { word: "Kafka", heardAs: ["calf ka"], source: "added", addedAt: 0 }, removedAt: Date.now() - 3_600_000 },
+        { word: { word: "Jira", heardAs: [], source: "learned", addedAt: 0 }, removedAt: Date.now() - 86_400_000 },
+        { word: { word: "Ola", heardAs: [], source: "added", addedAt: 0 }, removedAt: Date.now() - 3 * 86_400_000 },
+      ]
+    : [],
+  checkUpdates: false,
   onboarded: !query.has("welcome"),
 };
 const keys = new Set<string>(query.has("key") ? ["anthropic"] : []);
@@ -101,8 +116,8 @@ const permissions: PermissionStatus = {
 
 const models: ModelStatus[] = [
   { name: "base.en", label: "Base (English)", note: "Fastest. Good for clear speech.", sizeMb: 148, downloaded: query.get("model") !== "missing" && !query.has("welcome") },
-  { name: "small.en", label: "Small (English)", note: "More accurate, a little slower.", sizeMb: 488, downloaded: false },
-  { name: "large-v3-turbo-q5_0", label: "Large v3 Turbo (multilingual)", note: "Most accurate. Any language.", sizeMb: 574, downloaded: false },
+  { name: "small.en", label: "Small (English)", note: "More accurate, a little slower.", sizeMb: 488, downloaded: query.has("small") },
+  { name: "large-v3-turbo-q5_0", label: "Large v3 Turbo (multilingual)", note: "Most accurate. Any language.", sizeMb: 574, downloaded: query.has("large") },
 ];
 
 const slack: AppContext = { name: "Slack", bundleId: "com.tinyspeck.slackmacgap", category: "chat" };
@@ -142,6 +157,21 @@ let last: Dictation | null = query.has("empty") || query.has("welcome")
       totalMs: 910,
       finishedAt: Date.now() - 4 * 60_000,
     };
+if (last && query.has("failed")) {
+  last = { ...last, cleaned: false, text: last.raw, note: "Cleanup skipped: Groq didn’t accept the key.", cleanupMs: 380, totalMs: 720 };
+}
+if (last && query.has("edit")) {
+  last = {
+    ...last,
+    mode: "rewrite",
+    app: mail,
+    selection: "We can't do Thursday, the build isn't ready.",
+    raw: "make it friendlier and suggest friday",
+    text: "Sorry, we can't quite do Thursday as the build isn't ready yet. Could we look at Friday instead?",
+    cleanupMs: 840,
+    totalMs: 1190,
+  };
+}
 
 /** Past dictations, newest first. */
 let past: Dictation[] = last
@@ -352,8 +382,12 @@ function matches(e: KeyboardEvent, hotkey: string): boolean {
   );
 }
 
+/** Hotkeys are switched off while a new one is being recorded, as in the app. */
+let hotkeysPaused = false;
+
 function watchHotkeys() {
   window.addEventListener("keydown", (e) => {
+    if (hotkeysPaused) return;
     const mode = matches(e, settings.hotkey) ? "tidy" : matches(e, settings.rewriteHotkey) ? "rewrite" : null;
     if (!mode) return;
     e.preventDefault();
@@ -364,13 +398,26 @@ function watchHotkeys() {
   window.addEventListener("blur", () => release());
 }
 
+let updateStatus = {
+  current: "0.5.0",
+  latest: query.get("update") === "new" ? "0.5.1" : query.get("update") === "current" ? "0.5.0" : null,
+  newer: query.get("update") === "new",
+  summary: query.get("update") === "new" ? "Fixes hands-free stopping too early, and two crashes." : null,
+  url: "https://github.com/ShanTirmizi/utter/releases/latest",
+  checkedAt: query.has("update") ? Date.now() - 600_000 : 0,
+  error: null as string | null,
+};
+
+const stopping = new Set<string>();
 async function download(name: string) {
   const model = models.find((m) => m.name === name);
   if (!model || model.downloaded) return;
+  stopping.delete(name);
   const total = model.sizeMb * 1_000_000;
-  const steps = 60;
+  const steps = query.has("slowdl") ? 600 : 60;
   for (let i = 1; i <= steps; i++) {
     await wait(90);
+    if (stopping.delete(name)) throw "Stopped.";
     send("model-download", { name, received: Math.round((total * i) / steps), total });
     if (fail === "download" && i === 22) throw "Download interrupted: the network connection was lost.";
   }
@@ -438,8 +485,13 @@ export function installMock() {
           keys.delete(payload?.provider as string);
           return;
         case "pause_hotkeys":
+          hotkeysPaused = true;
           return;
         case "resume_hotkeys":
+          hotkeysPaused = false;
+          return query.get("fail") === "startup-hotkey"
+            ? "The dictation hotkey is not working. Another app may be using it."
+            : null;
         case "hotkey_problem":
           return query.get("fail") === "startup-hotkey"
             ? "The dictation hotkey is not working. Another app may be using it."
@@ -524,6 +576,26 @@ export function installMock() {
           };
           return settings;
         }
+        case "stop_download":
+          stopping.add(payload?.name as string);
+          return;
+        case "set_tray_status":
+          return;
+        case "update_status":
+          return updateStatus;
+        case "check_for_updates":
+          await wait(700);
+          updateStatus = {
+            ...updateStatus,
+            checkedAt: Date.now(),
+            latest: query.get("update") === "new" ? "0.5.1" : updateStatus.current,
+            newer: query.get("update") === "new",
+            summary: query.get("update") === "new" ? "Fixes hands-free stopping too early, and two crashes." : null,
+            url: "https://github.com/ShanTirmizi/utter/releases/latest",
+            error: query.get("fail") === "update" ? "Couldn’t reach GitHub." : null,
+          };
+          if (query.get("fail") === "update") updateStatus.latest = null;
+          return updateStatus;
         case "fn_key_conflict":
           return query.has("fnconflict") && !settings.quietGlobe ? "show emoji and symbols" : null;
         default:

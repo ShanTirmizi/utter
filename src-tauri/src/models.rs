@@ -64,9 +64,18 @@ pub fn find(name: &str) -> Option<ModelInfo> {
     CATALOG.iter().copied().find(|m| m.name == name)
 }
 
-/// English-only models skip language detection; others detect it per recording.
-pub fn language(name: &str) -> &'static str {
-    if name.ends_with(".en") { "en" } else { "auto" }
+/// English-only models skip language detection. The others use the language
+/// the user chose (a Whisper code such as "fr"), or detect it per recording
+/// when they chose none.
+pub fn language(name: &str, chosen: &str) -> String {
+    let chosen = chosen.trim();
+    if name.ends_with(".en") {
+        "en".into()
+    } else if chosen.is_empty() || chosen == "auto" {
+        "auto".into()
+    } else {
+        chosen.to_string()
+    }
 }
 
 fn dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -112,6 +121,8 @@ pub async fn download(app: &AppHandle, name: &str) -> Result<(), String> {
     }
     // Two downloads of one model would write over each other's partial file.
     let _claim = Claim::take(name).ok_or("That model is already downloading.")?;
+    // A stop asked for before this download began is not for it.
+    stop_asked(name);
     let partial = target.with_extension("bin.part");
 
     let result = fetch(app, name, &partial).await;
@@ -156,6 +167,9 @@ async fn fetch(app: &AppHandle, name: &str, partial: &Path) -> Result<u64, Strin
             .await
             .map_err(|_| "The download stalled. Check your connection and try again.".to_string())?;
         let Some(chunk) = next else { break };
+        if stop_asked(name) {
+            return Err(STOPPED.into());
+        }
         let chunk = chunk.map_err(|e| format!("Download interrupted: {e}"))?;
         file.write_all(&chunk)
             .map_err(|e| format!("Could not save the model: {e}"))?;
@@ -172,6 +186,23 @@ async fn fetch(app: &AppHandle, name: &str, partial: &Path) -> Result<u64, Strin
         return Err("Download ended early. Please try again.".into());
     }
     Ok(received)
+}
+
+/// The error a download stopped by the user ends with.
+pub const STOPPED: &str = "Stopped.";
+
+/// Models whose download the user asked to stop.
+static STOP: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+/// Ask the download of `name`, if one is running, to stop. Its partial file
+/// is removed, as for any download that does not finish.
+pub fn stop(name: &str) {
+    STOP.lock().unwrap().get_or_insert_with(HashSet::new).insert(name.to_string());
+}
+
+/// True once, after `stop` was called for `name`.
+fn stop_asked(name: &str) -> bool {
+    STOP.lock().unwrap().as_mut().is_some_and(|asked| asked.remove(name))
 }
 
 /// Models being downloaded right now.
@@ -204,8 +235,9 @@ mod tests {
 
     #[test]
     fn english_models_pin_the_language() {
-        assert_eq!(language("base.en"), "en");
-        assert_eq!(language("large-v3-turbo-q5_0"), "auto");
+        assert_eq!(language("base.en", "fr"), "en");
+        assert_eq!(language("large-v3-turbo-q5_0", ""), "auto");
+        assert_eq!(language("large-v3-turbo-q5_0", "ur"), "ur");
     }
 
     #[test]

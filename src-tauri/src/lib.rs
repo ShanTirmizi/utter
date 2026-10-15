@@ -20,20 +20,20 @@ mod secrets;
 mod selection;
 mod settings;
 pub mod transcribe;
+mod tray;
+mod updates;
 mod words;
 
 use settings::Settings;
 use tauri::{
     AppHandle, Emitter, LogicalPosition, Manager, RunEvent, WindowEvent,
-    menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::TrayIconBuilder,
 };
 
 /// Size of the status pill window, matching `tauri.conf.json`.
-const PILL_SIZE: (f64, f64) = (400.0, 112.0);
+const PILL_SIZE: (f64, f64) = (360.0, 72.0);
 /// Gap between the pill's window and the bottom of the screen. The pill sits
 /// in the middle of its window, which puts it clear of the Dock.
-const PILL_BOTTOM_MARGIN: f64 = 76.0;
+const PILL_BOTTOM_MARGIN: f64 = 96.0;
 
 #[tauri::command]
 fn get_settings(app: AppHandle) -> Settings {
@@ -46,6 +46,7 @@ fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Settings, Str
     settings.dictionary = words::clean(&settings.dictionary);
     settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
     settings.suggested = screen::clean_suggestions(&settings.suggested, &settings.dictionary, &settings.forgotten);
+    settings.removed = words::clean_removed(&settings.removed, &settings.dictionary, words::now());
 
     // Check everything that can be checked before changing anything.
     hotkey::plan(&settings)?;
@@ -269,6 +270,12 @@ fn model_statuses(app: AppHandle) -> Vec<models::ModelStatus> {
 }
 
 /// Download a speech model; progress arrives on the `model-download` event.
+/// Stop the download of a model, if it is running.
+#[tauri::command]
+fn stop_download(name: String) {
+    models::stop(&name);
+}
+
 #[tauri::command]
 async fn download_model(app: AppHandle, name: String) -> Result<(), String> {
     models::download(&app, &name).await?;
@@ -289,13 +296,17 @@ fn history(app: AppHandle) -> Vec<pipeline::Dictation> {
 
 #[tauri::command]
 fn clear_history(app: AppHandle) -> Result<(), String> {
-    pipeline::clear_history(&app)
+    pipeline::clear_history(&app)?;
+    tray::refresh(&app);
+    Ok(())
 }
 
 /// Forget one past dictation, named by when it finished.
 #[tauri::command]
 fn forget_dictation(app: AppHandle, finished_at: u64) -> Result<(), String> {
-    pipeline::forget(&app, finished_at)
+    pipeline::forget(&app, finished_at)?;
+    tray::refresh(&app);
+    Ok(())
 }
 
 /// Add a word to the user's list, or teach a word already there what it may
@@ -335,30 +346,9 @@ fn fix_word(app: AppHandle, finished_at: u64, wrong: String, right: String, reme
     remember_word(&app, &right, heard, words::Source::Added).map(|(settings, _)| settings)
 }
 
-/// The menu-bar item that takes back the last learned word, and that word.
-struct LearnedUndo {
-    item: MenuItem<tauri::Wry>,
-    last: std::sync::Mutex<Option<learn::Learned>>,
-}
-
-const UNDO_IDLE: &str = "Undo Learned Word";
-
-/// Offer, in the menu bar, to take back a word Utter just learned.
-pub(crate) fn offer_undo(app: &AppHandle, learned: &learn::Learned) {
-    let Some(undo) = app.try_state::<LearnedUndo>() else { return };
-    *undo.last.lock().unwrap() = Some(learned.clone());
-    let label = if learned.new_word {
-        format!("Undo Learning “{}”", learned.word)
-    } else {
-        format!("Undo “{}” Heard as “{}”", learned.word, learned.heard)
-    };
-    let _ = undo.item.set_text(label);
-    let _ = undo.item.set_enabled(true);
-}
-
 /// Take back a learned word, or the mishearing learned for a word already
 /// there, and never learn it again.
-fn unlearn(app: &AppHandle, learned: &learn::Learned) -> Result<Settings, String> {
+pub(crate) fn unlearn(app: &AppHandle, learned: &learn::Learned) -> Result<Settings, String> {
     let mut settings = settings::load(app);
     let lower = learned.word.to_lowercase();
     if learned.new_word {
@@ -372,13 +362,8 @@ fn unlearn(app: &AppHandle, learned: &learn::Learned) -> Result<Settings, String
     }
     settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
     settings::save(app, &settings)?;
-    if let Some(undo) = app.try_state::<LearnedUndo>() {
-        let mut last = undo.last.lock().unwrap();
-        if last.as_ref().is_some_and(|l| l.word == learned.word && l.heard == learned.heard) {
-            *last = None;
-            let _ = undo.item.set_text(UNDO_IDLE);
-            let _ = undo.item.set_enabled(false);
-        }
+    if tray::learned(app).is_some_and(|l| l.word == learned.word && l.heard == learned.heard) {
+        tray::set_learned(app, None);
     }
     let _ = app.emit("unlearned", learned.clone());
     Ok(settings)
@@ -388,6 +373,24 @@ fn unlearn(app: &AppHandle, learned: &learn::Learned) -> Result<Settings, String
 #[tauri::command]
 fn undo_learned(app: AppHandle, learned: learn::Learned) -> Result<Settings, String> {
     unlearn(&app, &learned)
+}
+
+/// The window's status, for the menu bar's header and icon.
+#[tauri::command]
+fn set_tray_status(app: AppHandle, status: tray::Status) {
+    tray::set_status(&app, status);
+}
+
+/// What the last update check found.
+#[tauri::command]
+fn update_status(app: AppHandle) -> updates::UpdateStatus {
+    updates::status(&app)
+}
+
+/// Ask GitHub now whether a newer release is out.
+#[tauri::command]
+async fn check_for_updates(app: AppHandle) -> updates::UpdateStatus {
+    updates::check(&app).await
 }
 
 /// Put text on the clipboard, for the Copy buttons in the window.
@@ -531,7 +534,7 @@ fn simulate_from_env(app: &AppHandle) {
     });
 }
 
-fn show_main_window(app: &AppHandle) {
+pub(crate) fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
@@ -554,47 +557,6 @@ fn place_pill(app: &AppHandle) {
         let y = origin.y + size.height - PILL_SIZE.1 - PILL_BOTTOM_MARGIN;
         let _ = pill.set_position(LogicalPosition::new(x, y));
     }
-}
-
-/// Menu-bar item: reopen settings, recover the last dictation, add a word, quit.
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open Utter", true, None::<&str>)?;
-    let copy = MenuItem::with_id(app, "copy", "Copy Last Dictation", true, None::<&str>)?;
-    let add_word = MenuItem::with_id(app, "add-word", "Add a Word…", true, None::<&str>)?;
-    let undo = MenuItem::with_id(app, "undo-learned", UNDO_IDLE, false, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Utter", true, None::<&str>)?;
-    let menu = Menu::with_items(
-        app,
-        &[&open, &copy, &add_word, &undo, &PredefinedMenuItem::separator(app)?, &quit],
-    )?;
-    app.manage(LearnedUndo { item: undo, last: std::sync::Mutex::new(None) });
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
-    TrayIconBuilder::with_id("utter")
-        .icon(icon)
-        .icon_as_template(true)
-        .tooltip("Utter")
-        .menu(&menu)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => show_main_window(app),
-            "copy" => pipeline::copy_last(app),
-            // The window opens on the word list, ready to type into.
-            "add-word" => {
-                show_main_window(app);
-                let _ = app.emit("add-word", ());
-            }
-            "undo-learned" => {
-                let last = app.try_state::<LearnedUndo>().and_then(|u| u.last.lock().unwrap().clone());
-                if let Some(learned) = last {
-                    if let Err(e) = unlearn(app, &learned) {
-                        eprintln!("[utter] could not undo a learned word: {e}");
-                    }
-                }
-            }
-            "quit" => app.exit(0),
-            _ => {}
-        })
-        .build(app)?;
-    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -620,7 +582,9 @@ pub fn run() {
             #[cfg(debug_assertions)]
             simulate_from_env(app.handle());
             place_pill(app.handle());
-            build_tray(app.handle())?;
+            tray::build(app.handle())?;
+            app.manage(updates::Updates::default());
+            updates::start_daily(app.handle());
             let saved = settings::load(app.handle());
             hotkey::restore(app.handle(), &saved);
             Ok(())
@@ -654,6 +618,10 @@ pub fn run() {
             copy_text,
             fix_word,
             undo_learned,
+            stop_download,
+            set_tray_status,
+            update_status,
+            check_for_updates,
         ])
         // Closing the settings window hides it; Utter keeps running in the
         // menu bar so the hotkey stays available.
