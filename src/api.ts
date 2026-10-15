@@ -19,8 +19,10 @@ export type Settings = {
   rewritePrompt: string;
   /** Names and terms to be spelled exactly this way. */
   dictionary: Word[];
-  /** Removed words, lower case: never learned or suggested again. */
+  /** Removed words, lower case, and removed mishearings as "cloud→claude": never learned again. */
   forgotten: string[];
+  /** Learn a word when you correct it in what Utter just typed. */
+  learnWords: boolean;
   /** Keep past dictations on this Mac. */
   keepHistory: boolean;
   /** A quick tap starts a recording that runs until the next tap. */
@@ -148,6 +150,16 @@ export const forgetDictation = (finishedAt: number) => invoke<void>("forget_dict
  */
 export const fixWord = (finishedAt: number, wrong: string, right: string, remember: boolean) =>
   invoke<Settings>("fix_word", { finishedAt, wrong, right, remember });
+/** A word learned from a correction, sent on the "learned" event. */
+export type Learned = {
+  word: string;
+  /** What Utter had written, lower case. */
+  heard: string;
+  /** True for a new word; false for a new mishearing of a word already there. */
+  newWord: boolean;
+};
+/** Take back a learned word (or mishearing) and never learn it again. */
+export const undoLearned = (learned: Learned) => invoke<Settings>("undo_learned", { learned });
 /** Put text on the clipboard. */
 export const copyText = (text: string) => invoke<void>("copy_text", { text });
 

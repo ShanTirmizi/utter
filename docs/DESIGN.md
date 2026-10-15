@@ -371,6 +371,30 @@ model to decide from the sentence and the destination. On a 4B local model
 this put eight test sentences right, including leaving "the cloud bill" alone
 (`cargo test live_words -- --ignored`, against Ollama).
 
+### Learning from corrections
+
+After a paste, `learn::watch` takes the focused element through the
+Accessibility API (never a password field) and reads its value. If the pasted
+text is in it, the element is read again every 300 ms for up to a minute. The
+watch ends when the user has stopped changing it for four seconds, moved to
+another element, the text was sent or cleared (the last reading before that is
+used), or another dictation began. Only then is anything compared.
+
+The comparison squeezes white space, trims the common start and end, and
+lines up the remaining words. Each run of up to three of Utter's words that
+the user replaced with up to three others, inside the pasted text, is a
+candidate. It is learned only if the new text sounds like the old (shared
+Soundex key and half the spelling, or only spacing or case changed) and is a
+name or term: one of its words has odd capitals or digits, or is not an
+everyday word. Everyday means written in lower case in the system word list
+(`/usr/share/dict/words`, where names are capitalised), plus a short list of
+modern words that list lacks. At most three per dictation. Words and
+mishearings the user removed are on the forgotten list and are skipped.
+
+A learned word is announced in the pill (unless a dictation is showing), in
+the window, and as **Undo Learning** in the menu bar. The text of the box is
+never stored or logged; the log records only that a watch ended and why.
+
 ## History
 
 Finished dictations are appended to one JSON file in the app's data folder,

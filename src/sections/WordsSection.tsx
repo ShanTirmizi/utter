@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { Word } from "../api";
+import { undoLearned, type Learned, type Word } from "../api";
 import { useApp } from "../state";
+import { Switch } from "../ui";
 
 /** The most words the backend keeps. */
 const LIMIT = 200;
@@ -22,12 +23,17 @@ function heardForm(text: string): string {
     .toLowerCase();
 }
 
+/** How a removed mishearing is kept on the forgotten list, as the backend does. */
+function forgottenPair(heard: string, word: string): string {
+  return `${heardForm(heard)}→${word.trim().replace(/\s+/g, " ").toLowerCase()}`;
+}
+
 /**
  * The user's own words: names, products and jargon. The speech model is told
  * to listen for them, and cleanup puts right what it tends to hear instead.
  */
 export default function WordsSection() {
-  const { settings, update, addWordAsked, setTab } = useApp();
+  const { settings, update, adopt, addWordAsked, setTab, justLearned } = useApp();
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -76,8 +82,23 @@ export default function WordsSection() {
     );
   };
 
-  const setHeard = (word: Word, heardAs: string[]) =>
-    save(words.map((w) => (w === word ? { ...w, heardAs } : w)));
+  const setHeard = (word: Word, heardAs: string[]) => {
+    // A mishearing taken off is not learned back.
+    const dropped = word.heardAs.filter((h) => !heardAs.includes(h)).map((h) => forgottenPair(h, word.word));
+    save(
+      words.map((w) => (w === word ? { ...w, heardAs } : w)),
+      [...settings.forgotten, ...dropped],
+    );
+  };
+
+  const undo = (learned: Learned) =>
+    undoLearned(learned).then(
+      (saved) => {
+        adopt(saved);
+        setError(null);
+      },
+      (err) => setError(String(err)),
+    );
 
   const needle = query.trim().toLowerCase();
   const shown = needle
@@ -96,6 +117,33 @@ export default function WordsSection() {
         Names and jargon Utter should spell your way. Tell it what it writes by mistake, and it fixes that
         whenever the sentence is about your word.
       </p>
+
+      {justLearned.length > 0 && (
+        <div className="learnt" role="status">
+          {justLearned.map((l) => (
+            <div key={`${l.word}|${l.heard}`} className="learntrow">
+              <span className="learntmark" aria-hidden="true">
+                ✓
+              </span>
+              <span className="learnttext">
+                {l.newWord ? (
+                  <>
+                    Learned <b>{l.word}</b>
+                  </>
+                ) : (
+                  <>
+                    <b>{l.word}</b> can also be heard as
+                  </>
+                )}{" "}
+                {l.newWord ? "heard as" : ""} <span className="mono">“{l.heard}”</span>
+              </span>
+              <button className="btn sm" onClick={() => undo(l)}>
+                Undo
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="card stack">
         <div className="frow">
@@ -163,6 +211,28 @@ export default function WordsSection() {
             Not saved: {error}
           </p>
         )}
+      </div>
+
+      <div className="card stack">
+        <div className="cardhead">
+          <span className="label">Learn from my corrections</span>
+          <Switch
+            label="Learn from my corrections"
+            checked={settings.learnWords}
+            onChange={(learnWords) =>
+              update({ learnWords }).then(
+                () => setError(null),
+                (err) => setError(String(err)),
+              )
+            }
+          />
+        </div>
+        <p className="hint">
+          When you change a word Utter just typed into the name it misheard, say <span className="mono">cloud</span>{" "}
+          to <b>Claude</b>, Utter adds it here and tells you. It reads only the text box it typed into, for a
+          minute at most, and keeps nothing but the word. Typos, rewording and everyday words are ignored.
+          Some apps, such as Google Docs and terminals, do not let it read the box.
+        </p>
       </div>
 
       <p className="foot">

@@ -16,12 +16,13 @@
 //   ?cleanup=off      cleanup switched off
 //   ?empty            no last dictation and no history
 //   ?words            a few terms already in the dictionary
+//   ?learned          a word is learned from a correction shortly after loading
 //   ?selected         the rewrite hotkey edits a pretend selection
 //   ?fn               the fn key is the dictation hotkey
 //   ?fnconflict       and macOS also shows emoji when it is pressed
 //   ?fail=cleanup|test|download|hotkey   make that step fail
 //   ?fail=startup-hotkey   macOS refused the hotkey at launch
-//   ?pill=listen|handsfree|transcribe|tidy|rewrite|edit|note|note2|paste|blocked
+//   ?pill=listen|handsfree|transcribe|tidy|rewrite|edit|note|note2|paste|blocked|learned
 //                     hold the pill (open /#pill) in one state
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -59,6 +60,7 @@ let settings: Settings = {
       ]
     : [],
   forgotten: [],
+  learnWords: true,
   keepHistory: true,
   handsFree: true,
   quietGlobe: !query.has("fnconflict"),
@@ -382,11 +384,12 @@ function pinPill(state: string) {
     note2: () => pipeline({ phase: "done", dictation: dictation("Cleanup skipped: Anthropic rejected the API key (401).", true) }, "tidy"),
     paste: () => pipeline({ phase: "done", dictation: dictation("Copied to the clipboard (Accessibility is off). Press ⌘V to paste.", false) }, "tidy"),
     blocked: () => pipeline({ phase: "error", message: "Microphone access is off. Allow Utter in System Settings." }, "tidy"),
+    learned: () => send("learned", { word: "Claude", heard: "cloud", newWord: true }),
   };
   // Notes hide themselves, so show them again for as long as the page is open.
   const again = () => {
     play[state]?.();
-    if (["note", "note2", "paste", "blocked"].includes(state)) at(2400, again);
+    if (["note", "note2", "paste", "blocked", "learned"].includes(state)) at(2400, again);
   };
   at(300, again);
 }
@@ -480,6 +483,20 @@ export function installMock() {
           return;
         case "copy_text":
           return;
+        case "undo_learned": {
+          const learned = payload?.learned as { word: string; heard: string; newWord: boolean };
+          settings = {
+            ...settings,
+            dictionary: learned.newWord
+              ? settings.dictionary.filter((w) => w.word !== learned.word)
+              : settings.dictionary.map((w) =>
+                  w.word === learned.word ? { ...w, heardAs: w.heardAs.filter((h) => h !== learned.heard) } : w,
+                ),
+            forgotten: [...settings.forgotten, learned.newWord ? learned.word.toLowerCase() : `${learned.heard}→${learned.word.toLowerCase()}`],
+          };
+          send("unlearned", learned);
+          return settings;
+        }
         case "fix_word": {
           const { finishedAt, wrong, right, remember } = payload as { finishedAt: number; wrong: string; right: string; remember: boolean };
           const swap = (d: Dictation) =>
@@ -507,6 +524,17 @@ export function installMock() {
     },
     { shouldMockEvents: true },
   );
+
+  if (query.has("learned")) {
+    setTimeout(() => {
+      const learned = { word: "Anthropic", heard: "and tropic", newWord: true };
+      settings = {
+        ...settings,
+        dictionary: [{ word: "Anthropic", heardAs: ["and tropic"], source: "learned" }, ...settings.dictionary].map((w) => ({ addedAt: Date.now(), ...w })) as Settings["dictionary"],
+      };
+      send("learned", learned);
+    }, 600);
+  }
 
   const pinned = query.get("pill");
   if (pinned) pinPill(pinned);

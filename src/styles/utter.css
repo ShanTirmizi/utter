@@ -387,6 +387,11 @@ html.pill-window,html.pill-window body{background:transparent}
 .input.sm{height:28px;font-size:12.5px}
 .wh button:focus-visible,.wdel:focus-visible,.wadd:focus-visible{outline:none;box-shadow:0 0 0 2px var(--accent-fg);opacity:1}
 
+.learnt{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:12px;background:var(--ok-soft)}
+.learntrow{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink)}
+.learntmark{width:20px;height:20px;border-radius:50%;background:var(--ok);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex:none}
+.learnttext{flex:1;min-width:0}
+
 /* ---------- fixing a word in a dictation ---------- */
 .fixer{display:flex;flex-direction:column;gap:10px;min-width:0}
 .fixtext{margin:0}

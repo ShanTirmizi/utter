@@ -10,6 +10,7 @@ mod globe;
 mod history;
 mod hotkey;
 mod insert;
+mod learn;
 mod models;
 mod permissions;
 mod pipeline;
@@ -297,7 +298,7 @@ fn forget_dictation(app: AppHandle, finished_at: u64) -> Result<(), String> {
 
 /// Add a word to the user's list, or teach a word already there what it may
 /// be misheard as, and save. Returns the settings as saved.
-fn remember_word(
+pub(crate) fn remember_word(
     app: &AppHandle,
     word: &str,
     heard: Option<&str>,
@@ -329,6 +330,61 @@ fn fix_word(app: AppHandle, finished_at: u64, wrong: String, right: String, reme
     // A change of case alone is a spelling, not a mishearing.
     let heard = (wrong.trim().to_lowercase() != right.to_lowercase()).then_some(wrong.as_str());
     remember_word(&app, &right, heard, words::Source::Added).map(|(settings, _)| settings)
+}
+
+/// The menu-bar item that takes back the last learned word, and that word.
+struct LearnedUndo {
+    item: MenuItem<tauri::Wry>,
+    last: std::sync::Mutex<Option<learn::Learned>>,
+}
+
+const UNDO_IDLE: &str = "Undo Learned Word";
+
+/// Offer, in the menu bar, to take back a word Utter just learned.
+pub(crate) fn offer_undo(app: &AppHandle, learned: &learn::Learned) {
+    let Some(undo) = app.try_state::<LearnedUndo>() else { return };
+    *undo.last.lock().unwrap() = Some(learned.clone());
+    let label = if learned.new_word {
+        format!("Undo Learning “{}”", learned.word)
+    } else {
+        format!("Undo “{}” Heard as “{}”", learned.word, learned.heard)
+    };
+    let _ = undo.item.set_text(label);
+    let _ = undo.item.set_enabled(true);
+}
+
+/// Take back a learned word, or the mishearing learned for a word already
+/// there, and never learn it again.
+fn unlearn(app: &AppHandle, learned: &learn::Learned) -> Result<Settings, String> {
+    let mut settings = settings::load(app);
+    let lower = learned.word.to_lowercase();
+    if learned.new_word {
+        settings.dictionary.retain(|w| w.word.to_lowercase() != lower);
+        settings.forgotten.push(lower);
+    } else {
+        for word in settings.dictionary.iter_mut().filter(|w| w.word.to_lowercase() == lower) {
+            word.heard_as.retain(|h| *h != learned.heard);
+        }
+        settings.forgotten.push(words::forgotten_pair(&learned.heard, &learned.word));
+    }
+    settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
+    settings::save(app, &settings)?;
+    if let Some(undo) = app.try_state::<LearnedUndo>() {
+        let mut last = undo.last.lock().unwrap();
+        if last.as_ref().is_some_and(|l| l.word == learned.word && l.heard == learned.heard) {
+            *last = None;
+            let _ = undo.item.set_text(UNDO_IDLE);
+            let _ = undo.item.set_enabled(false);
+        }
+    }
+    let _ = app.emit("unlearned", learned.clone());
+    Ok(settings)
+}
+
+/// "Undo" on a word Utter just learned, from the window.
+#[tauri::command]
+fn undo_learned(app: AppHandle, learned: learn::Learned) -> Result<Settings, String> {
+    unlearn(&app, &learned)
 }
 
 /// Put text on the clipboard, for the Copy buttons in the window.
@@ -502,11 +558,13 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Utter", true, None::<&str>)?;
     let copy = MenuItem::with_id(app, "copy", "Copy Last Dictation", true, None::<&str>)?;
     let add_word = MenuItem::with_id(app, "add-word", "Add a Word…", true, None::<&str>)?;
+    let undo = MenuItem::with_id(app, "undo-learned", UNDO_IDLE, false, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Utter", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&open, &copy, &add_word, &PredefinedMenuItem::separator(app)?, &quit],
+        &[&open, &copy, &add_word, &undo, &PredefinedMenuItem::separator(app)?, &quit],
     )?;
+    app.manage(LearnedUndo { item: undo, last: std::sync::Mutex::new(None) });
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
     TrayIconBuilder::with_id("utter")
         .icon(icon)
@@ -520,6 +578,14 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "add-word" => {
                 show_main_window(app);
                 let _ = app.emit("add-word", ());
+            }
+            "undo-learned" => {
+                let last = app.try_state::<LearnedUndo>().and_then(|u| u.last.lock().unwrap().clone());
+                if let Some(learned) = last {
+                    if let Err(e) = unlearn(app, &learned) {
+                        eprintln!("[utter] could not undo a learned word: {e}");
+                    }
+                }
             }
             "quit" => app.exit(0),
             _ => {}
@@ -584,6 +650,7 @@ pub fn run() {
             forget_dictation,
             copy_text,
             fix_word,
+            undo_learned,
         ])
         // Closing the settings window hides it; Utter keeps running in the
         // menu bar so the hotkey stays available.

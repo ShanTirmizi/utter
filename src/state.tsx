@@ -19,6 +19,7 @@ import {
   type AudioLevel,
   type Dictation,
   type DownloadProgress,
+  type Learned,
   type Mode,
   type ModelStatus,
   type PermissionStatus,
@@ -90,6 +91,8 @@ export type AppState = {
   setTab: (tab: TabId) => void;
   /** Goes up each time "Add a Word…" is chosen from the menu bar. */
   addWordAsked: number;
+  /** Words learned from corrections since the window opened, newest first. */
+  justLearned: Learned[];
 };
 
 const IDLE: Live = { phase: "idle", mode: "tidy", handsFree: false, stage: null, app: null, message: null, since: 0 };
@@ -122,6 +125,7 @@ export function useAppState(): AppState | null {
   const [capturing, setCapturing] = useState<Mode | null>(null);
   const [tab, setTabNow] = useState<TabId>(firstTab);
   const [addWordAsked, setAddWordAsked] = useState(0);
+  const [justLearned, setJustLearned] = useState<Learned[]>([]);
   // Leaving a section abandons a hotkey recording begun there.
   const setTab = useCallback((next: TabId) => {
     setCapturing(null);
@@ -188,10 +192,28 @@ export function useAppState(): AppState | null {
       setTabNow("words");
       setAddWordAsked((n) => n + 1);
     });
+    // A word learned or taken back changed the saved settings behind the
+    // window's back; read them again.
+    const reload = () =>
+      getSettings().then((loaded) => {
+        latest.current = loaded;
+        setSettings(loaded);
+      });
+    const same = (a: Learned, b: Learned) => a.word === b.word && a.heard === b.heard;
+    const stopLearned = listen<Learned>("learned", ({ payload }) => {
+      reload();
+      setJustLearned((old) => [payload, ...old.filter((l) => !same(l, payload))].slice(0, 5));
+    });
+    const stopUnlearned = listen<Learned>("unlearned", ({ payload }) => {
+      reload();
+      setJustLearned((old) => old.filter((l) => !same(l, payload)));
+    });
     return () => {
       stopPipeline.then((unlisten) => unlisten());
       stopDownload.then((unlisten) => unlisten());
       stopAddWord.then((unlisten) => unlisten());
+      stopLearned.then((unlisten) => unlisten());
+      stopUnlearned.then((unlisten) => unlisten());
     };
   }, [refreshModels, refreshHistory]);
 
@@ -315,6 +337,7 @@ export function useAppState(): AppState | null {
     tab,
     setTab,
     addWordAsked,
+    justLearned,
   };
 }
 

@@ -889,6 +889,14 @@ async fn process(
         tidied.text = cleanup::paragraphs(&tidied.text);
     }
     let (inserted, delivery_note) = deliver(app, &tidied.text, delivery, true).await?;
+    // Watch for the user correcting a word of it, to learn from.
+    if inserted && delivery == Delivery::Paste {
+        let id = app.state::<Pipeline>().recording_id.load(Ordering::SeqCst);
+        let watcher = app.clone();
+        crate::learn::watch(app.clone(), tidied.text.clone(), move || {
+            watcher.state::<Pipeline>().recording_id.load(Ordering::SeqCst) == id
+        });
+    }
 
     Ok(Some(Dictation {
         text: tidied.text,

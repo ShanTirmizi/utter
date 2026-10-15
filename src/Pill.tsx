@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { PipelineUpdate } from "./api";
+import type { Learned, PipelineUpdate } from "./api";
 import { useElapsed, useLevels, useReducedMotion } from "./state";
 import { clock } from "./ui";
 
@@ -123,6 +123,10 @@ export default function Pill() {
   const titleRuler = useRef<HTMLSpanElement>(null);
   const detailRuler = useRef<HTMLSpanElement>(null);
 
+  // What is showing now, for events that must not interrupt a dictation.
+  const showing = useRef<View["kind"]>("hidden");
+  showing.current = view.kind;
+
   const reduced = useReducedMotion();
   const listening = view.kind === "listen";
   const levels = useLevels(listening, WAVE_BARS);
@@ -192,9 +196,22 @@ export default function Pill() {
       }
       before = payload.phase;
     });
+    // A word learned from a correction. Said only when nothing more
+    // important is showing; the window and the menu bar have it too.
+    const stopLearned = listen<Learned>("learned", ({ payload }) => {
+      if (showing.current === "listen" || showing.current === "work") return;
+      clearTimeout(timer);
+      setResting(false);
+      const title = payload.newWord ? `Learned “${payload.word}”` : `“${payload.word}” can sound like “${payload.heard}”`;
+      const detail = payload.newWord
+        ? `You corrected “${payload.heard}”. Undo it from the menu bar.`
+        : "Learned from your correction. Undo it from the menu bar.";
+      show({ whole: `${title}. ${detail}`, title, detail, split: true, problem: false });
+    });
     return () => {
       clearTimeout(timer);
       stop.then((unlisten) => unlisten());
+      stopLearned.then((unlisten) => unlisten());
     };
   }, []);
 

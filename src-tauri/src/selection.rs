@@ -6,7 +6,7 @@
 //! it, the way a person would.
 
 use core_foundation::{
-    base::{CFGetTypeID, CFRelease, CFTypeRef, TCFType},
+    base::{CFEqual, CFGetTypeID, CFRelease, CFTypeRef, TCFType},
     boolean::CFBoolean,
     string::{CFString, CFStringGetTypeID, CFStringRef},
     url::{CFURL, CFURLGetTypeID, CFURLRef},
@@ -173,6 +173,60 @@ pub fn focused_page() -> Page {
             }
         }
         page
+    }
+}
+
+/// The text box the cursor is in, held so it can be read again later. Used
+/// to notice a word the user corrects in what Utter just pasted. Lives on
+/// one thread: it is made, read and dropped there.
+pub struct Field(CFTypeRef);
+
+impl Field {
+    /// The focused element of the focused app, unless it is a password field.
+    pub fn focused() -> Option<Field> {
+        unsafe {
+            let system = AXUIElementCreateSystemWide();
+            if system.is_null() {
+                return None;
+            }
+            AXUIElementSetMessagingTimeout(system, TIMEOUT_SECONDS);
+            let focused = copy(system, "AXFocusedUIElement");
+            CFRelease(system);
+            if focused.is_null() {
+                return None;
+            }
+            AXUIElementSetMessagingTimeout(focused, TIMEOUT_SECONDS);
+            let field = Field(focused);
+            if text_of(copy(focused, "AXSubrole")).as_deref() == Some("AXSecureTextField") {
+                return None;
+            }
+            Some(field)
+        }
+    }
+
+    /// Everything the box holds, if it will say.
+    pub fn value(&self) -> Option<String> {
+        unsafe {
+            let value = copy(self.0, "AXValue");
+            if value.is_null() || CFGetTypeID(value) != CFStringGetTypeID() {
+                if !value.is_null() {
+                    CFRelease(value);
+                }
+                return None;
+            }
+            Some(CFString::wrap_under_create_rule(value as CFStringRef).to_string())
+        }
+    }
+
+    /// Is this the same box as `other`?
+    pub fn same_as(&self, other: &Field) -> bool {
+        unsafe { CFEqual(self.0, other.0) != 0 }
+    }
+}
+
+impl Drop for Field {
+    fn drop(&mut self) {
+        unsafe { CFRelease(self.0) };
     }
 }
 

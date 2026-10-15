@@ -276,6 +276,14 @@ entries; a handful of the ones you actually say works best.
   word that came out wrong. It is corrected there, and the right spelling and
   the mishearing are remembered. Click the next word too when one name was
   heard as two ("pre a" for Priya).
+- **Learning.** Change a word Utter just typed into the name it misheard
+  ("cloud" to Claude) and Utter adds it, with the mishearing, and says so in
+  the pill. **Undo Learning** in the menu bar, or Undo on the Words tab, takes
+  it back for good. Utter reads only the text box it pasted into, for at most
+  a minute after the paste, and keeps nothing but the word. Typo fixes,
+  rewording, deletions and everyday words are ignored. Apps that do not expose
+  their text (Google Docs, terminals) cannot be learned from; use Fix instead.
+  Switch it off on the Words tab.
 - **Add a Word…** in the menu bar opens the list ready to type into.
 - A word you remove is never learned or suggested again.
 

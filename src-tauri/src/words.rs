@@ -175,10 +175,23 @@ pub fn remember(words: &mut Vec<Word>, word: &str, heard: Option<&str>, source: 
     Remembered::Added
 }
 
+/// How a removed mishearing is kept on the forgotten list: "cloud→claude".
+pub fn forgotten_pair(heard: &str, word: &str) -> String {
+    format!("{}→{}", heard_form(heard), squeeze(word).to_lowercase())
+}
+
 /// Removed words, kept lower case so they are never learned or suggested
-/// again. A word the user adds back by hand is no longer forgotten.
+/// again, and removed mishearings as pairs (see `forgotten_pair`). A word or
+/// mishearing the user adds back by hand is no longer forgotten.
 pub fn clean_forgotten(forgotten: &[String], words: &[Word]) -> Vec<String> {
-    let kept: std::collections::HashSet<String> = words.iter().map(|w| w.word.to_lowercase()).collect();
+    let kept: std::collections::HashSet<String> = words
+        .iter()
+        .flat_map(|w| {
+            let mut kept = vec![w.word.to_lowercase()];
+            kept.extend(w.heard_as.iter().map(|h| forgotten_pair(h, &w.word)));
+            kept
+        })
+        .collect();
     let mut seen = std::collections::HashSet::new();
     let mut out: Vec<String> = forgotten
         .iter()
@@ -413,9 +426,10 @@ mod tests {
 
     #[test]
     fn forgotten_words_drop_out_when_added_back() {
-        let words = plain(&["Claude"]);
-        let forgotten = vec!["claude".to_string(), "Zed ".to_string(), "zed".to_string()];
-        assert_eq!(clean_forgotten(&forgotten, &words), ["zed"]);
+        let mut words = plain(&["Claude"]);
+        words[0].heard_as = vec!["clawed".into()];
+        let forgotten: Vec<String> = ["claude", "Zed ", "zed", "cloud→claude", "clawed→claude"].map(String::from).to_vec();
+        assert_eq!(clean_forgotten(&forgotten, &words), ["zed", "cloud→claude"]);
     }
 
     #[test]

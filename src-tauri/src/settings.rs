@@ -33,6 +33,8 @@ pub struct Settings {
     /// Words the user removed, lower case, so they are never learned or
     /// suggested again.
     pub forgotten: Vec<String>,
+    /// Learn a word when the user corrects it in what Utter just pasted.
+    pub learn_words: bool,
     /// Keep past dictations on this Mac so they can be found and copied again.
     pub keep_history: bool,
     /// A quick tap of a hotkey starts a recording that runs until the next
@@ -62,6 +64,7 @@ impl Default for Settings {
             rewrite_prompt: String::new(),
             dictionary: Vec::new(),
             forgotten: Vec::new(),
+            learn_words: true,
             keep_history: true,
             hands_free: true,
             quiet_globe: true,
