@@ -41,6 +41,8 @@ export type Settings = {
   removed: Removed[];
   /** Ask GitHub once a day for a newer release. Off by default. */
   checkUpdates: boolean;
+  /** Follow the Mac's appearance, or fix it to light or dark. */
+  appearance: "system" | "light" | "dark";
   onboarded: boolean;
 };
 

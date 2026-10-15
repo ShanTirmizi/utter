@@ -83,6 +83,9 @@ fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Settings, Str
     if settings.model != previous.model {
         pipeline::preload_model(&app);
     }
+    if settings.appearance != previous.appearance {
+        apply_appearance(&app, &settings.appearance);
+    }
     // Switching the globe-key option takes effect now, not at the next
     // launch. (A hotkey change already did this while registering.)
     if settings.quiet_globe != previous.quiet_globe && !hotkeys_changed {
@@ -541,6 +544,19 @@ pub(crate) fn show_main_window(app: &AppHandle) {
     }
 }
 
+/// Fix every window to light or dark, or let them follow the Mac again. The
+/// pages follow along: their `prefers-color-scheme` tracks the window's.
+fn apply_appearance(app: &AppHandle, appearance: &str) {
+    let theme = match appearance {
+        "light" => Some(tauri::Theme::Light),
+        "dark" => Some(tauri::Theme::Dark),
+        _ => None,
+    };
+    for window in app.webview_windows().values() {
+        let _ = window.set_theme(theme);
+    }
+}
+
 /// The status pill is a small always-on-top window at the bottom centre of
 /// the screen. It never takes clicks or focus, so it cannot steal the cursor
 /// from the app being dictated into.
@@ -587,6 +603,7 @@ pub fn run() {
             updates::start_daily(app.handle());
             let saved = settings::load(app.handle());
             hotkey::restore(app.handle(), &saved);
+            apply_appearance(app.handle(), &saved.appearance);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { checkForUpdates } from "../api";
 import { useApp } from "../state";
-import { IconOut, Logo, Notice, Switch, when } from "../ui";
+import { IconOut, Logo, Notice, Segmented, Switch, when } from "../ui";
 
 const REPO = "https://github.com/ShanTirmizi/utter";
 
@@ -37,6 +37,25 @@ export default function AboutSection() {
           <p className="qp" style={{ marginTop: 4 }}>
             Version {version}, beta
           </p>
+        </div>
+      </div>
+
+      <div className="qcard">
+        <div className="qsw" style={{ padding: 0 }}>
+          <div className="tx">
+            <b>Appearance</b>
+            <span>System follows your Mac. Light or Dark keeps Utter that way.</span>
+          </div>
+          <Segmented
+            label="Appearance"
+            value={settings.appearance}
+            onChange={(appearance) => app.update({ appearance }).catch(() => undefined)}
+            options={[
+              { id: "system", label: "System" },
+              { id: "light", label: "Light" },
+              { id: "dark", label: "Dark" },
+            ]}
+          />
         </div>
       </div>
 

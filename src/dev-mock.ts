@@ -88,6 +88,7 @@ let settings: Settings = {
       ]
     : [],
   checkUpdates: false,
+  appearance: "system",
   onboarded: !query.has("welcome"),
 };
 const keys = new Set<string>(query.has("key") ? ["anthropic"] : []);

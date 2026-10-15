@@ -22,7 +22,8 @@ async function start() {
     : window.location.hash === "#pill";
   document.documentElement.classList.add(isPill ? "pill-window" : "main-window");
 
-  // Quiet in light, Graphite in dark, following the system appearance.
+  // Quiet in light, Graphite in dark. The page's colour scheme follows its
+  // window, which follows the Mac unless Appearance in About fixes it.
   const dark = window.matchMedia("(prefers-color-scheme: dark)");
   const follow = () => {
     document.documentElement.classList.toggle("q-dark", dark.matches);

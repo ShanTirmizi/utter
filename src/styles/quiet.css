@@ -1,6 +1,6 @@
 /* Utter, Quiet. Light = Quiet, dark = Graphite. Ported from the design handoff
    (quiet.css) close to verbatim; app-only rules are at the end. The root element
-   carries .q-light or .q-dark, following the system appearance. */
+   carries .q-light or .q-dark, following the window's appearance. */
 *{box-sizing:border-box}
 body{margin:0;-webkit-font-smoothing:antialiased}
 button,input,textarea{font:inherit;color:inherit}

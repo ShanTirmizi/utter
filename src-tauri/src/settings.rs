@@ -59,6 +59,8 @@ pub struct Settings {
     /// Ask GitHub once a day whether a newer release is out. Off unless the
     /// user turns it on: it is a network request.
     pub check_updates: bool,
+    /// "system" follows the Mac's appearance; "light" or "dark" fixes it.
+    pub appearance: String,
     /// Set once the first-run permissions screen has been completed.
     pub onboarded: bool,
 }
@@ -86,6 +88,7 @@ impl Default for Settings {
             language: String::new(),
             removed: Vec::new(),
             check_updates: false,
+            appearance: "system".into(),
             onboarded: false,
         }
     }
