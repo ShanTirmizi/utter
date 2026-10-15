@@ -2219,6 +2219,12 @@ html:not(.js) .js-only {
 .tile:hover {
   transform: translateY(-2px);
 }
+.tile .lg {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 14px;
+  color: var(--ink);
+}
 .tile b {
   display: block;
   font-size: 15px;

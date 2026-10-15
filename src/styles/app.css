@@ -69,6 +69,9 @@ button{cursor:default}
 .qdiff-legend ins{text-decoration:none;color:var(--mi-fg)}
 .qsaid .br{display:block;height:8px}
 
+/* provider marks in the cleanup tiles */
+.qpv .lg{width:18px;height:18px;margin-bottom:8px;color:var(--ink);flex:none}
+
 /* the practice box is a real text area */
 .qprac textarea{display:block;width:100%;min-height:88px;padding:14px 16px;border:0;background:none;resize:none;font:400 15px/23px var(--qf);color:var(--ink);outline:none}
 .qprac textarea::placeholder{color:var(--light)}

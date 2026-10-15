@@ -478,3 +478,5 @@ see [CONTRIBUTING.md](CONTRIBUTING.md); for security problems,
 [MIT](LICENSE)
 
 The app and the download page use the system font; no typefaces are bundled.
+The provider marks come from [@lobehub/icons-static-svg](https://github.com/lobehub/lobe-icons)
+(MIT) and are shown in one colour; they are trademarks of their owners.

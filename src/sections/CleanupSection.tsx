@@ -12,6 +12,7 @@ import {
   type RewriteStyle,
 } from "../api";
 import { hotkeyLabel } from "../hotkey";
+import { ProviderMark } from "../providerMarks";
 import { cleanupGap } from "../readiness";
 import { shortName, useApp } from "../state";
 import { IconOut, IconTick, Notice, seconds, Switch, type Tone } from "../ui";
@@ -233,6 +234,7 @@ export default function CleanupSection() {
               disabled={!inUse}
               onClick={() => p.id !== provider.id && update({ provider: p.id, cleanupModel: "" }).catch(() => undefined)}
             >
+              <ProviderMark id={p.id} />
               <b>{shortName(p.label)}</b>
               <span>{providerNote(p)}</span>
             </button>
