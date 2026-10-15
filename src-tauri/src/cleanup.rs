@@ -1015,6 +1015,26 @@ mod openai {
         })
     }
 
+    /// Settings for models that reason before answering, where the provider
+    /// is known to take them. Reasoning only adds delay to light editing, and
+    /// it must never end up in the text. Groq's GPT-OSS models put their
+    /// reasoning in a field of its own; its Qwen 3 models put it in the
+    /// answer unless told otherwise. Other providers get nothing extra,
+    /// because some reject settings they do not know.
+    pub(super) fn reasoning_settings(base_url: &str, model: &str) -> Option<Value> {
+        let groq = base_url.starts_with("https://api.groq.com/");
+        if !groq {
+            return None;
+        }
+        if model.starts_with("openai/gpt-oss") {
+            Some(json!({ "reasoning_effort": "low", "include_reasoning": false }))
+        } else if model.contains("qwen3") {
+            Some(json!({ "reasoning_effort": "none", "reasoning_format": "hidden" }))
+        } else {
+            None
+        }
+    }
+
     #[derive(Deserialize)]
     pub(super) struct Reply {
         #[serde(default)]
@@ -1043,7 +1063,19 @@ mod openai {
             Some("content_filter") => return Err("The model declined this text.".into()),
             _ => {}
         }
-        Ok(choice.message.content.unwrap_or_default())
+        Ok(without_thinking(&choice.message.content.unwrap_or_default()))
+    }
+
+    /// Some models write their reasoning into the answer between think
+    /// tags. Only what comes after it is the reply.
+    pub(super) fn without_thinking(content: &str) -> String {
+        let trimmed = content.trim_start();
+        if trimmed.starts_with("<think>") {
+            if let Some(end) = trimmed.find("</think>") {
+                return trimmed[end + "</think>".len()..].trim().to_string();
+            }
+        }
+        content.to_string()
     }
 
     pub(super) async fn ask(
@@ -1052,10 +1084,16 @@ mod openai {
         endpoint: &Endpoint,
         timeout: Duration,
     ) -> Result<String, String> {
+        let mut body = request_body(user, system, &endpoint.model);
+        if let (Some(extra), Some(fields)) = (reasoning_settings(&endpoint.base_url, &endpoint.model), body.as_object_mut()) {
+            if let Some(extra) = extra.as_object() {
+                fields.extend(extra.clone());
+            }
+        }
         let request = reqwest::Client::new()
             .post(format!("{}/chat/completions", endpoint.base_url))
             .timeout(timeout)
-            .json(&request_body(user, system, &endpoint.model));
+            .json(&body);
         let body = send(authorise(request, endpoint)).await?;
         let reply: Reply =
             serde_json::from_str(&body).map_err(|_| "Could not understand the reply.".to_string())?;
@@ -1350,6 +1388,22 @@ on Monday. Thanks. Talk soon.";
         assert_eq!(keys, ["messages", "model"]);
         assert_eq!(body["messages"][0]["role"], "system");
         assert!(body["messages"][1]["content"].as_str().unwrap().contains("um hello"));
+    }
+
+    #[test]
+    fn reasoning_models_on_groq_are_told_to_keep_it_short_and_out_of_the_text() {
+        let groq = "https://api.groq.com/openai/v1";
+        let oss = openai::reasoning_settings(groq, "openai/gpt-oss-20b").unwrap();
+        assert_eq!(oss["reasoning_effort"], "low");
+        assert_eq!(oss["include_reasoning"], false);
+        let qwen = openai::reasoning_settings(groq, "qwen/qwen3.8-27b").unwrap();
+        assert_eq!(qwen["reasoning_format"], "hidden");
+        assert!(openai::reasoning_settings(groq, "llama-3.1-8b-instant").is_none());
+        // Elsewhere nothing is added: some providers reject unknown settings.
+        assert!(openai::reasoning_settings("https://api.openai.com/v1", "openai/gpt-oss-20b").is_none());
+        // Reasoning written into the answer is taken out.
+        assert_eq!(openai::without_thinking("<think>\nhmm, tidy it\n</think>\n\nHello there."), "Hello there.");
+        assert_eq!(openai::without_thinking("Hello there."), "Hello there.");
     }
 
     #[test]

@@ -206,6 +206,16 @@ is asked to stay loaded for an hour.
 `UTTER_SIMULATE_LIVE=1` replays a simulated recording as if it were arriving
 live, to compare against transcribing it whole.
 
+### Models that reason first
+
+Some hosted models think before answering (Groq's GPT-OSS and Qwen 3 models,
+for example). For light editing that only adds delay, and the thinking must
+never reach the text. Where the provider is known to accept it (Groq), Utter
+asks for low or no reasoning effort and for the reasoning to be left out of
+the reply. Elsewhere it sends only the standard fields, because some providers
+reject settings they do not know. Any reasoning that still arrives inside
+`<think>` tags is cut off before the reply is checked.
+
 ### Local models
 
 With Ollama, Utter asks the server to load the model as soon as the key goes
