@@ -32,3 +32,6 @@ pnpm-debug.log*
 
 # Vercel project link for the download site
 .vercel
+
+# Release builds
+dist-release

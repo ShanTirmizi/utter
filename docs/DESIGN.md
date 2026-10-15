@@ -400,18 +400,16 @@ at a glance: is Utter ready, and if not, what is the one thing to do?
 
 ## Distribution
 
-Utter is not signed with an Apple Developer ID, so:
+Releases are signed with a Developer ID (hardened runtime, secure timestamp)
+and, when the maintainer's notarisation credentials are present, notarised and
+stapled; `scripts/release.sh` does all of it and reads the identity and the
+notary profile from the environment, so neither is in the repository. A
+Developer ID signature has a stable designated requirement (bundle id plus
+team), so macOS keeps the Microphone and Accessibility grants across updates;
+ad-hoc builds lose them on every rebuild, which is why the permissions list
+has a "Reset it" link that clears the stale entry and asks again.
 
-- Gatekeeper blocks a downloaded copy until the user allows it by hand.
-- The Accessibility grant is tied to the signature and must be re-granted after
-  each update. System Settings keeps showing the old switch as on, which is
-  confusing, so the permissions list has a "Reset it" link that clears the stale
-  entry and asks again.
-
-Building from source avoids the first problem entirely, so that is the
-recommended install route for now. An unsigned release can be offered alongside
-it with clear instructions. A Developer ID with notarisation is what would make
-a download work on the first double-click and keep permissions across updates.
+A local build is never quarantined, so it opens without Gatekeeper asking.
 
 ## Not in this version
 

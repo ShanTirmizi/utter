@@ -1,0 +1,54 @@
+name: Something isn't working
+description: Utter did something wrong, or nothing at all.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please don't paste API keys or anything you dictated that is private.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what Utter did instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Utter version
+      description: Shown in the release you downloaded, or in Finder under Get Info.
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac and macOS
+      placeholder: "MacBook Pro M1 Pro, macOS 26.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: hotkey
+    attributes:
+      label: Hotkey
+      options:
+        - fn (globe) key
+        - A key combination
+        - Not about the hotkey
+  - type: input
+    id: cleanup
+    attributes:
+      label: Cleanup provider and model
+      placeholder: "Groq, openai/gpt-oss-20b  /  Ollama, gemma3:4b  /  off"
+  - type: input
+    id: app
+    attributes:
+      label: App you were dictating into
+      placeholder: "Slack, Gmail in Chrome, VS Code…"
+  - type: textarea
+    id: log
+    attributes:
+      label: fn key log (only for fn key problems)
+      description: The last 20 lines of ~/Library/Logs/Utter/fn-key.log. It records only fn presses, never other keys or text.
+      render: text

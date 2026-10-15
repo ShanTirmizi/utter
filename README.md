@@ -1,7 +1,39 @@
 # Utter
 
-Free, open-source voice dictation for macOS. Hold a hotkey, speak, release, and
-cleaned-up text appears in whatever app is focused.
+**Free, open-source voice dictation for macOS.** Hold a key, speak, let go, and
+clean, well-formatted text appears in whatever app you are typing in.
+
+**Beta.** [Download for Mac](https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg)
+(Apple Silicon, macOS 12+) · [Website](https://utter-beta.vercel.app) ·
+[Report a problem](https://github.com/ShanTirmizi/utter/issues/new/choose)
+
+<p align="center">
+  <img src="docs/images/demo.gif" alt="A dictation into Slack: the spoken words with ums and repeats, then the tidied message typed into the box" width="640" />
+</p>
+
+Why another dictation app:
+
+- **Tiny and native.** A 4.5 MB download, written in Rust and Tauri. No
+  Electron, no account, no analytics.
+- **Your speech never leaves your Mac.** Transcription runs on the GPU with
+  whisper.cpp, and starts while you are still talking, so long dictations go
+  in a moment after you let go.
+- **Writes for where you are.** It knows the app, and in a browser the site:
+  Gmail gets an email, Slack a casual message, Claude or ChatGPT a clear prompt.
+- **Your model, or none.** Tidy with Groq, Anthropic, OpenAI, Gemini,
+  OpenRouter or a local model through Ollama, with your own key. Or skip it.
+
+<p align="center">
+  <img src="docs/images/try-it.png" alt="The Try it tab: the last dictation with its changes marked, and recent history" width="280" />
+  <img src="docs/images/hotkey.png" alt="The Hotkey tab with the fn key chosen" width="280" />
+  <img src="docs/images/cleanup.png" alt="The Cleanup tab with the providers to choose from" width="280" />
+</p>
+<p align="center">
+  <img src="docs/images/pill-listening.png" alt="The status pill while listening" width="260" />
+  <img src="docs/images/pill-tidying.png" alt="The status pill while tidying for Mail" width="260" />
+</p>
+
+Everything it does:
 
 - **Runs on your Mac.** Speech is transcribed locally with
   [whisper.cpp](https://github.com/ggml-org/whisper.cpp). Audio never leaves the machine.
@@ -62,18 +94,14 @@ flowchart LR
 ### Download
 
 Get the app from **<https://utter-beta.vercel.app>**, or straight from the
-[latest release](https://github.com/ShanTirmizi/utter/releases). It is an early
-build for Apple Silicon Macs (M1 or later) on macOS 12 or later.
+[latest release](https://github.com/ShanTirmizi/utter/releases). It is a beta
+for Apple Silicon Macs (M1 or later) on macOS 12 or later.
 
 1. Open the DMG and drag Utter into Applications.
-2. Open Utter. macOS refuses the first time, because the app is not signed with
-   an Apple Developer ID. Go to System Settings > Privacy & Security and click
-   **Open Anyway**, or run
-   `xattr -dr com.apple.quarantine /Applications/Utter.app` once.
+2. Open Utter. Releases are signed with a Developer ID; once a release is also
+   notarised by Apple it simply opens. If macOS says it cannot check the app,
+   go to System Settings > Privacy & Security and click **Open Anyway**.
 3. Follow the welcome screens.
-
-See "Why macOS objects to the download" below for what the missing signature
-means.
 
 ### Build it yourself
 
@@ -99,21 +127,21 @@ pnpm tauri build
 The app is written to `src-tauri/target/release/bundle/macos/Utter.app`. Drag it
 into `/Applications` and open it.
 
-### Why macOS objects to the download
+### Signing, and why it matters
 
-Apps distributed outside the App Store are expected to be signed with a paid
-Apple Developer ID and notarised by Apple. Utter has neither yet, which has two
-consequences:
+macOS ties the Microphone and Accessibility permissions to the app's signature,
+and Gatekeeper checks downloads for Apple's notarisation.
 
-- **A downloaded copy is blocked by Gatekeeper.** macOS marks downloaded files
-  as quarantined and refuses to open an un-notarised app. You can allow it under
-  System Settings > Privacy & Security > Open Anyway, or clear the mark with
-  `xattr -dr com.apple.quarantine /Applications/Utter.app`. An app you build
-  yourself is never quarantined, so none of this applies.
-- **Permissions do not survive updates.** macOS ties the Microphone and
-  Accessibility grants to the app's signature. Without a Developer ID, every new
-  build counts as a different app, so after updating you allow the microphone
-  again and use **Reset it** under Permissions for Accessibility.
+- **Releases** are signed with a Developer ID, so permissions survive updates.
+  The release notes say whether that release is notarised too; if it is not,
+  approve the first launch under System Settings > Privacy & Security >
+  **Open Anyway**.
+- **Your own build** is signed ad hoc. It is never quarantined, so it opens
+  straight away, but each rebuild counts as a new app: allow the microphone
+  again and use **Reset it** under Permissions for Accessibility. Set
+  `APPLE_SIGNING_IDENTITY` to a signing certificate of your own to avoid that.
+- **Maintainers** make a release with `scripts/release.sh`, which signs, packages
+  and notarises; see the comments at its top.
 
 ## First run
 
@@ -263,8 +291,8 @@ You can change these under System Settings > Privacy & Security.
 **If Accessibility is switched on but Utter still says it is not allowed:**
 macOS is matching the switch to an older build of the app. In Utter, under
 **Permissions**, click **Reset it**, then switch Utter on again in System
-Settings. This happens after every rebuild or update, for the reason given
-under "Why macOS objects to the download".
+Settings. This happens after every rebuild of an ad-hoc signed build, for the
+reason given under "Signing, and why it matters".
 
 ## What leaves your Mac
 
@@ -397,6 +425,13 @@ dictation. `/#pill` shows the status pill and `?welcome` the first run; the
 notes at the top of `dev-mock.ts` list the other switches.
 
 More on the design choices is in [docs/DESIGN.md](docs/DESIGN.md).
+
+## Contributing
+
+Bug reports and ideas are welcome through the
+[issue forms](https://github.com/ShanTirmizi/utter/issues/new/choose). For code,
+see [CONTRIBUTING.md](CONTRIBUTING.md); for security problems,
+[SECURITY.md](SECURITY.md).
 
 ## Licence
 

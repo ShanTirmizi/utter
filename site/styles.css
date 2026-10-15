@@ -2670,3 +2670,15 @@ html:not(.js) .copy {
 .lost .cta {
   margin-top: 30px;
 }
+
+/* The "Beta" tag beside the version under the download button. */
+.beta {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-fg);
+  font: 600 12px/1.6 var(--font-ui);
+  vertical-align: 1px;
+}
