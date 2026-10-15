@@ -42,6 +42,20 @@ impl Transcriber {
         Ok(())
     }
 
+    /// Let go of the model, and the GPU memory it holds. Called on the way
+    /// out: whisper.cpp's Metal backend aborts the process at exit if a model
+    /// is still loaded then, which macOS reports as a crash. Waits up to two
+    /// seconds for a transcription in progress rather than hanging the quit.
+    pub fn unload(&self) {
+        for _ in 0..40 {
+            if let Ok(mut loaded) = self.loaded.try_lock() {
+                *loaded = None;
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
     /// Turn mono 16 kHz audio into text. `language` is a code such as "en",
     /// or "auto" to detect it.
     pub fn transcribe(&self, samples: &[f32], language: &str) -> Result<String, String> {

@@ -195,6 +195,13 @@ impl Pipeline {
     }
 }
 
+/// Free the speech model before the app exits (see `Transcriber::unload`).
+pub fn unload_model(app: &AppHandle) {
+    if let Some(pipeline) = app.try_state::<Pipeline>() {
+        pipeline.transcriber.unload();
+    }
+}
+
 /// Read the history file into memory at launch. The newest entry also
 /// becomes "the last dictation", so it can still be copied after a restart.
 pub fn load_history(app: &AppHandle) {

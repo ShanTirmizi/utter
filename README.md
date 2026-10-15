@@ -24,9 +24,12 @@ Why another dictation app:
   OpenRouter or a local model through Ollama, with your own key. Or skip it.
 
 <p align="center">
-  <img src="docs/images/try-it.png" alt="The Try it tab: the last dictation with its changes marked, and recent history" width="280" />
-  <img src="docs/images/hotkey.png" alt="The Hotkey tab with the fn key chosen" width="280" />
-  <img src="docs/images/cleanup.png" alt="The Cleanup tab with the providers to choose from" width="280" />
+  <img src="docs/images/try-it.png" alt="Try it: the practice box, the last dictation with its changes marked, and how long it took" width="400" />
+  <img src="docs/images/words.png" alt="Your words: names with what Utter hears instead, and suggestions from the screen" width="400" />
+</p>
+<p align="center">
+  <img src="docs/images/hotkey.png" alt="Hotkey, with the fn key chosen" width="400" />
+  <img src="docs/images/cleanup.png" alt="Cleanup, with the providers to choose from" width="400" />
 </p>
 <p align="center">
   <img src="docs/images/pill-listening.png" alt="The status pill while listening" width="260" />
@@ -147,15 +150,21 @@ Utter opens with a four-step welcome that takes about a minute:
 1. **Hello.** Pressing "Get started" also starts downloading the Base speech
    model (148 MB), so it is usually ready by step 3.
 2. **Permissions.** Allow the microphone; Accessibility is optional (see below).
-3. **Speech model.** Keep Base, or pick a larger one.
+3. **Speech model.** Keep Base, or pick a larger one. Large understands
+   languages other than English; under **Speech model** you can tell it which
+   one you speak, or leave it to detect.
 4. **Try it.** Hold `⌃ ⌥ Space`, say a sentence, and let go.
 
-After that, the window has five tabs: Try it, Hotkey, Model, Cleanup and
-Permissions. The capsule in the title bar always says whether Utter is ready,
-and if it is not, clicking it opens the tab that fixes it.
+After that, the window has a sidebar: Try it, Words, then Settings (Hotkey,
+Speech model, Cleanup, Permissions), and About at the foot. The status card
+above About always says whether Utter is ready; if it is not, it names the one
+problem, the section that fixes it carries a `!`, and clicking the card opens
+it. The window follows the system appearance, light or dark.
 
-Closing the window keeps Utter running in the menu bar. Quit from the menu-bar
-icon.
+Closing the window keeps Utter running in the menu bar. The menu bar icon
+moves while Utter listens or works and shows a dot when it needs you. Its menu
+starts with the same status, then Open Utter, Copy Last Dictation, Fix Last
+Word…, Add a Word…, Undo Learning, About Utter, Check for Updates… and Quit.
 
 ## Set up cleanup (optional)
 
@@ -291,7 +300,9 @@ entries; a handful of the ones you actually say works best.
   is offered under **Suggested from your screen**; nothing is added without
   you. Switch it off on the Words tab.
 - **Add a Word…** in the menu bar opens the list ready to type into.
-- A word you remove is never learned or suggested again.
+- A word you remove is never learned or suggested again, and stays under
+  **Removed recently** for 30 days with its mishearings, in case you want it
+  back.
 
 ## History
 
@@ -323,11 +334,15 @@ reason given under "Signing, and why it matters".
 
 - **Audio:** never.
 - **Text:** only when cleanup is set up. Then the transcript, the name of the
-  app (or, in a browser, the site) and your word list are sent to the provider you chose. When you
+  app (or, in a browser, the site), your word list and any names read from
+  the window in front are sent to the provider you chose. When you
   edit selected text, that text is sent too. With Ollama, all of it stays on
   your Mac.
 - **History:** never. It is a file on your Mac.
 - **Speech models:** downloaded once from Hugging Face, on request.
+- **Update check:** only when you press **Check for updates** in About, or
+  once a day if you switch on **Check automatically** (off by default). It is
+  one request to GitHub for the latest release and sends nothing about you.
 - Utter has no account, no analytics and no telemetry.
 
 ## Speed
@@ -437,12 +452,12 @@ The interface is React and hand-written CSS, in `src`:
 | --- | --- |
 | `api.ts` | Typed wrappers around the Rust commands and events |
 | `state.tsx`, `readiness.ts` | What the window knows, and whether Utter is ready |
-| `App.tsx` | Title bar, tabs, and the first-run switch |
+| `App.tsx` | The sidebar, status card, and the first-run switch |
 | `Welcome.tsx` | The first-run flow |
-| `sections/` | One file per tab |
+| `sections/` | One file per section |
 | `Pill.tsx` | The status pill |
 | `ui.tsx` | Icons, keycaps, switches and other small parts |
-| `styles/` | Design tokens and component styles |
+| `styles/` | `quiet.css` (tokens for light and dark, and components) and `app.css` |
 | `dev-mock.ts` | The pretend backend for `pnpm dev` |
 
 With `pnpm dev`, open `http://localhost:1420` and hold `⌃ ⌥ Space` to play a
@@ -462,6 +477,6 @@ see [CONTRIBUTING.md](CONTRIBUTING.md); for security problems,
 
 [MIT](LICENSE)
 
-The typefaces in `src/assets/fonts` (Bricolage Grotesque, Instrument Sans and
-Geist Mono) are under the SIL Open Font License; each licence sits beside its
-font file.
+The app uses the macOS system font; nothing is bundled. The download page's
+typefaces in `site/fonts` are under the SIL Open Font License; each licence
+sits beside its font file.

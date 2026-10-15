@@ -638,8 +638,12 @@ pub fn run() {
         .run(|app, event| match event {
             // Clicking the Dock icon brings the settings window back.
             RunEvent::Reopen { .. } => show_main_window(app),
-            // Give the user's own globe-key setting back on the way out.
-            RunEvent::Exit => globe::release(app),
+            // Give the user's own globe-key setting back on the way out, and
+            // free the speech model so whisper.cpp does not abort at exit.
+            RunEvent::Exit => {
+                globe::release(app);
+                pipeline::unload_model(app);
+            }
             _ => {}
         });
 }

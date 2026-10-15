@@ -432,35 +432,58 @@ Most of the time the only thing on screen is the status pill, so it gets the
 most care. The settings window is opened rarely and should answer one question
 at a glance: is Utter ready, and if not, what is the one thing to do?
 
-- **The pill is one shape.** It changes width, height and corner radius between
-  listening, working, a note and a problem, and its contents crossfade inside.
-  The eye never loses it. The orange badge is the logo's glyph (two bars, a U, two bars): its five parts
-  bounce with your voice, travel while working and lie flat for a note.
+The look is "Quiet" in light and "Graphite" in dark, from a design handoff.
+Tokens are custom properties on `.q-light` and `.q-dark` in
+`src/styles/quiet.css`; the root element carries one or the other, following
+the system appearance. `app.css` holds what the real windows add (scrolling,
+the folded sidebar, menus, the pill window).
+
+- **One big value per card.** Each card leads with the thing it measures:
+  Ready, 0.91 s, Base, Allowed. Everything else supports it.
+- **Colour means status.** Mint is good, peach needs you, red only when
+  dictation can't happen (no microphone, a broken hotkey). Nothing else is
+  coloured, so a coloured thing always matters. At most one filled button per
+  screen: the next thing to do.
+- **Readiness has a fixed order.** The status card at the foot of the sidebar
+  shows the first of: something under way (listening, working, recording a
+  hotkey), microphone not allowed, hotkey not working, model downloading,
+  model missing, cleanup unable to run, Accessibility off, ready. Clicking it
+  opens the section that fixes it, which carries a `!` badge. The same words go
+  to the menu bar (`set_tray_status`), whose icon moves while listening or
+  working and carries a dot when something needs the user.
+- **The pill never takes focus.** Its window is transparent, always on top and
+  ignores the mouse, so it carries state only. Success is silent.
 - **The waveform is real.** While recording, the backend sends the microphone
   level about twenty times a second (`audio-level`, 0 to 1 for -60 dB to
-  -12 dB). The pill keeps the last 26 readings, rising fast and falling slower
-  so speech looks lively without flickering.
-- **The pill never takes focus.** Its window is transparent, always on top and
-  ignores the mouse, so it carries state only, never controls.
-- **Readiness has a fixed order.** The title-bar capsule shows the first of:
-  microphone not allowed, speech model missing, model downloading, cleanup on
-  but unable to run, Accessibility off, ready. Clicking it opens the tab that
-  fixes it, and that tab carries a dot.
-- **Sections are tabs, not a long page.** Five of them fit the 480 px minimum
-  width as icons. Rewrite has no tab of its own: its hotkey sits beside the
+  -12 dB), rising fast and falling slower so speech looks lively without
+  flickering.
+- **Sections in a sidebar.** Try it and Words at the top, the settings in a
+  group under them, About at the foot. Below 680 px wide the sidebar folds to
+  icons. Rewrite has no section of its own: its hotkey sits beside the
   dictation hotkey, and its style sits with the model that does the rewriting.
 - **Before and after.** The last dictation can be read as heard, as written, or
-  as the changes between the two, with the time each step took.
-- **Type and colour.** Bricolage Grotesque for headings, Instrument Sans for
-  the interface and Geist Mono for anything a machine measured (keycaps,
-  timings, what was heard). Warm neutrals around the icon's orange. All three
-  fonts are bundled, because the content security policy allows local files
-  only. Tokens for both appearances are in `src/styles/tokens.css`.
-- **Reduced motion.** Loops stop and anything that would move or spring becomes
-  a short fade. The waveform is replaced by the word "Listening" and a
-  five-step level meter in the badge.
-- **No UI framework.** The whole interface is a few hundred lines of React and
-  one stylesheet, in keeping with the goal that one person can read all of it.
+  as the changes between the two. The wait after letting go is the big number;
+  three tiles split it into transcribing, the model, and inserting.
+- **Type.** The macOS system font, with tabular figures for every number.
+  Nothing is bundled or loaded from the network.
+- **Reduced motion.** Loops stop and the status words carry the meaning.
+
+### Updates
+
+About shows the version and can ask GitHub for the latest release
+(`updates.rs`): one unauthenticated request to the releases API, nothing else
+sent. It happens when the user presses Check for updates or chooses Check for
+Updates… in the menu bar, and once a day only if they switch on Check
+automatically, which is off by default because it is a network request. A
+newer release is offered as a link to its GitHub page; Utter does not download
+or install anything itself.
+
+### Quitting
+
+whisper.cpp's Metal backend asserts at process exit if a model is still
+loaded, which macOS reports as a crash. On the way out (`RunEvent::Exit`)
+Utter gives back the globe-key setting and then drops the loaded model, waiting
+up to two seconds for a transcription in progress.
 
 ## Distribution
 
