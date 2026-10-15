@@ -97,6 +97,11 @@ textarea.qarea:focus{box-shadow:inset 0 0 0 1.5px var(--ink2),0 0 0 4px var(--fo
 .qopt:hover,.qopt:focus-visible{background:var(--bg);outline:none}
 .qopt.more{color:var(--mid)}
 .qpop hr{height:1px;margin:4px 8px;border:0;background:var(--hair)}
+.qpop.wide{left:0;right:0;top:62px;width:auto;max-height:240px}
+.qopt.on{background:var(--bg)}
+.qopt.mono{font-family:var(--qmono);font-size:12.5px;height:30px}
+.qopt[aria-selected="true"]{font-weight:600}
+.qfld .qx svg{width:12px;height:12px}
 
 /* keycaps drawn as buttons on first run */
 .qkeysbtn{appearance:none;border:0;background:none;padding:6px;border-radius:18px;display:flex;flex-direction:column;align-items:center;gap:10px}

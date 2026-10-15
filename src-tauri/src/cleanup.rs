@@ -919,9 +919,9 @@ pub async fn list_models(endpoint: &Endpoint) -> Result<Vec<String>, String> {
 /// Providers list every model they host. Leave out the ones that plainly
 /// cannot edit text (speech, images, embeddings and so on).
 fn is_text_model(id: &str) -> bool {
-    const NOT_TEXT: [&str; 12] = [
+    const NOT_TEXT: [&str; 13] = [
         "embed", "whisper", "tts", "audio", "speech", "transcribe", "image", "dall-e", "moderation",
-        "realtime", "rerank", "guard",
+        "realtime", "rerank", "guard", "orpheus",
     ];
     let id = id.to_lowercase();
     !NOT_TEXT.iter().any(|word| id.contains(word))
@@ -1744,7 +1744,7 @@ on Monday. Thanks. Talk soon.";
     #[test]
     fn model_lists_leave_out_non_text_models() {
         assert!(is_text_model("some-chat-model"));
-        for id in ["text-embedding-3", "whisper-1", "tts-1", "gpt-image-1", "omni-moderation"] {
+        for id in ["text-embedding-3", "whisper-1", "tts-1", "gpt-image-1", "omni-moderation", "canopylabs/orpheus-v1-english"] {
             assert!(!is_text_model(id), "{id}");
         }
     }

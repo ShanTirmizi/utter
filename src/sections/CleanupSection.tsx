@@ -15,7 +15,7 @@ import { hotkeyLabel } from "../hotkey";
 import { ProviderMark } from "../providerMarks";
 import { cleanupGap } from "../readiness";
 import { shortName, useApp } from "../state";
-import { IconOut, IconTick, Notice, seconds, Switch, type Tone } from "../ui";
+import { IconDown, IconOut, IconTick, Notice, seconds, Switch, type Tone } from "../ui";
 
 type Result = { tone: Tone; title: string; body: string } | null;
 
@@ -57,6 +57,8 @@ export default function CleanupSection() {
   const [models, setModels] = useState<string[]>([]);
   const [result, setResult] = useState<Result>(null);
   const [busy, setBusy] = useState<"test" | "list" | null>(null);
+  // Goes up each time "List models" finds some, which opens the list.
+  const [listedAt, setListedAt] = useState(0);
 
   const rewriteOn = settings.rewriteHotkey !== "";
   // The rewrite hotkey uses this setup too, so it stays live while either is on.
@@ -78,8 +80,9 @@ export default function CleanupSection() {
       const found = await listCleanupModels();
       if (shown.current !== asked) return;
       setModels(found);
+      if (announce && found.length) setListedAt((n) => n + 1);
       if (announce) {
-        setResult({ tone: "nt", title: `Found ${found.length} ${found.length === 1 ? "model" : "models"}.`, body: "Click the model box to pick one." });
+        if (!found.length) setResult({ tone: "nt", title: "No models found.", body: "Type the name of the model you want." });
       }
     } catch (err) {
       if (shown.current !== asked) return;
@@ -322,30 +325,18 @@ export default function CleanupSection() {
           <div className="qlab">Model</div>
           {ready ? (
             <>
-              <div className="qfld mono">
-                <input
-                  list="cleanup-models"
-                  aria-label="Model"
-                  placeholder={provider.defaultModel || "Type a name, or list them"}
-                  value={modelDraft}
-                  spellCheck={false}
-                  onChange={(e) => {
-                    setModelDraft(e.target.value);
-                    // Picking from the list saves straight away.
-                    if (models.includes(e.target.value)) saveModel(e.target.value);
-                  }}
-                  onBlur={(e) => saveModel(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && saveModel(modelDraft)}
-                />
-                <datalist id="cleanup-models">
-                  {models.map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-                </datalist>
-                <button className="qbtn sm ghost" disabled={busy !== null} onClick={() => refreshModels(true)}>
-                  {busy === "list" && <span className="qspin" />}List models
-                </button>
-              </div>
+              <ModelField
+                value={modelDraft}
+                onChange={setModelDraft}
+                models={models}
+                current={settings.cleanupModel}
+                placeholder={provider.defaultModel || "Type a name, or list them"}
+                onSave={saveModel}
+                listing={busy === "list"}
+                disabled={busy !== null}
+                onList={() => refreshModels(true)}
+                openAsked={listedAt}
+              />
               <p className="qp" style={{ fontSize: 12.5 }}>
                 {provider.defaultModel
                   ? `Leave it empty to use ${provider.defaultModel}. A small, fast model is best: you wait for it.`
@@ -386,6 +377,157 @@ export default function CleanupSection() {
         </Notice>
       ) : null}
     </>
+  );
+}
+
+/**
+ * The model name: type one, or pick from what the provider offers. The list
+ * opens under the field in the app's own style, filters as you type, and
+ * works from the keyboard.
+ */
+function ModelField({
+  value,
+  onChange,
+  models,
+  current,
+  placeholder,
+  onSave,
+  listing,
+  disabled,
+  onList,
+  openAsked,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  models: string[];
+  current: string;
+  placeholder: string;
+  onSave: (value: string) => void;
+  listing: boolean;
+  disabled: boolean;
+  onList: () => void;
+  openAsked: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+
+  // Typing filters the list; the saved name, untouched, shows everything.
+  const needle = value.trim().toLowerCase();
+  const shown = !needle || value.trim() === current ? models : models.filter((m) => m.toLowerCase().includes(needle));
+
+  // "List models" found some: show them.
+  useEffect(() => {
+    if (openAsked) {
+      setOpen(true);
+      setActive(-1);
+      input.current?.focus();
+    }
+  }, [openAsked]);
+
+  // Keep the highlighted option in view.
+  useEffect(() => {
+    list.current?.querySelector<HTMLElement>(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [active]);
+
+  const pick = (name: string) => {
+    onChange(name);
+    onSave(name);
+    setOpen(false);
+    setActive(-1);
+  };
+
+  const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!shown.length) return;
+      setOpen(true);
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      setActive((i) => (i + step + shown.length) % shown.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (open && active >= 0 && shown[active]) pick(shown[active]);
+      else {
+        onSave(value);
+        setOpen(false);
+      }
+    } else if (e.key === "Escape" && open) {
+      e.preventDefault();
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div className="qfld mono">
+        <input
+          ref={input}
+          role="combobox"
+          aria-label="Model"
+          aria-expanded={open && shown.length > 0}
+          aria-controls="model-list"
+          aria-autocomplete="list"
+          aria-activedescendant={open && active >= 0 ? `model-${active}` : undefined}
+          placeholder={placeholder}
+          value={value}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => {
+            onChange(e.target.value);
+            setOpen(models.length > 0);
+            setActive(-1);
+          }}
+          onFocus={() => models.length > 0 && setOpen(true)}
+          onClick={() => models.length > 0 && setOpen(true)}
+          onBlur={() => {
+            setOpen(false);
+            onSave(value);
+          }}
+          onKeyDown={onKey}
+        />
+        {models.length > 0 && (
+          <button
+            className="qx"
+            tabIndex={-1}
+            aria-label="Show models"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setOpen(!open);
+              input.current?.focus();
+            }}
+          >
+            <IconDown />
+          </button>
+        )}
+        <button className="qbtn sm ghost" disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={onList}>
+          {listing && <span className="qspin" />}List models
+        </button>
+      </div>
+      {open && shown.length > 0 && (
+        <div className="qpop wide" role="listbox" id="model-list" aria-label="Models" ref={list}>
+          {shown.map((m, i) => (
+            <button
+              key={m}
+              id={`model-${i}`}
+              data-i={i}
+              className={`qopt mono ${i === active ? "on" : ""}`}
+              role="option"
+              aria-selected={m === current}
+              tabIndex={-1}
+              // Keep focus in the field, so its blur does not close the list first.
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => pick(m)}
+            >
+              <span className="ck">{m === current && <IconTick />}</span>
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
