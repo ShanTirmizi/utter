@@ -1,4 +1,4 @@
-/* The small stages further down the page, and the way sections arrive.
+/* The small scenes further down the page, and the way sections arrive.
    Plain JavaScript, no dependencies, no network requests, nothing stored.
 
    Each stage ([data-scene]) is an illustration with example text. Its markup
@@ -39,20 +39,6 @@
   );
   each(doc.querySelectorAll(".rv"), function (el) {
     arrive.observe(el);
-  });
-
-  /* ---------- a soft light follows the pointer across a panel ---------- */
-  each(doc.querySelectorAll(".panel"), function (panel) {
-    panel.addEventListener("pointermove", function (event) {
-      if (event.pointerType !== "mouse") return;
-      var box = panel.getBoundingClientRect();
-      panel.style.setProperty("--mx", event.clientX - box.left + "px");
-      panel.style.setProperty("--my", event.clientY - box.top + "px");
-      panel.classList.add("lit");
-    });
-    panel.addEventListener("pointerleave", function () {
-      panel.classList.remove("lit");
-    });
   });
 
   /* ---------- the stages ---------- */

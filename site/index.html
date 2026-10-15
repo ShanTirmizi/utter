@@ -1,34 +1,32 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-GB">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Utter: free, open-source voice dictation for macOS</title>
+    <title>Utter: free, open-source voice dictation for Mac</title>
     <meta
       name="description"
-      content="Free, open-source voice dictation for macOS. Hold a hotkey, speak, release, and cleaned-up text is typed into whatever app you are in. Speech is transcribed on your Mac."
+      content="Free, open-source voice dictation for macOS. Hold a key, speak, let go, and clean text appears wherever you are typing. Your voice never leaves your Mac."
     />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Utter: free, open-source voice dictation for macOS" />
+    <meta property="og:title" content="Utter: just talk. It types." />
     <meta
       property="og:description"
-      content="Hold a hotkey, speak, release. Your words are typed wherever you were typing. Free, MIT licensed, no account."
+      content="Free, open-source voice dictation for Mac. Hold a key, speak, let go. Your voice never leaves your Mac."
     />
     <meta property="og:url" content="https://utter-beta.vercel.app/" />
     <meta property="og:site_name" content="Utter" />
     <meta property="og:image" content="https://utter-beta.vercel.app/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Utter: talk, and Utter types it. Free, open-source voice dictation for macOS." />
+    <meta property="og:image:alt" content="Utter: just talk. It types. Free, open-source voice dictation for Mac." />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="canonical" href="https://utter-beta.vercel.app/" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#faf8f5" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#1e1a17" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f2f2f2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="preload" href="/fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
     <!-- Marks the page as scripted before first paint, so the demo does not flash its still frame. -->
     <script>
@@ -40,28 +38,41 @@
   <body>
     <a class="skip" href="#main">Skip to content</a>
 
-    <!-- Key symbols, drawn here so they look the same on every system. -->
-    <svg class="sprite" aria-hidden="true" focusable="false" width="0" height="0">
-      <symbol id="g-ctrl" viewBox="0 0 20 20">
-        <path d="M5 12.5 10 7l5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+    <!-- The menu bar glyph and the download arrow, drawn once and reused. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="glyph" viewBox="0 0 100 100">
+        <rect x="19" y="40" width="8" height="20" rx="4" />
+        <rect x="31" y="31" width="8" height="38" rx="4" />
+        <rect x="43" y="37" width="8" height="26" rx="4" />
+        <rect x="55" y="44" width="8" height="12" rx="4" />
+        <rect x="69.5" y="25" width="6" height="50" rx="3" />
+        <rect x="64" y="23" width="17" height="6" rx="3" />
+        <rect x="64" y="71" width="17" height="6" rx="3" />
       </symbol>
-      <symbol id="g-opt" viewBox="0 0 20 20">
-        <path d="M3 6h4.3l5.4 8.5H17M12 6h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      <symbol id="down" viewBox="0 0 16 16">
+        <path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="code" viewBox="0 0 16 16">
+        <path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+      </symbol>
+      <symbol id="tick" viewBox="0 0 18 18">
+        <circle cx="9" cy="9" r="8" fill="currentColor" />
+        <path d="M5.3 9.3l2.4 2.4 5-5.4" fill="none" stroke="#1c1c1c" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
       </symbol>
     </svg>
 
     <header class="top">
       <div class="wrap top-in">
         <a class="brand" href="/" aria-label="Utter, home">
-          <img class="mark" src="/icon.png" alt="" width="30" height="30" />
+          <span class="qhex" aria-hidden="true"><b><i></i><i></i><i></i><i></i><i></i></b></span>
           <span>Utter</span>
         </a>
         <nav aria-label="Page sections">
-          <a class="nav-wide" href="#hotkeys">What it does</a>
-          <a class="nav-wide" href="#more">Features</a>
-          <a class="nav-wide" href="#privacy">Privacy</a>
-          <a href="https://github.com/ShanTirmizi/utter">Source</a>
-          <a class="btn primary sm" href="#install">Download</a>
+          <a class="wide" href="#how">How it works</a>
+          <a class="wide" href="#more">Features</a>
+          <a class="wide" href="#privacy">Privacy</a>
+          <a href="https://github.com/ShanTirmizi/utter">GitHub</a>
+          <a class="btn pri sm" href="https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg">Download</a>
         </nav>
       </div>
     </header>
@@ -69,735 +80,689 @@
     <main id="main">
       <!-- ================================ hero ================================ -->
       <section class="hero" aria-labelledby="hero-h">
-        <div class="wrap hero-in">
-          <div class="hero-text">
-            <!-- The headline as a dictation: what was heard, then what was typed. -->
-            <p class="heardline" aria-hidden="true">
-              <span class="hl-k">heard</span>
-              <span><s>um so you just uh</s> talk and <s>and</s> utter <s>like</s> types it</span>
-            </p>
-            <h1 id="hero-h">Talk, and Utter types it.</h1>
-            <p class="lede">
-              Free, open-source voice dictation for macOS. Hold a hotkey, speak, release. Cleaned-up
-              text is typed into whatever app you are in.
-            </p>
-            <div class="cta">
-              <a class="btn primary lg" href="https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg">Download for Mac</a>
-              <a class="textlink" href="https://github.com/ShanTirmizi/utter">Read the source</a>
+        <div class="wrap">
+          <a class="eyebrow" href="https://github.com/ShanTirmizi/utter/releases/latest">
+            <span><b>Utter <span data-copy="app-version">0.5.0</span></b> has a whole new look</span>
+            <span class="tag mi sm">New</span>
+          </a>
+          <h1 id="hero-h">Just talk. <span class="soft">Utter types it.</span></h1>
+          <p class="lede">
+            Free, open-source dictation for Mac. Hold a key, speak, let go. <b>Clean text appears wherever you are typing</b>,
+            and your voice never leaves your Mac.
+          </p>
+          <div class="cta">
+            <a class="btn pri lg" href="https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg">
+              <svg aria-hidden="true"><use href="#down" /></svg>Download for Mac
+            </a>
+            <a class="btn ghost lg" href="https://github.com/ShanTirmizi/utter">
+              <svg aria-hidden="true"><use href="#code" /></svg>Read the source
+            </a>
+          </div>
+          <!-- ==========================================================================
+               VERSION AND DOWNLOAD SIZE
+               The two spans below are the only place each value is written on this site.
+               Elements marked data-copy="app-version" copy the version from here.
+               ========================================================================== -->
+          <p class="meta">
+            Beta <span id="app-version">0.5.0</span> · <span id="dmg-size">3.5 MB</span> · Apple silicon, macOS 12 or later · Signed and notarised
+          </p>
+        </div>
+
+        <!-- ============================== the demo ==============================
+             A recreation of one dictation. Every word is canned: nothing is recorded
+             and no speech recognition runs here. The markup is a finished still frame;
+             utter.js animates it by changing data-app, data-mode and data-phase. -->
+        <div class="demo" id="demo" data-app="slack" data-mode="tidy" data-phase="done">
+          <h2 class="sr">Demo: one dictation, with example text</h2>
+          <div class="stage" id="screen">
+            <div class="mbar" aria-hidden="true">
+              <b id="mbar-app">Slack</b><span>File</span><span>Edit</span><span class="hide-sm">View</span><span class="hide-sm">Window</span><span class="hide-sm">Help</span>
+              <span class="r">
+                <span class="mglyph" id="mglyph"><svg fill="currentColor"><use href="#glyph" /></svg></span>
+                <span class="hide-sm faint">Thu 15 Oct</span><span>9:41</span>
+              </span>
             </div>
 
-            <!-- ==========================================================================
-                 VERSION AND DOWNLOAD SIZE
-                 The two spans below are the only place each value is written on this site.
-                 Edit the text inside them. Elements marked data-copy="app-version" copy
-                 the version from here when scripts are on.
-                 ========================================================================== -->
-            <p class="meta">
-              <span class="beta">Beta</span> Version <span id="app-version">0.5.0</span>, <span id="dmg-size">3.5 MB</span>. For Apple
-              Silicon Macs on macOS 12 or later.
+            <div class="wins">
+              <!-- Slack: chat style -->
+              <div class="win cur" role="group" aria-label="Example window: Slack, a chat app" data-app="slack" data-name="Slack" data-kind="chat">
+                <div class="wbar">
+                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="wtitle"># release</span>
+                  <span class="wstyle"><span class="st-tidy">chat style</span></span>
+                </div>
+                <div class="wbody">
+                  <div class="chatline">
+                    <span class="av" aria-hidden="true" style="background: linear-gradient(140deg, #c49a7c, #8a5a3c)">P</span>
+                    <div>
+                      <b>Priya</b>
+                      <p>Build 0.5 passed on CI, nice work everyone.</p>
+                    </div>
+                  </div>
+                  <div class="chatline">
+                    <span class="av" aria-hidden="true">S</span>
+                    <div>
+                      <b>Sam</b>
+                      <p>Are we still on for Friday? Anything left?</p>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <div class="out cur" data-mode="tidy">
+                      <p>Before Friday we still need to update the changelog, bump the version and tag the release</p>
+                      <p>I can do the changelog today</p>
+                    </div>
+                    <div class="out" data-mode="rewrite">
+                      <p>Still to do before Friday: update the changelog, bump the version, tag the release.</p>
+                      <p>I'll do the changelog today.</p>
+                    </div>
+                    <span class="caret" aria-hidden="true"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Mail: email style -->
+              <div class="win" role="group" aria-label="Example window: Mail, an email app" data-app="mail" data-name="Mail" data-kind="email">
+                <div class="wbar">
+                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="wtitle">New message</span>
+                  <span class="wstyle">email style</span>
+                </div>
+                <div class="wbody">
+                  <dl class="hdrs">
+                    <div><dt>To</dt><dd>Sam</dd></div>
+                    <div><dt>Subject</dt><dd>Friday release</dd></div>
+                  </dl>
+                  <div class="field">
+                    <div class="out" data-mode="tidy">
+                      <p>Hi Sam,</p>
+                      <p>Before Friday we still need to update the changelog, bump the version and tag the release.</p>
+                      <p>I can do the changelog today.</p>
+                    </div>
+                    <div class="out" data-mode="rewrite">
+                      <p>Hi Sam,</p>
+                      <p>We have three things left to do before Friday: update the changelog, bump the version and tag the release.</p>
+                      <p>I can take the changelog today.</p>
+                    </div>
+                    <span class="caret" aria-hidden="true"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Notes: notes style -->
+              <div class="win" role="group" aria-label="Example window: Notes" data-app="notes" data-name="Notes" data-kind="notes">
+                <div class="wbar">
+                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="wtitle">Notes</span>
+                  <span class="wstyle">notes style</span>
+                </div>
+                <div class="wbody">
+                  <p class="ntitle">Friday release</p>
+                  <div class="field">
+                    <div class="out" data-mode="tidy">
+                      <p>Before Friday we still need to:</p>
+                      <ul>
+                        <li>Update the changelog</li>
+                        <li>Bump the version</li>
+                        <li>Tag the release</li>
+                      </ul>
+                      <p>I can do the changelog today.</p>
+                    </div>
+                    <div class="out" data-mode="rewrite">
+                      <p>Before Friday:</p>
+                      <ul>
+                        <li>Update the changelog (mine, today)</li>
+                        <li>Bump the version</li>
+                        <li>Tag the release</li>
+                      </ul>
+                    </div>
+                    <span class="caret" aria-hidden="true"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Xcode: code style -->
+              <div class="win" role="group" aria-label="Example window: Xcode, a code editor" data-app="xcode" data-name="Xcode" data-kind="code">
+                <div class="wbar">
+                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="wtitle">Release.swift</span>
+                  <span class="wstyle">code style</span>
+                </div>
+                <div class="wbody code">
+                  <div class="cl"><span class="ln" aria-hidden="true">4</span><span><span class="kw">import</span> Foundation</span></div>
+                  <div class="cl"><span class="ln" aria-hidden="true">5</span><span>&nbsp;</span></div>
+                  <div class="cl"><span class="ln" aria-hidden="true">6</span><span><span class="cmt">/// Runs before every tagged build.</span></span></div>
+                  <div class="cl"><span class="ln" aria-hidden="true">7</span><span><span class="kw">func</span> prepareRelease() {</span></div>
+                  <div class="cl">
+                    <span class="ln" aria-hidden="true">8</span>
+                    <span class="cmt">
+                      // <span class="field"><span class="out" data-mode="tidy">Before Friday we still need to update the changelog, bump the version and tag the release.</span><span class="out" data-mode="rewrite">Before Friday: update the changelog (mine, today), bump the version, tag the release.</span><span class="caret" aria-hidden="true"></span></span>
+                    </span>
+                  </div>
+                  <div class="cl"><span class="ln" aria-hidden="true">9</span><span>&nbsp;&nbsp;&nbsp;&nbsp;runChecks()</span></div>
+                  <div class="cl"><span class="ln" aria-hidden="true">10</span><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">try</span> bumpVersion(to: <span style="color:#fc6a5d">"0.5.0"</span>)</span></div>
+                  <div class="cl"><span class="ln" aria-hidden="true">11</span><span>}</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- What the speaker said, as the speech model heard it. Fillers are in .f -->
+            <p class="said" id="said">
+              <span class="said-k" id="said-k">Heard</span>
+              <span class="said-w" id="said-w"><span class="f">um so</span> before friday we still need to <span class="f">uh</span> update the changelog bump the version <span class="f">and</span> and tag the release i can do the changelog today</span>
             </p>
-            <p class="meta">Free under the MIT licence. No account, no subscription.</p>
+
+            <div class="pillband">
+              <!-- The status pill, as in the app. -->
+              <div class="pill off" id="pill" data-kind="off" aria-hidden="true">
+                <span class="pin" id="pin">
+                  <span class="qchr work" id="pbars"><i></i><i></i><i></i><i></i><i></i></span>
+                  <span class="lw" id="lw"></span>
+                  <span id="ptext">Tidying</span>
+                  <span class="pc" id="pchip">chat</span>
+                  <span class="tm" id="ptime" hidden>0:00</span>
+                </span>
+              </div>
+            </div>
           </div>
 
-          <!-- ============================== the demo ==============================
-               A recreation of one dictation. Every word is canned: nothing is recorded
-               and no speech recognition runs here. The markup is a finished still frame;
-               utter.js animates it by changing data-app, data-mode and data-phase. -->
-          <div class="demo" id="demo" data-app="slack" data-mode="tidy" data-phase="done">
-            <h2 class="sr">Demo: one dictation, with example text</h2>
-
-            <div class="demo-bar">
-              <div class="tabs apps" role="group" aria-label="App you are dictating into">
-                <button type="button" data-app="slack" aria-pressed="true">Slack</button>
-                <button type="button" data-app="mail" aria-pressed="false">Mail</button>
-                <button type="button" data-app="notes" aria-pressed="false">Notes</button>
-                <button type="button" data-app="xcode" aria-pressed="false">Xcode</button>
-              </div>
-              <div class="tabs modes" role="group" aria-label="Hotkey">
-                <button type="button" data-mode="tidy" aria-pressed="true">Tidy</button>
-                <button type="button" data-mode="rewrite" aria-pressed="false">Rewrite</button>
-              </div>
+          <div class="dock">
+            <div class="seg apps" role="group" aria-label="App you are dictating into">
+              <button type="button" data-app="slack" aria-pressed="true">Slack</button>
+              <button type="button" data-app="mail" aria-pressed="false">Mail</button>
+              <button type="button" data-app="notes" aria-pressed="false">Notes</button>
+              <button type="button" data-app="xcode" aria-pressed="false">Xcode</button>
             </div>
-
-            <div class="screen" id="screen">
-              <div class="wins">
-                <!-- Slack: chat style -->
-                <div class="win cur" role="group" aria-label="Example window: Slack, a chat app" data-app="slack" data-name="Slack" data-kind="chat">
-                  <div class="wbar">
-                    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                    <span class="wtitle"># release</span>
-                    <span class="wstyle"><span class="st-tidy">chat style</span><span class="st-rewrite">rewritten</span></span>
-                  </div>
-                  <div class="wbody chat">
-                    <div class="msg">
-                      <span class="av" aria-hidden="true">S</span>
-                      <div>
-                        <b>Sam</b>
-                        <p>Are we still on for Friday?</p>
-                      </div>
-                    </div>
-                    <div class="field composer">
-                      <span class="caret" aria-hidden="true"></span>
-                      <div class="out cur" data-mode="tidy">
-                        <p>Before Friday we still need to update the changelog, bump the version and tag the release</p>
-                        <p>I can do the changelog today</p>
-                      </div>
-                      <div class="out" data-mode="rewrite">
-                        <p>Still to do before Friday: update the changelog, bump the version, tag the release.</p>
-                        <p>I'll do the changelog today.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Mail: email style -->
-                <div class="win" role="group" aria-label="Example window: Mail, an email app" data-app="mail" data-name="Mail" data-kind="email">
-                  <div class="wbar">
-                    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                    <span class="wtitle">New message</span>
-                    <span class="wstyle"><span class="st-tidy">email style</span><span class="st-rewrite">rewritten</span></span>
-                  </div>
-                  <div class="wbody mail">
-                    <dl class="hdrs">
-                      <div><dt>To</dt><dd>Sam</dd></div>
-                      <div><dt>Subject</dt><dd>Friday release</dd></div>
-                    </dl>
-                    <div class="field">
-                      <span class="caret" aria-hidden="true"></span>
-                      <div class="out paras" data-mode="tidy">
-                        <p>Before Friday we still need to update the changelog, bump the version and tag the release.</p>
-                        <p>I can do the changelog today.</p>
-                      </div>
-                      <div class="out paras" data-mode="rewrite">
-                        <p>We have three things left to do before Friday: update the changelog, bump the version and tag the release.</p>
-                        <p>I can do the changelog today.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Notes: notes style -->
-                <div class="win" role="group" aria-label="Example window: Notes" data-app="notes" data-name="Notes" data-kind="notes">
-                  <div class="wbar">
-                    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                    <span class="wtitle">Notes</span>
-                    <span class="wstyle"><span class="st-tidy">notes style</span><span class="st-rewrite">rewritten</span></span>
-                  </div>
-                  <div class="wbody notes">
-                    <p class="ntitle">Friday release</p>
-                    <div class="field">
-                      <span class="caret" aria-hidden="true"></span>
-                      <div class="out" data-mode="tidy">
-                        <p>Before Friday we still need to:</p>
-                        <ul>
-                          <li>Update the changelog</li>
-                          <li>Bump the version</li>
-                          <li>Tag the release</li>
-                        </ul>
-                        <p>I can do the changelog today.</p>
-                      </div>
-                      <div class="out" data-mode="rewrite">
-                        <p>Before Friday:</p>
-                        <ul>
-                          <li>Update the changelog (I can do this today)</li>
-                          <li>Bump the version</li>
-                          <li>Tag the release</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Xcode: code style -->
-                <div class="win" role="group" aria-label="Example window: Xcode, a code editor" data-app="xcode" data-name="Xcode" data-kind="code">
-                  <div class="wbar">
-                    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                    <span class="wtitle">Release.swift</span>
-                    <span class="wstyle"><span class="st-tidy">code style</span><span class="st-rewrite">rewritten</span></span>
-                  </div>
-                  <div class="wbody code">
-                    <div class="cl"><span class="ln" aria-hidden="true">7</span><span class="lc"><span class="kw">func</span> prepareRelease() {</span></div>
-                    <div class="cl">
-                      <span class="ln" aria-hidden="true">8</span>
-                      <span class="lc cmt">
-                        <span class="slashes">//</span>
-                        <span class="field">
-                          <span class="caret" aria-hidden="true"></span>
-                          <span class="out" data-mode="tidy">Before Friday we still need to update the changelog, bump the version and tag the release. I can do the changelog today.</span>
-                          <span class="out" data-mode="rewrite">Before Friday: update the changelog (mine, today), bump the version, tag the release.</span>
-                        </span>
-                      </span>
-                    </div>
-                    <div class="cl"><span class="ln" aria-hidden="true">9</span><span class="lc ind">runChecks()</span></div>
-                    <div class="cl"><span class="ln" aria-hidden="true">10</span><span class="lc">}</span></div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- What the speaker said, as the speech model heard it. Fillers are in .f -->
-              <p class="said" id="said">
-                <span class="said-k" id="said-k">Heard</span>
-                <span class="said-w" id="said-w"><span class="f">um so</span> before friday we still need to <span class="f">uh</span> update the changelog bump the version <span class="f">and</span> and tag the release i can do the changelog today</span>
-              </p>
-
-              <div class="pillband">
-                <div class="swave" id="swave" aria-hidden="true"></div>
-                <!-- The status pill: one shape that changes size between states. -->
-                <div class="mp" id="pill" aria-hidden="true">
-                  <span class="badge mb" id="badge"><i></i><i></i><i></i><i></i><i></i></span>
-                  <div class="layer l-listen">
-                    <span class="fit">
-                      <span class="lw" id="lw"></span>
-                      <span class="meter">Listening</span>
-                      <span class="ptime" id="ptime">0:00</span>
-                      <span class="pchip2" id="rwchip">rewrite</span>
-                    </span>
-                  </div>
-                  <div class="layer l-work on">
-                    <span class="fit">
-                      <span id="worklabel">Tidying for Slack</span>
-                      <span class="pchip2" id="workchip">chat</span>
-                    </span>
-                  </div>
-                  <div class="layer l-note">
-                    <span class="fit">
-                      <span class="plines"><b>Nothing heard.</b><small>Hold the keys while you speak.</small></span>
-                    </span>
-                  </div>
-                </div>
-              </div>
+            <div class="seg modes" role="group" aria-label="Hotkey">
+              <button type="button" data-mode="tidy" aria-pressed="true">Tidy</button>
+              <button type="button" data-mode="rewrite" aria-pressed="false">Rewrite</button>
             </div>
-
-            <div class="keyboard">
-              <button class="hold" id="hold" type="button">
-                <span class="keys" aria-hidden="true">
-                  <span class="key"><svg viewBox="0 0 20 20"><use href="#g-ctrl" /></svg><small>control</small></span>
-                  <span class="key"><svg viewBox="0 0 20 20"><use href="#g-opt" /></svg><small>option</small></span>
-                  <span class="key wide" id="thirdkey"><span id="thirdkey-t">Space</span><small id="thirdkey-s">tidy</small></span>
-                </span>
-                <span class="hold-text">
-                  <b>Hold to try</b>
-                  <span>Press and hold here<span class="kbd-hint">, or hold Space on your keyboard</span>.</span>
-                </span>
-              </button>
-              <button class="btn quiet" id="autobtn" type="button">Pause</button>
-            </div>
-
-            <p class="demo-note">
-              <span class="tag">Demo</span>
-              <span class="js-only">Example text only. Nothing is recorded, and no speech recognition runs on this page.</span>
-              <span class="nojs-only">A still from the demo, with example text. With scripts on, it plays and you can try it.</span>
-            </p>
-            <p class="sr" id="demo-live" role="status" aria-live="polite"></p>
+            <span class="sp"></span>
+            <button class="hold" id="hold" type="button">
+              <span class="keys" aria-hidden="true">
+                <span class="key s"><span class="sy">⌃</span><span class="nm">control</span></span>
+                <span class="key s"><span class="sy">⌥</span><span class="nm">option</span></span>
+                <span class="key s space" id="thirdkey"><span class="sy" id="thirdkey-t"></span></span>
+              </span>
+              <span class="hold-text">
+                <b>Hold to try</b>
+                <span>Press and hold, or hold Space</span>
+              </span>
+            </button>
+            <button class="btn sm ghost" id="autobtn" type="button">Pause</button>
           </div>
+          <p class="demo-note">
+            <span class="js-only">A demo with example text. Nothing is recorded and no speech recognition runs on this page.</span>
+            <span class="nojs-only">A still from the demo, with example text.</span>
+          </p>
+          <p class="sr" id="demo-live" role="status" aria-live="polite"></p>
         </div>
       </section>
 
-      <!-- ============================ wherever you type ============================
-           The list is written twice so it can scroll without a seam; the copy is hidden
-           from assistive technology. -->
+      <!-- ============================ wherever you type ============================ -->
       <section class="band" aria-label="Where Utter types">
         <p class="band-k">Types wherever your cursor is</p>
         <div class="band-track">
-          <ul><li>Slack</li><li>Mail</li><li>Notes</li><li>Xcode</li><li>Messages</li><li>VS Code</li><li>Terminal</li><li>Obsidian</li><li>Pages</li><li>Discord</li><li>Outlook</li><li>your browser</li></ul>
-          <ul aria-hidden="true"><li>Slack</li><li>Mail</li><li>Notes</li><li>Xcode</li><li>Messages</li><li>VS Code</li><li>Terminal</li><li>Obsidian</li><li>Pages</li><li>Discord</li><li>Outlook</li><li>your browser</li></ul>
+          <ul><li>Slack</li><li>Mail</li><li>Claude</li><li>Notes</li><li>Xcode</li><li>Messages</li><li>Cursor</li><li>VS Code</li><li>Gmail</li><li>Terminal</li><li>Obsidian</li><li>ChatGPT</li><li>Linear</li><li>Notion</li></ul>
+          <ul aria-hidden="true"><li>Slack</li><li>Mail</li><li>Claude</li><li>Notes</li><li>Xcode</li><li>Messages</li><li>Cursor</li><li>VS Code</li><li>Gmail</li><li>Terminal</li><li>Obsidian</li><li>ChatGPT</li><li>Linear</li><li>Notion</li></ul>
         </div>
       </section>
 
-      <!-- ============================ free and open ============================ -->
-      <section class="free" id="free" aria-labelledby="free-h">
-        <div class="wrap free-in">
-          <div class="free-main rv">
-            <h2 id="free-h"><span>Free. Open source.</span> <span>Nothing to sign up for.</span></h2>
-            <p class="big">
-              Utter costs nothing, and all of its source is public under the MIT licence. Read every
-              line, change what you like, or build the app yourself.
-            </p>
-            <div class="cta">
-              <a class="btn" href="https://github.com/ShanTirmizi/utter">Read the source on GitHub</a>
-              <a class="textlink" href="#build">Build it yourself</a>
-            </div>
+      <!-- ============================== numbers ============================== -->
+      <section class="sec" aria-labelledby="nums-h">
+        <div class="wrap">
+          <div class="head center rv">
+            <h2 class="h2" id="nums-h">Fast, private, <span class="soft">and free for good.</span></h2>
           </div>
-
-          <div class="free-side rv">
-            <h3 class="small-h">Not in Utter</h3>
-            <ul class="struck">
-              <li><span class="sr">No </span><s>account</s></li>
-              <li><span class="sr">No </span><s>subscription</s></li>
-              <li><span class="sr">No </span><s>analytics</s></li>
-              <li><span class="sr">No </span><s>telemetry</s></li>
-            </ul>
-            <figure class="licence">
-              <figcaption>LICENSE</figcaption>
-              <blockquote>
-                Permission is hereby granted, <mark>free of charge</mark>, to any person obtaining a copy&hellip;
-              </blockquote>
-              <a href="https://github.com/ShanTirmizi/utter/blob/main/LICENSE">The full MIT licence</a>
-            </figure>
+          <div class="nums">
+            <div class="card rv">
+              <div class="lab">After you let go</div>
+              <div class="big">0.3<small>s</small></div>
+              <p class="p">Utter transcribes and tidies while you are still talking, so the text is ready when you stop.</p>
+            </div>
+            <div class="card rv d1">
+              <div class="lab">Audio uploaded</div>
+              <div class="big">None</div>
+              <p class="p">Speech becomes text on your Mac, with whisper.cpp on the GPU. Nothing is recorded or kept.</p>
+            </div>
+            <div class="card rv d2">
+              <div class="lab">Price</div>
+              <div class="big">Free</div>
+              <p class="p">No account, no subscription, no trial. Nothing to sign up for, ever.</p>
+            </div>
+            <div class="card rv d3">
+              <div class="lab">Licence</div>
+              <div class="big">MIT</div>
+              <p class="p">Every line is on GitHub. Read it, change it, or build the app yourself.</p>
+            </div>
           </div>
         </div>
       </section>
 
       <!-- ============================== two hotkeys ============================== -->
-      <section class="sec" id="hotkeys" aria-labelledby="hotkeys-h">
-        <div class="wrap sec-in">
-          <div class="sec-head rv">
-            <h2 id="hotkeys-h">One hotkey tidies. The other rewrites.</h2>
-            <p>
-              You choose sentence by sentence, by which keys you hold. Both can be changed, and
-              dictation can be the fn key on its own.
-            </p>
-          </div>
-          <div class="sec-body rv">
-            <div class="duo">
-              <article class="way">
-                <div class="keys" role="img" aria-label="Hotkey: Control, Option, Space">
-                  <kbd class="key sm"><svg viewBox="0 0 20 20" aria-hidden="true"><use href="#g-ctrl" /></svg><small>control</small></kbd>
-                  <kbd class="key sm"><svg viewBox="0 0 20 20" aria-hidden="true"><use href="#g-opt" /></svg><small>option</small></kbd>
-                  <kbd class="key sm wide">Space</kbd>
-                </div>
-                <h3>Tidy</h3>
-                <p>
-                  Keeps your wording. Removes the ums, repeats and false starts, fixes the
-                  punctuation, and breaks a long dictation into short paragraphs.
-                </p>
-                <dl class="ba">
-                  <dt>changes</dt>
-                  <dd class="diff">
-                    <span class="sr">Removed: um, so, uh and like. Added: capital letters and a full stop.</span>
-                    <span aria-hidden="true"><del>um so</del> <del>i</del><ins>I</ins> think we should <del>uh</del> push the
-                    release to <del>thursday</del><ins>Thursday</ins> and <del>like</del> tell the design
-                    <del>team</del><ins>team.</ins></span>
-                  </dd>
-                  <dt>typed</dt>
-                  <dd class="typed">I think we should push the release to Thursday and tell the design team.</dd>
-                </dl>
-              </article>
-              <article class="way">
-                <div class="keys" role="img" aria-label="Hotkey: Control, Option, R">
-                  <kbd class="key sm"><svg viewBox="0 0 20 20" aria-hidden="true"><use href="#g-ctrl" /></svg><small>control</small></kbd>
-                  <kbd class="key sm"><svg viewBox="0 0 20 20" aria-hidden="true"><use href="#g-opt" /></svg><small>option</small></kbd>
-                  <kbd class="key sm">R</kbd>
-                </div>
-                <h3>Rewrite</h3>
-                <p>
-                  Rewrites what you said so it reads better, in the style you picked or by an
-                  instruction you wrote yourself. Short paragraphs, and lists where you named
-                  several things.
-                </p>
-                <dl class="ba">
-                  <dt>heard</dt>
-                  <dd class="diff">um so i think we should uh push the release to thursday and like tell the design team</dd>
-                  <dt>typed</dt>
-                  <dd class="typed">Let's move the release to Thursday and tell the design team.</dd>
-                </dl>
-              </article>
-            </div>
-            <dl class="styles">
-              <dt>Rewrite styles</dt>
-              <dd>
-                <span class="chip">Clearer</span><span class="chip">Shorter</span><span class="chip">Professional</span><span class="chip">Friendly</span><span class="chip plain">Your own instruction</span>
-              </dd>
-            </dl>
-            <p class="fine">
-              Tidying and rewriting are done by a language model you set up. Without one, Utter types
-              the raw transcription. <a href="#cleanup">How cleanup works</a>
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============================ fits the app ============================ -->
-      <section class="sec" id="apps" aria-labelledby="apps-h">
-        <div class="wrap sec-in">
-          <div class="sec-head rv">
-            <h2 id="apps-h">It writes for the app you are in.</h2>
-            <p>
-              Utter checks which app is in front and shapes the text to suit. A chat message, an
-              email and a code comment each come out differently.
-            </p>
-          </div>
-          <div class="sec-body rv">
-            <table class="kinds">
-              <thead class="sr">
-                <tr><th scope="col">Kind of app</th><th scope="col">How the text is written</th></tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th scope="row">Chat <small>Slack, Messages, Discord</small></th>
-                  <td>Relaxed and conversational. No greeting or sign-off is added, and separate thoughts go on separate lines.</td>
-                </tr>
-                <tr>
-                  <th scope="row">Email <small>Mail, Outlook, Gmail</small></th>
-                  <td>Complete sentences in short paragraphs. A greeting stays if you said one.</td>
-                </tr>
-                <tr>
-                  <th scope="row">Code editor or terminal <small>Xcode, VS Code, Terminal</small></th>
-                  <td>Technical terms, commands, file names and identifiers spelled exactly. No Markdown.</td>
-                </tr>
-                <tr>
-                  <th scope="row">Notes <small>Notes, Obsidian, Pages</small></th>
-                  <td>Clean prose in full sentences. When you list several things, you get a list.</td>
-                </tr>
-                <tr>
-                  <th scope="row">AI assistant <small>Claude, ChatGPT, Gemini</small></th>
-                  <td>A clear, direct prompt that keeps every detail you gave, in your order.</td>
-                </tr>
-              </tbody>
-            </table>
-            <p class="fine">
-              In a browser, Utter recognises sites such as Gmail, Slack, Claude and ChatGPT and
-              writes for them. Anywhere else, you get plain, neutral prose.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============================ what else it does ============================
-           Four things beyond hold, speak, release. Each stage is an illustration with
-           example text, not a screenshot. The markup shows each one finished; scenes.js
-           plays it through by changing data-step while it is on screen.
-           If a feature slips from a release, delete its <article>. -->
-      <section class="show" id="more" aria-labelledby="more-h">
+      <section class="sec" id="how" aria-labelledby="how-h">
         <div class="wrap">
-          <header class="show-head rv">
-            <p class="eyebrow">New in 0.2</p>
-            <h2 id="more-h">It does more than take dictation.</h2>
-            <p>
-              Change text you already wrote, talk without holding anything, teach it your
-              vocabulary, and get back anything you said earlier.
-            </p>
-          </header>
+          <div class="head rv">
+            <p class="kicker">How it works</p>
+            <h2 class="h2" id="how-h">One key tidies. <span class="soft">Another rewrites.</span></h2>
+            <p class="sub">Choose sentence by sentence, by which keys you hold. Both can be changed, and dictation can be the fn key on its own.</p>
+          </div>
+          <div class="duo">
+            <article class="card rv">
+              <div class="keys" role="img" aria-label="Hotkey: Control, Option, Space">
+                <span class="key s"><span class="sy">⌃</span><span class="nm">control</span></span>
+                <span class="key s"><span class="sy">⌥</span><span class="nm">option</span></span>
+                <span class="key s space"></span>
+              </div>
+              <h3>Tidy</h3>
+              <p class="p">Keeps your words. Takes out the ums, repeats and false starts, fixes the punctuation, and breaks a long dictation into short paragraphs.</p>
+              <div class="diff">
+                <span class="diff-k">Changes</span>
+                <span class="sr">Removed: um, so, uh and like. Added: capital letters and a full stop.</span>
+                <span aria-hidden="true"><del>um so</del> <del>i</del> <ins>I</ins> think we should <del>uh</del> push the release to <del>thursday</del> <ins>Thursday</ins> and <del>like</del> tell the design team<ins>.</ins></span>
+              </div>
+              <div class="diff">
+                <span class="diff-k">Typed</span>
+                I think we should push the release to Thursday and tell the design team.
+              </div>
+              <div class="chips" aria-label="Tidy adapts to">
+                <span class="chip on">chat</span><span class="chip">email</span><span class="chip">code</span><span class="chip">notes</span><span class="chip">prompt</span>
+              </div>
+            </article>
+            <article class="card rv d1">
+              <div class="keys" role="img" aria-label="Hotkey: Control, Option, R">
+                <span class="key s"><span class="sy">⌃</span><span class="nm">control</span></span>
+                <span class="key s"><span class="sy">⌥</span><span class="nm">option</span></span>
+                <span class="key s"><span class="sy">R</span></span>
+              </div>
+              <h3>Rewrite</h3>
+              <p class="p">Says what you meant, better, in a style you pick or one you write yourself. With text selected, it changes that text the way you ask.</p>
+              <div class="diff">
+                <span class="diff-k">Heard</span>
+                <span class="mono" style="font-size: 14px; color: var(--mid)">um so i think we should uh push the release to thursday and like tell the design team</span>
+              </div>
+              <div class="diff">
+                <span class="diff-k">Typed</span>
+                Let's move the release to Thursday and tell the design team.
+              </div>
+              <div class="chips" aria-label="Rewrite styles">
+                <span class="chip on">Clearer</span><span class="chip">Shorter</span><span class="chip">Professional</span><span class="chip">Friendly</span><span class="chip">Your own</span>
+              </div>
+            </article>
+          </div>
+          <div class="card fnrow rv">
+            <div class="keys" role="img" aria-label="The fn key"><span class="key"><span class="sy gl">🌐</span><span class="nm">fn</span></span></div>
+            <div>
+              <h3>Or just the fn key.</h3>
+              <p class="p">Hold fn to talk, double-tap it to go hands-free. Utter keeps the emoji picker out of the way while it runs, and gives it back when you quit.</p>
+            </div>
+            <span class="tag mi"><span class="dot"></span>One key</span>
+          </div>
+        </div>
+      </section>
 
-          <div class="show-grid">
-            <!-- feature: edit selected text by voice -->
-            <article class="panel p-edit rv">
-              <div class="stage s-edit" data-scene data-steps="1900,2600,1500,3600" data-step="3" aria-hidden="true">
-                <div class="win mini cur">
-                  <div class="wbar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="wtitle">Re: Thursday review</span><span class="wstyle">selection</span></div>
-                  <div class="wbody">
-                    <p>Hi Dana,</p>
-                    <div class="swap">
-                      <div class="before">
-                        <p><span class="selmark">I am writing to enquire whether it would be at all possible to move the review that is planned for Thursday to Friday instead, as approximately half of the team will be out of the office.</span></p>
-                        <p>Thanks, Sam</p>
-                      </div>
-                      <div class="after">
-                        <p><span class="landed">Could we move Thursday's review to Friday? Half the team is out.</span></p>
-                        <p>Thanks, Sam</p>
-                      </div>
-                    </div>
+      <!-- ============================ writes for the app ============================ -->
+      <section class="sec" id="apps" aria-labelledby="apps-h">
+        <div class="wrap">
+          <div class="head rv">
+            <p class="kicker">Writes for where you are</p>
+            <h2 class="h2" id="apps-h">Same words. <span class="soft">Right for every app.</span></h2>
+            <p class="sub">Utter knows the app in front, and in a browser the site. A chat message, an email, a code comment and a prompt each come out the way they should.</p>
+          </div>
+          <div class="styler" id="styler">
+            <div class="card rv">
+              <div class="lab">You said</div>
+              <p class="saidbox"><s>um</s> so can we <s>uh</s> move the call to tomorrow <s>like</s> afternoon and can you send the deck before then</p>
+              <div style="margin-top: 26px">
+                <div class="seg" role="group" aria-label="App">
+                  <button type="button" data-ex="chat" aria-pressed="true">Slack</button>
+                  <button type="button" data-ex="email" aria-pressed="false">Mail</button>
+                  <button type="button" data-ex="code" aria-pressed="false">Cursor</button>
+                  <button type="button" data-ex="notes" aria-pressed="false">Notes</button>
+                  <button type="button" data-ex="prompt" aria-pressed="false">Claude</button>
+                </div>
+              </div>
+              <p class="p" style="margin-top: 22px">In a browser it reads the site too, so Gmail is an email and claude.ai is a prompt. Anywhere else you get plain, tidy prose.</p>
+            </div>
+            <div class="card outcard rv d1">
+              <div class="exbar" aria-hidden="true"><span class="dots"><i></i><i></i><i></i></span><span id="exapp">Slack</span></div>
+              <div class="appout" aria-live="polite">
+                <div class="ex cur" data-ex="chat" data-app="Slack">
+                  <div class="ex-meta"><span class="tag sm">chat</span> Relaxed, no greeting added</div>
+                  <div class="ex-body">
+                    <p>can we move the call to tomorrow afternoon?</p>
+                    <p>and could you send the deck before then</p>
                   </div>
                 </div>
-                <div class="stage-foot">
-                  <span class="keys tiny">
-                    <span class="key xs"><svg viewBox="0 0 20 20"><use href="#g-ctrl" /></svg></span><span class="key xs"><svg viewBox="0 0 20 20"><use href="#g-opt" /></svg></span><span class="key xs">R</span>
-                  </span>
-                  <span class="minipill">
-                    <span class="badge sm"><i></i><i></i><i></i><i></i><i></i></span>
-                    <span class="mlabel l1">Listening</span>
-                    <span class="mlabel l2">Editing your selection</span>
-                  </span>
-                  <span class="saidcap"><span class="k">You say</span><span class="q">make this shorter</span></span>
+                <div class="ex" data-ex="email" data-app="Mail">
+                  <div class="ex-meta"><span class="tag sm">email</span> Full sentences, short paragraphs</div>
+                  <div class="ex-body">
+                    <p>Could we move the call to tomorrow afternoon?</p>
+                    <p>Could you also send the deck before then?</p>
+                  </div>
+                </div>
+                <div class="ex" data-ex="code" data-app="Cursor">
+                  <div class="ex-meta"><span class="tag sm">code</span> Exact terms, no Markdown</div>
+                  <div class="ex-body code">// Move the call to tomorrow afternoon and send the deck before then.</div>
+                </div>
+                <div class="ex" data-ex="notes" data-app="Notes">
+                  <div class="ex-meta"><span class="tag sm">notes</span> Clean prose, lists for lists</div>
+                  <div class="ex-body">
+                    <ul>
+                      <li>Move the call to tomorrow afternoon</li>
+                      <li>Send the deck before then</li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="ex" data-ex="prompt" data-app="Claude">
+                  <div class="ex-meta"><span class="tag sm">prompt</span> Clear and direct, every detail kept</div>
+                  <div class="ex-body">
+                    <p>Can we move the call to tomorrow afternoon?</p>
+                    <p>Please send the deck before then.</p>
+                  </div>
                 </div>
               </div>
-              <div class="panel-text">
-                <h3>Edit by voice</h3>
-                <p>
-                  Select some text, hold the rewrite hotkey and say what to do with it. "Make
-                  this shorter." "Fix the grammar." "Turn this into a list." The result replaces
-                  the selection.
-                </p>
-                <p class="needs">Needs a cleanup model and the Accessibility permission.</p>
-              </div>
-            </article>
-
-            <!-- feature: hands-free mode -->
-            <article class="panel p-free rv">
-              <div class="stage s-free" data-scene data-steps="1000,450,5200,450,2800" data-step="4" aria-hidden="true">
-                <div class="hf-top">
-                  <span class="minipill wide">
-                    <span class="badge sm"><i></i><i></i><i></i><i></i><i></i></span>
-                    <span class="hf-time" id="hf-time">2:30</span>
-                    <span class="pchip2">tap to finish</span>
-                  </span>
-                </div>
-                <div class="hf-track">
-                  <span class="key xs hf-key k1">tap tap</span>
-                  <span class="hf-wave"><i style="--h:0.45;--i:0"></i><i style="--h:0.3;--i:1"></i><i style="--h:0.71;--i:2"></i><i style="--h:0.24;--i:3"></i><i style="--h:0.62;--i:4"></i><i style="--h:0.48;--i:5"></i><i style="--h:0.23;--i:6"></i><i style="--h:0.6;--i:7"></i><i style="--h:0.21;--i:8"></i><i style="--h:0.11;--i:9"></i><i style="--h:0.09;--i:10"></i><i style="--h:0.25;--i:11"></i><i style="--h:0.53;--i:12"></i><i style="--h:0.86;--i:13"></i><i style="--h:0.28;--i:14"></i><i style="--h:0.36;--i:15"></i><i style="--h:0.69;--i:16"></i><i style="--h:0.96;--i:17"></i><i style="--h:0.65;--i:18"></i><i style="--h:0.51;--i:19"></i><i style="--h:0.16;--i:20"></i><i style="--h:0.08;--i:21"></i><i style="--h:0.88;--i:22"></i><i style="--h:0.42;--i:23"></i><i style="--h:0.3;--i:24"></i><i style="--h:0.28;--i:25"></i><i style="--h:0.43;--i:26"></i><i style="--h:0.85;--i:27"></i><i style="--h:0.33;--i:28"></i><i style="--h:0.66;--i:29"></i><i style="--h:0.7;--i:30"></i><i style="--h:0.11;--i:31"></i><i style="--h:0.12;--i:32"></i><i style="--h:0.23;--i:33"></i></span>
-                  <span class="key xs hf-key k2">tap</span>
-                </div>
-                <p class="hf-note"><span class="n1">Nothing held down in between.</span></p>
-              </div>
-              <div class="panel-text">
-                <h3>Hands-free</h3>
-                <p>
-                  Double-tap the hotkey instead of holding it. Talk for up to five minutes with
-                  nothing held down, then tap once more to finish.
-                </p>
-              </div>
-            </article>
-
-            <!-- feature: personal dictionary -->
-            <article class="panel p-words rv">
-              <div class="stage s-words" data-scene data-steps="2400,1700,3600" data-step="2" aria-hidden="true">
-                <p class="heardcard">
-                  <span class="k">typed</span>
-                  <span class="line">Ask Priya about the <span class="fix"><span class="wrong">Cuban eats</span><span class="right">Kubernetes</span></span> migration.</span>
-                </p>
-                <div class="wordlist">
-                  <span class="wl-k">Your words</span>
-                  <span class="word">Priya</span><span class="word">Zephyrix</span><span class="word new">Kubernetes</span>
-                </div>
-              </div>
-              <div class="panel-text">
-                <h3>Your words</h3>
-                <p>
-                  Add the names, products and jargon that speech recognition gets wrong, spelled
-                  your way. Utter listens for them from then on.
-                </p>
-              </div>
-            </article>
-
-            <!-- feature: history -->
-            <article class="panel p-hist rv">
-              <div class="stage s-hist" data-scene data-steps="2000,1500,1700,2800" data-step="3" aria-hidden="true">
-                <div class="hsearch">
-                  <svg viewBox="0 0 20 20" width="16" height="16"><circle cx="9" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8" /><path d="m13.2 13.2 3.6 3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
-                  <span class="q">budget</span><span class="hcaret"></span>
-                  <span class="ph">Search</span>
-                </div>
-                <ul class="hlist">
-                  <li>
-                    <span class="ht"><span>The standup is moving to 10:30 from tomorrow.</span><small>09:12 · Slack</small></span>
-                    <span class="hbtn"><span class="c1">Copy</span></span>
-                  </li>
-                  <li class="hit">
-                    <span class="ht"><span>Can you send me the <mark>budget</mark> spreadsheet before Wednesday?</span><small>Yesterday · Mail</small></span>
-                    <span class="hbtn"><span class="c1">Copy</span><span class="c2">Copied</span></span>
-                  </li>
-                  <li>
-                    <span class="ht"><span>I think we should push the release to Thursday and tell the design team.</span><small>Monday · Notes</small></span>
-                    <span class="hbtn"><span class="c1">Copy</span></span>
-                  </li>
-                </ul>
-              </div>
-              <div class="panel-text">
-                <h3>History</h3>
-                <p>
-                  Your recent dictations, kept in a file on your Mac and nowhere else. Search them,
-                  copy one again, clear them, or switch history off.
-                </p>
-              </div>
-            </article>
-
-            <!-- feature: microphone kept ready -->
-            <article class="panel p-ready rv">
-              <div class="stage s-ready" aria-hidden="true">
-                <div class="rd-row was">
-                  <span class="rd-k">before</span>
-                  <span class="rd-wave"><i style="--h:0.23;--i:0"></i><i style="--h:0.35;--i:1"></i><i style="--h:0.74;--i:2"></i><i style="--h:0.53;--i:3"></i><i style="--h:0.44;--i:4"></i><i style="--h:0.66;--i:5"></i><i style="--h:0.55;--i:6"></i><i style="--h:0.43;--i:7"></i><i style="--h:0.83;--i:8"></i><i style="--h:0.14;--i:9"></i><i style="--h:0.1;--i:10"></i><i style="--h:0.65;--i:11"></i><i style="--h:0.61;--i:12"></i><i style="--h:0.9;--i:13"></i><i style="--h:0.78;--i:14"></i><i style="--h:0.42;--i:15"></i><i style="--h:0.98;--i:16"></i><i style="--h:0.28;--i:17"></i><i style="--h:0.52;--i:18"></i><i style="--h:0.8;--i:19"></i><i style="--h:0.09;--i:20"></i><i style="--h:0.12;--i:21"></i></span>
-                </div>
-                <div class="rd-row now">
-                  <span class="rd-k">now</span>
-                  <span class="rd-wave"><i style="--h:0.21;--i:0"></i><i style="--h:0.73;--i:1"></i><i style="--h:0.81;--i:2"></i><i style="--h:0.65;--i:3"></i><i style="--h:0.9;--i:4"></i><i style="--h:0.44;--i:5"></i><i style="--h:0.75;--i:6"></i><i style="--h:0.67;--i:7"></i><i style="--h:0.66;--i:8"></i><i style="--h:0.12;--i:9"></i><i style="--h:0.15;--i:10"></i><i style="--h:0.95;--i:11"></i><i style="--h:0.57;--i:12"></i><i style="--h:0.72;--i:13"></i><i style="--h:0.23;--i:14"></i><i style="--h:0.76;--i:15"></i><i style="--h:0.71;--i:16"></i><i style="--h:0.99;--i:17"></i><i style="--h:0.85;--i:18"></i><i style="--h:0.41;--i:19"></i><i style="--h:0.11;--i:20"></i><i style="--h:0.13;--i:21"></i></span>
-                </div>
-                <span class="rd-press"><span class="key xs">key down</span></span>
-              </div>
-              <div class="panel-text">
-                <h3>Ready when you are</h3>
-                <p>
-                  The microphone is kept ready between dictations, without listening, so it starts
-                  the moment you press and your first word is less likely to be clipped.
-                </p>
-              </div>
-            </article>
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- ============================== cleanup ============================== -->
-      <section class="sec" id="cleanup" aria-labelledby="cleanup-h">
-        <div class="wrap sec-in">
-          <div class="sec-head rv">
-            <h2 id="cleanup-h">Cleanup is optional. The key is yours.</h2>
-            <p>
-              A language model can tidy or rewrite each dictation. Whether one does, and which one,
-              is up to you.
-            </p>
+      <!-- ============================ everything else ============================
+           Each scene is an illustration with example text. The markup shows each one
+           finished; scenes.js plays it by stepping data-step while it is on screen. -->
+      <section class="sec" id="more" aria-labelledby="more-h">
+        <div class="wrap">
+          <div class="head center rv">
+            <p class="kicker">And everything around it</p>
+            <h2 class="h2" id="more-h">It learns your words. <span class="soft">It gets out of your way.</span></h2>
           </div>
-          <div class="sec-body rv">
-            <div class="paths">
-              <article>
-                <h3>Nothing set up</h3>
-                <p>You get the raw transcription, typed as it was heard.</p>
-                <p class="goes"><span class="dot in"></span>Text stays on your Mac</p>
-              </article>
-              <article>
-                <h3>Your own key</h3>
-                <p>
-                  Add a key from Anthropic, OpenAI, Google Gemini, Groq or OpenRouter, or point Utter
-                  at any OpenAI-compatible service.
-                </p>
-                <p class="goes"><span class="dot out"></span>Text goes to the provider you chose</p>
-              </article>
-              <article>
-                <h3>A local model</h3>
-                <p>Run a model on your Mac through Ollama. It needs no key at all.</p>
-                <p class="goes"><span class="dot in"></span>Text stays on your Mac</p>
-              </article>
-            </div>
-            <p class="fine">If cleanup fails for any reason, Utter types what it heard and tells you why.</p>
+
+          <div class="bento">
+            <!-- your words -->
+            <article class="card w3 rv">
+              <div class="scene s-words" data-scene data-steps="1600,1300,1700,3200" data-step="3" aria-hidden="true">
+                <div class="mini">
+                  <div class="mt"><span class="tag sm">Claude</span> Last dictation</div>
+                  <p class="fixline">Can you ask <span class="fx"><span class="wrong">cloud</span><span class="right">Claude</span></span> to summarise the notes?</p>
+                  <div class="wordrow">
+                    <b>Claude</b>
+                    <span class="hv">cloud</span>
+                    <span class="tag sm mi">✦ Learned</span>
+                  </div>
+                </div>
+                <span class="minipill toast"><span class="ok"><svg><use href="#tick" /></svg></span>Learned “Claude”</span>
+              </div>
+              <div class="btext">
+                <h3>It learns your words</h3>
+                <p>Fix a word it got wrong and Utter remembers it, with what it misheard. Next time “cloud” becomes Claude, but only when the sentence means it.</p>
+              </div>
+            </article>
+
+            <!-- edit by voice -->
+            <article class="card w3 rv d1">
+              <div class="scene s-edit" data-scene data-steps="1700,2200,1500,3400" data-step="3" aria-hidden="true">
+                <div class="mini">
+                  <div class="mt">Mail · Re: Thursday review</div>
+                  <div class="swap">
+                    <p class="before"><span class="sel-text">I am writing to enquire whether it would be at all possible to move the review planned for Thursday to Friday, as half of the team will be out.</span></p>
+                    <p class="after">Could we move Thursday's review to Friday? Half the team is out.</p>
+                  </div>
+                </div>
+                <div class="bubble">
+                  <span class="says">“make this shorter”</span>
+                  <span class="minipill"><span class="qchr"><i></i><i></i><i></i><i></i><i></i></span><span class="l1">Listening</span><span class="l2">Editing your selection</span></span>
+                </div>
+              </div>
+              <div class="btext">
+                <h3>Edit by voice</h3>
+                <p>Select text, hold the rewrite key and say what to change. “Make this shorter.” “Fix the grammar.” The result replaces your selection.</p>
+              </div>
+            </article>
+
+            <!-- hands-free -->
+            <article class="card w2 rv">
+              <div class="scene s-free" data-scene data-steps="900,500,4600,1800" data-step="3" aria-hidden="true">
+                <span class="minipill"><span class="qchr live"><i></i><i></i><i></i><i></i><i></i></span>Listening<span class="pc">tap to finish</span></span>
+                <div class="bigtime" id="hf-time">2:30</div>
+                <div class="taps">
+                  <span class="key s tapkey a"><span class="sy gl">🌐</span><span class="nm">fn</span></span>
+                  <span class="tapwave"><i style="--h: 0.4; --i: 0"></i><i style="--h: 0.7; --i: 1"></i><i style="--h: 0.3; --i: 2"></i><i style="--h: 0.9; --i: 3"></i><i style="--h: 0.5; --i: 4"></i><i style="--h: 0.8; --i: 5"></i><i style="--h: 0.35; --i: 6"></i><i style="--h: 0.6; --i: 7"></i><i style="--h: 0.25; --i: 8"></i><i style="--h: 0.75; --i: 9"></i></span>
+                  <span class="key s tapkey b"><span class="sy gl">🌐</span><span class="nm">fn</span></span>
+                </div>
+              </div>
+              <div class="btext">
+                <h3>Hands-free</h3>
+                <p>Double-tap and talk for minutes with nothing held down. Tap once more to finish.</p>
+              </div>
+            </article>
+
+            <!-- names on screen -->
+            <article class="card w2 rv d1">
+              <div class="scene s-names" data-scene data-steps="1500,1700,3200" data-step="2" aria-hidden="true">
+                <div class="mini">
+                  <div class="mt"># design-review</div>
+                  <div class="thread">
+                    <p><b class="nm">Raghunathan</b> moved the review to 3pm</p>
+                    <p><b>Zoe</b> sounds good</p>
+                  </div>
+                  <div class="compose"><span class="typed">Thanks <span style="color: var(--mi-fg); font-weight: 600">Raghunathan</span>, 3pm works.</span></div>
+                </div>
+              </div>
+              <div class="btext">
+                <h3>Names on screen</h3>
+                <p>It reads the names in the app you are in, so it spells them the way the screen does.</p>
+              </div>
+            </article>
+
+            <!-- history -->
+            <article class="card w2 rv d2">
+              <div class="scene s-hist" data-scene data-steps="1500,1300,1500,2600" data-step="3" aria-hidden="true">
+                <div class="mini">
+                  <div class="hs">
+                    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="6" cy="6" r="4.2" /><path d="M9.2 9.2l3 3" /></svg>
+                    <span class="q">budget</span>
+                  </div>
+                  <ul class="hlist">
+                    <li><span class="ht"><span>The standup moves to 10:30.</span><small>Slack · 9:12</small></span><span class="hb">Copy</span></li>
+                    <li class="hit"><span class="ht"><span>Can you send the <mark>budget</mark> before Wednesday?</span><small>Mail · yesterday</small></span><span class="hb"><span class="c1">Copy</span><span class="c2">Copied</span></span></li>
+                  </ul>
+                </div>
+              </div>
+              <div class="btext">
+                <h3>History</h3>
+                <p>Everything you said, kept on your Mac only. Search it, copy it again, or switch it off.</p>
+              </div>
+            </article>
+
+            <!-- menu bar -->
+            <article class="card w3 rv">
+              <div class="scene s-menu" aria-hidden="true">
+                <div>
+                  <div class="mmenu-top"><span class="mglyph"><svg fill="currentColor"><use href="#glyph" /></svg></span></div>
+                  <div class="mmenu">
+                    <div class="hd"><b><i></i>Ready</b><span>Hold fn in any app</span></div>
+                    <div class="sep"></div>
+                    <div class="it">Open Utter<span class="kb">⌘,</span></div>
+                    <div class="sep"></div>
+                    <div class="it">Copy Last Dictation</div>
+                    <div class="it hl">Fix Last Word…</div>
+                    <div class="it">Add a Word…</div>
+                    <div class="it">Undo Learning “Claude”</div>
+                  </div>
+                </div>
+              </div>
+              <div class="btext">
+                <h3>Lives in the menu bar</h3>
+                <p>Its icon moves while it listens, so you always know. Fix the last word, add a word or copy your last dictation in one click.</p>
+              </div>
+            </article>
+
+            <!-- the pill -->
+            <article class="card w3 rv d1">
+              <div class="scene" aria-hidden="true" style="flex-direction: column; gap: 12px">
+                <span class="minipill"><span class="qchr live"><i></i><i></i><i></i><i></i><i></i></span>Listening<span class="tm">0:04</span></span>
+                <span class="minipill"><span class="qchr work"><i></i><i></i><i></i><i></i><i></i></span>Tidying<span class="pc">email</span></span>
+                <span class="ghostpill">Done. The pill simply goes.</span>
+              </div>
+              <div class="btext">
+                <h3>Quiet while it works</h3>
+                <p>A small pill says what Utter is doing and never takes your cursor. When it works, it simply disappears.</p>
+              </div>
+            </article>
           </div>
         </div>
       </section>
 
       <!-- ============================== privacy ============================== -->
-      <section class="sec inv" id="privacy" aria-labelledby="privacy-h">
-        <div class="wrap sec-in">
-          <div class="sec-head rv">
-            <h2 id="privacy-h">What leaves your Mac</h2>
-            <p>
-              Speech is transcribed on your Mac by an open speech model, whisper.cpp, running on the
-              GPU. The audio is never uploaded and never kept.
-            </p>
+      <section class="dark" id="privacy" aria-labelledby="privacy-h">
+        <div class="wrap">
+          <div class="head rv">
+            <p class="kicker">Privacy</p>
+            <h2 class="h2" id="privacy-h">Your voice stays on your Mac.</h2>
+            <p class="sub">Speech is turned into text on your Mac by an open model running on the GPU. Here is everything that ever leaves it.</p>
           </div>
-          <div class="sec-body rv">
-            <dl class="leaves">
-              <div>
-                <dt>Audio</dt>
-                <dd class="verdict">Never.</dd>
-                <dd>It is transcribed on your Mac and then discarded.</dd>
+          <dl class="leaves rv">
+            <div><dt>Audio</dt><dd class="v never">Never.</dd><dd>Transcribed on your Mac and then thrown away.</dd></div>
+            <div><dt>Text</dt><dd class="v if">Only if you set it up.</dd><dd>With cleanup by a provider, the transcript goes to that provider with your key. With a local model, nothing leaves at all.</dd></div>
+            <div><dt>History</dt><dd class="v never">Never.</dd><dd>One file on your Mac, readable only by you. Clear it or switch it off.</dd></div>
+            <div><dt>Your keys</dt><dd class="v never">Kept in the Keychain.</dd><dd>Sent only to the provider they belong to, and never shown again once saved.</dd></div>
+            <div><dt>Anything else</dt><dd class="v never">Nothing.</dd><dd>No account, no analytics, no telemetry. Update checks are off unless you turn them on.</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <!-- ============================== cleanup ============================== -->
+      <section class="sec" id="cleanup" aria-labelledby="cleanup-h">
+        <div class="wrap">
+          <div class="head rv">
+            <p class="kicker">Cleanup</p>
+            <h2 class="h2" id="cleanup-h">Your model, your key. <span class="soft">Or none at all.</span></h2>
+            <p class="sub">A language model can tidy each dictation. Which one, and whether to use one at all, is up to you.</p>
+          </div>
+          <div class="prov">
+            <div class="card rv">
+              <div class="lab">Three ways to run it</div>
+              <div class="paths">
+                <div class="path"><div><b>Nothing set up</b><span>You get exactly what was heard.</span></div><span class="tag sm mi">Stays on your Mac</span></div>
+                <div class="path"><div><b>A local model</b><span>Ollama on your Mac. No key.</span></div><span class="tag sm mi">Stays on your Mac</span></div>
+                <div class="path"><div><b>Your own key</b><span>Text goes to the provider you pick.</span></div><span class="tag sm pe">Sent to them</span></div>
               </div>
-              <div>
-                <dt>Text</dt>
-                <dd class="verdict">Only if you set it up.</dd>
-                <dd>
-                  With cleanup by a hosted provider, the transcript, the name of the app or site and
-                  your word list go to that provider, with your key. So does text you select to edit.
-                  With a local model, all of it stays on your Mac.
-                </dd>
+            </div>
+            <div class="card rv d1">
+              <div class="lab">Provider<span class="r">Pick any</span></div>
+              <div class="tiles">
+                <div class="tile"><b>Anthropic</b><span>Claude models</span></div>
+                <div class="tile"><b>OpenAI</b><span>GPT models</span></div>
+                <div class="tile"><b>Google Gemini</b><span>Gemini models</span></div>
+                <div class="tile on"><b>Groq</b><span>Fastest replies</span></div>
+                <div class="tile"><b>OpenRouter</b><span>Many models, one key</span></div>
+                <div class="tile"><b>Ollama</b><span>This Mac, no key</span></div>
               </div>
-              <div>
-                <dt>History</dt>
-                <dd class="verdict">Never.</dd>
-                <dd>It is one file on your Mac, readable only by your account. Clear it or switch it off.</dd>
+              <p class="p">Or any OpenAI-compatible service. If cleanup ever fails, Utter types what it heard and tells you why.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================== free ============================== -->
+      <section class="sec" id="free" aria-labelledby="free-h">
+        <div class="wrap">
+          <div class="head rv">
+            <p class="kicker">Open source</p>
+            <h2 class="h2" id="free-h">Free. Open source. <span class="soft">Nothing to sign up for.</span></h2>
+          </div>
+          <div class="free">
+            <div class="card rv">
+              <div class="lab">Not in Utter</div>
+              <ul class="struck">
+                <li><span class="sr">No </span><s>account</s></li>
+                <li><span class="sr">No </span><s>subscription</s></li>
+                <li><span class="sr">No </span><s>analytics</s></li>
+                <li><span class="sr">No </span><s>telemetry</s></li>
+              </ul>
+              <p class="p" style="margin-top: 22px">Utter costs nothing and all of its source is public. Read every line, change what you like, or build it yourself.</p>
+              <div class="cta" style="justify-content: flex-start; margin-top: 24px">
+                <a class="btn" href="https://github.com/ShanTirmizi/utter"><svg aria-hidden="true"><use href="#code" /></svg>View on GitHub</a>
               </div>
-              <div>
-                <dt>Keys</dt>
-                <dd class="verdict">Only to their own provider.</dd>
-                <dd>They are stored in the macOS Keychain. Each one is sent only to the provider it belongs to.</dd>
-              </div>
-              <div>
-                <dt>Speech models</dt>
-                <dd class="verdict">Downloaded once.</dd>
-                <dd>Each model is fetched from Hugging Face the first time you choose it.</dd>
-              </div>
-              <div>
-                <dt>Anything else</dt>
-                <dd class="verdict">Nothing.</dd>
-                <dd>No account, no analytics, no telemetry.</dd>
-              </div>
-            </dl>
+            </div>
+            <div class="card rv d1">
+              <div class="lab">Licence<span class="r">MIT</span></div>
+              <figure class="licence">
+                <figcaption>LICENSE</figcaption>
+                <blockquote>Permission is hereby granted, <mark>free of charge</mark>, to any person obtaining a copy of this software&hellip;</blockquote>
+              </figure>
+              <p class="p"><a class="link" href="https://github.com/ShanTirmizi/utter/blob/main/LICENSE">Read the full licence</a></p>
+            </div>
           </div>
         </div>
       </section>
 
       <!-- ============================== install ============================== -->
       <section class="sec" id="install" aria-labelledby="install-h">
-        <div class="wrap sec-in">
-          <div class="sec-head rv">
-            <h2 id="install-h">Install</h2>
-            <p>You need a Mac with Apple Silicon (M1 or later) and macOS 12 or later.</p>
-            <div class="cta">
-              <a class="btn primary lg" href="https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg">Download for Mac</a>
-            </div>
+        <div class="wrap">
+          <div class="head rv">
+            <p class="kicker">Install</p>
+            <h2 class="h2" id="install-h">Up and running <span class="soft">in a minute.</span></h2>
+            <p class="sub">For Macs with Apple silicon on macOS 12 or later.</p>
           </div>
-          <div class="sec-body rv">
-            <ol class="steps">
-              <li>
-                <h3>Download the DMG</h3>
-                <p>Open it and drag Utter into Applications.</p>
-              </li>
-              <li>
-                <h3>Open Utter</h3>
-                <p>It is signed and notarised by Apple, so it opens like any other app.</p>
-              </li>
-              <li>
-                <h3>Follow the welcome screens</h3>
-                <p>
-                  Allow the microphone, switch on Accessibility so Utter can paste for you, and let the
-                  speech model download.
-                </p>
-              </li>
-            </ol>
-
-            <aside class="why" aria-labelledby="why-h">
-              <h3 id="why-h">Signed and notarised</h3>
-              <p>
-                Every release is signed with a Developer ID and checked by Apple before it reaches you.
-                Two things follow.
-              </p>
-              <ul>
-                <li>macOS opens it without any extra steps.</li>
-                <li>Your Microphone and Accessibility permissions carry over from one update to the next.</li>
-              </ul>
-            </aside>
-
-            <div class="build" id="build">
-              <h3>Or build it yourself</h3>
-              <p>
-                The source is all there. The <a href="https://github.com/ShanTirmizi/utter#build-it-yourself">README</a> lists the
-                tools you need.
-              </p>
-              <div class="cmd">
-                <pre><code id="buildcmd">git clone https://github.com/ShanTirmizi/utter.git
-cd utter
-pnpm install
-pnpm tauri build</code></pre>
-                <button class="btn sm copy" type="button" data-copy-from="buildcmd">Copy</button>
-              </div>
+          <ol class="steps">
+            <li class="card rv">
+              <div class="n">1</div>
+              <h3>Download</h3>
+              <p>Open the DMG and drag Utter into Applications. It's signed and notarised, so it opens like any other app.</p>
+            </li>
+            <li class="card rv d1">
+              <div class="n">2</div>
+              <h3>Allow two things</h3>
+              <p>The microphone, so it can hear you, and Accessibility, so it can type for you.</p>
+            </li>
+            <li class="card rv d2">
+              <div class="n">3</div>
+              <h3>Hold and talk</h3>
+              <p>The speech model downloads while you go. Then hold the key in any app and say something.</p>
+            </li>
+          </ol>
+          <div class="card build rv" id="build">
+            <div>
+              <div class="lab">Or build it yourself</div>
+              <p class="p">The <a class="link" href="https://github.com/ShanTirmizi/utter#build-it-yourself">README</a> lists the tools you need: Rust, Node and pnpm.</p>
+            </div>
+            <div class="term">
+              <div class="tbar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Terminal<button class="copy" type="button" data-copy-from="buildcmd">Copy</button></div>
+              <pre><code id="buildcmd"><span class="pr" aria-hidden="true">$ </span>git clone https://github.com/ShanTirmizi/utter.git
+<span class="pr" aria-hidden="true">$ </span>cd utter && pnpm install
+<span class="pr" aria-hidden="true">$ </span>pnpm tauri build</code></pre>
             </div>
           </div>
         </div>
       </section>
+
       <!-- ============================== last word ============================== -->
       <section class="last" aria-labelledby="last-h">
-        <div class="wrap">
-          <div class="last-in rv">
-            <span class="lastwave" aria-hidden="true"><i style="--h:0.22;--i:0"></i><i style="--h:0.57;--i:1"></i><i style="--h:0.33;--i:2"></i><i style="--h:0.29;--i:3"></i><i style="--h:0.25;--i:4"></i><i style="--h:0.81;--i:5"></i><i style="--h:0.3;--i:6"></i><i style="--h:0.4;--i:7"></i><i style="--h:0.51;--i:8"></i><i style="--h:0.15;--i:9"></i><i style="--h:0.09;--i:10"></i><i style="--h:0.56;--i:11"></i><i style="--h:0.64;--i:12"></i><i style="--h:0.91;--i:13"></i><i style="--h:0.86;--i:14"></i><i style="--h:0.89;--i:15"></i><i style="--h:0.42;--i:16"></i><i style="--h:0.53;--i:17"></i><i style="--h:0.49;--i:18"></i><i style="--h:0.91;--i:19"></i><i style="--h:0.16;--i:20"></i><i style="--h:0.09;--i:21"></i><i style="--h:0.34;--i:22"></i><i style="--h:0.39;--i:23"></i><i style="--h:0.39;--i:24"></i><i style="--h:0.59;--i:25"></i><i style="--h:0.67;--i:26"></i><i style="--h:0.41;--i:27"></i><i style="--h:0.2;--i:28"></i><i style="--h:0.54;--i:29"></i><i style="--h:0.5;--i:30"></i><i style="--h:0.13;--i:31"></i><i style="--h:0.16;--i:32"></i><i style="--h:0.75;--i:33"></i><i style="--h:0.61;--i:34"></i><i style="--h:0.69;--i:35"></i><i style="--h:0.74;--i:36"></i><i style="--h:0.24;--i:37"></i><i style="--h:0.92;--i:38"></i><i style="--h:0.82;--i:39"></i><i style="--h:0.9;--i:40"></i><i style="--h:0.84;--i:41"></i><i style="--h:0.11;--i:42"></i><i style="--h:0.11;--i:43"></i><i style="--h:0.28;--i:44"></i><i style="--h:0.71;--i:45"></i><i style="--h:0.25;--i:46"></i><i style="--h:0.25;--i:47"></i><i style="--h:0.37;--i:48"></i><i style="--h:0.33;--i:49"></i><i style="--h:0.47;--i:50"></i><i style="--h:0.24;--i:51"></i><i style="--h:0.2;--i:52"></i><i style="--h:0.09;--i:53"></i><i style="--h:0.09;--i:54"></i><i style="--h:0.49;--i:55"></i><i style="--h:0.22;--i:56"></i><i style="--h:0.9;--i:57"></i><i style="--h:0.69;--i:58"></i><i style="--h:0.32;--i:59"></i><i style="--h:0.4;--i:60"></i><i style="--h:0.48;--i:61"></i><i style="--h:0.49;--i:62"></i><i style="--h:0.3;--i:63"></i></span>
-            <p class="heardline chip" aria-hidden="true">
-              <span class="hl-k">heard</span>
-              <span><s>okay so um</s> hold the keys <s>and</s> <s>like</s> say the thing</span>
-            </p>
-            <h2 id="last-h">Hold the keys. Say the thing.</h2>
-            <p class="last-sub">Free and open source. No account to make, nothing to pay, ever.</p>
-            <div class="cta">
-              <a class="btn cream lg" href="https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg">Download for Mac</a>
-              <a class="textlink on-ember" href="https://github.com/ShanTirmizi/utter">Read the source</a>
-            </div>
+        <div class="last-in rv">
+          <span class="qhex" aria-hidden="true"><b><i></i><i></i><i></i><i></i><i></i></b></span>
+          <h2 id="last-h">Hold the key.<br />Say the thing.</h2>
+          <p>Free and open source. No account to make and nothing to pay, ever.</p>
+          <div class="cta">
+            <a class="btn on-dark lg" href="https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg"><svg aria-hidden="true"><use href="#down" /></svg>Download for Mac</a>
+            <a class="btn on-dark-ghost lg" href="https://github.com/ShanTirmizi/utter">Read the source</a>
           </div>
+          <p class="meta">Version <span data-copy="app-version">0.5.0</span> · Apple silicon · macOS 12 or later</p>
         </div>
       </section>
     </main>
 
     <footer class="foot">
       <div class="wrap foot-in">
-        <div class="foot-brand">
-          <img class="mark" src="/icon.png" alt="" width="30" height="30" />
-          <p>Utter is free software under the MIT licence.</p>
-        </div>
-        <ul class="foot-links">
+        <a class="brand" href="/" aria-label="Utter, home">
+          <span class="qhex" aria-hidden="true" style="width: 26px; height: 26px"><b><i></i><i></i><i></i><i></i><i></i></b></span>
+          <span>Utter</span>
+        </a>
+        <ul>
           <li><a href="https://github.com/ShanTirmizi/utter">Source</a></li>
           <li><a href="https://github.com/ShanTirmizi/utter/issues">Report a problem</a></li>
-          <li><a href="https://github.com/ShanTirmizi/utter/releases">All releases</a></li>
+          <li><a href="https://github.com/ShanTirmizi/utter/releases">Releases</a></li>
         </ul>
-        <p class="foot-fine">
-          This page loads nothing from other sites and sets no cookies. Typefaces:
-          <a href="/fonts/bricolage-grotesque.LICENSE.txt">Bricolage Grotesque</a>,
-          <a href="/fonts/instrument-sans.LICENSE.txt">Instrument Sans</a> and
-          <a href="/fonts/geist-mono.LICENSE.txt">Geist Mono</a>, under the SIL Open Font License.
-        </p>
+        <p class="fine">Utter is free software under the MIT licence. This page loads nothing from other sites and sets no cookies.</p>
       </div>
     </footer>
   </body>

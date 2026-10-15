@@ -477,6 +477,4 @@ see [CONTRIBUTING.md](CONTRIBUTING.md); for security problems,
 
 [MIT](LICENSE)
 
-The app uses the macOS system font; nothing is bundled. The download page's
-typefaces in `site/fonts` are under the SIL Open Font License; each licence
-sits beside its font file.
+The app and the download page use the system font; no typefaces are bundled.

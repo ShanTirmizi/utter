@@ -4,7 +4,7 @@
    Most of it runs the demo in the hero: a recreation of one dictation with
    canned text. Nothing is recorded and no speech recognition runs here. The
    example sentences live in index.html; this file only decides what is showing
-   and animates the status pill the way the app does (see src/Pill.tsx). */
+   and animates the pill and the menu bar icon the way the app does. */
 (function () {
   "use strict";
 
@@ -33,6 +33,14 @@
     var source = $(button.getAttribute("data-copy-from"));
     if (!source) return;
     var reset;
+    // The commands without their "$ " prompts.
+    function text() {
+      var copy = source.cloneNode(true);
+      each(copy.querySelectorAll(".pr"), function (pr) {
+        pr.remove();
+      });
+      return copy.textContent;
+    }
     function report(ok) {
       button.textContent = ok ? "Copied" : "Selected";
       notice.textContent = ok ? "Copied to the clipboard." : "Selected. Press Command C to copy.";
@@ -52,7 +60,7 @@
     }
     button.addEventListener("click", function () {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(source.textContent).then(function () {
+        navigator.clipboard.writeText(text()).then(function () {
           report(true);
         }, selectIt);
       } else {
@@ -61,31 +69,47 @@
     });
   });
 
+  /* ---------- "same words, right for every app" ---------- */
+  var styler = $("styler");
+  if (styler) {
+    var exButtons = styler.querySelectorAll("[data-ex]:not(.ex)");
+    var examples = styler.querySelectorAll(".ex");
+    each(exButtons, function (button) {
+      button.addEventListener("click", function () {
+        var want = button.getAttribute("data-ex");
+        each(exButtons, function (b) {
+          b.setAttribute("aria-pressed", String(b === button));
+        });
+        each(examples, function (ex) {
+          var on = ex.getAttribute("data-ex") === want;
+          ex.classList.toggle("cur", on);
+          if (on && $("exapp")) $("exapp").textContent = ex.getAttribute("data-app");
+        });
+      });
+    });
+  }
+
   /* ---------- the demo ---------- */
   var demo = $("demo");
   if (!demo) return;
 
   var pill = $("pill");
-  var badge = $("badge");
+  var pin = $("pin");
+  var pbars = $("pbars");
   var lw = $("lw");
-  var swave = $("swave");
+  var ptext = $("ptext");
+  var pchip = $("pchip");
   var ptime = $("ptime");
-  var rwchip = $("rwchip");
-  var worklabel = $("worklabel");
-  var workchip = $("workchip");
+  var glyph = $("mglyph");
+  var mbarApp = $("mbar-app");
   var hold = $("hold");
   var autobtn = $("autobtn");
   var saidK = $("said-k");
   var saidW = $("said-w");
   var live = $("demo-live");
   var thirdT = $("thirdkey-t");
-  var thirdS = $("thirdkey-s");
+  var thirdKey = $("thirdkey");
 
-  var layers = {
-    listen: pill.querySelector(".l-listen"),
-    work: pill.querySelector(".l-work"),
-    note: pill.querySelector(".l-note"),
-  };
   var wins = {};
   each(demo.querySelectorAll(".win"), function (win) {
     wins[win.getAttribute("data-app")] = win;
@@ -98,24 +122,16 @@
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Timings, in milliseconds. They pace the demo; they are not measurements.
-  var WORD_MS = 215; // one spoken word
+  var WORD_MS = 205; // one spoken word
   var LEAD_MS = 260; // a breath before the first word
-  var TAIL_MS = 650; // a beat after the last word
-  var TRANSCRIBE_MS = 800;
-  var WORK_MS = 1150;
+  var TAIL_MS = 600; // a beat after the last word
+  var TRANSCRIBE_MS = 650;
+  var WORK_MS = 1050;
   var TAP_MS = 400; // shorter than this is a tap, not a hold
   var MAX_HOLD_MS = 15000;
   var REST_MS = 4200; // how long a finished result stays up between autoplay runs
   var AUTO_RUNS = 8; // autoplay stops by itself after two rounds of the four apps
-
-  // Pill geometry, matching the CSS: the badge takes the first 54px, text ends 20px short.
-  var PILL_BADGE = 54;
-  var PILL_TAIL = 20;
-  var PILL_MAX = 380;
-  var LW_BARS = 26;
-  var SW_BARS = 56;
-  var BADGE_SHAPE = [0.6, 0.85, 1, 0.85, 0.6];
-  var BADGE_REST = [7, 13, 17, 13, 7];
+  var LW_BARS = 5;
 
   var state = { app: "slack", mode: "tidy", phase: "done" };
   var hasResult = false;
@@ -126,20 +142,14 @@
   var lastHoldEnd = 0;
   var t0 = 0;
   var level = 0;
-  var hist = [];
   var ticker = null;
   var timers = [];
-  var pillKind = "off";
   var auto = { on: !reduce, runs: 0, visible: false };
 
-  /* ----- build the parts that are only useful with scripts ----- */
   var i;
   for (i = 0; i < LW_BARS; i++) lw.appendChild(doc.createElement("i"));
-  for (i = 0; i < SW_BARS; i++) swave.appendChild(doc.createElement("i"));
   var lwBars = lw.children;
-  var swBars = swave.children;
-  var badgeBars = badge.children;
-  for (i = 0; i < SW_BARS; i++) hist.push(0);
+  var lwShape = [0.55, 0.85, 1, 0.8, 0.5];
 
   // Wrap each heard word so it can appear as it is "spoken".
   var words = [];
@@ -206,7 +216,7 @@
     });
   }
 
-  // Which app and which hotkey: windows, buttons and the third keycap follow.
+  // Which app and which hotkey: windows, buttons, menu bar and the third keycap follow.
   function syncChoice() {
     demo.setAttribute("data-app", state.app);
     demo.setAttribute("data-mode", state.mode);
@@ -219,85 +229,38 @@
     each(modeButtons, function (button) {
       button.setAttribute("aria-pressed", String(button.getAttribute("data-mode") === state.mode));
     });
+    mbarApp.textContent = wins[state.app].getAttribute("data-name");
     var rewrite = state.mode === "rewrite";
-    thirdT.textContent = rewrite ? "R" : "Space";
-    thirdS.textContent = rewrite ? "rewrite" : "tidy";
+    thirdT.textContent = rewrite ? "R" : "";
+    thirdKey.classList.toggle("space", !rewrite);
   }
 
-  /* ----- the pill ----- */
-  function setBadge(heights, opacities) {
-    for (var b = 0; b < badgeBars.length; b++) {
-      badgeBars[b].style.height = heights[b] + "px";
-      badgeBars[b].style.opacity = opacities ? opacities[b] : 1;
-    }
+  /* ----- the pill and the menu bar icon ----- */
+  function fitPill() {
+    if (pill.getAttribute("data-kind") === "off") return;
+    pill.style.width = pin.offsetWidth + 32 + "px";
   }
-  function sizePill() {
-    if (pillKind === "off") {
-      pill.style.width = "52px";
-      pill.style.height = "52px";
-      pill.style.borderRadius = "26px";
-      return;
-    }
-    var room = Math.min(PILL_MAX, pill.parentNode.clientWidth - 4);
-    var inner = layers[pillKind].querySelector(".fit").offsetWidth;
-    var twoLines = pillKind === "note";
-    pill.style.width = Math.min(room, PILL_BADGE + inner + PILL_TAIL) + "px";
-    pill.style.height = twoLines ? "64px" : "52px";
-    pill.style.borderRadius = twoLines ? "20px" : "26px";
-  }
-  function pillTo(kind) {
-    pillKind = kind;
-    Object.keys(layers).forEach(function (key) {
-      layers[key].classList.toggle("on", key === kind);
-    });
+  function pillTo(kind, text, chip) {
+    pill.setAttribute("data-kind", kind);
     pill.classList.toggle("off", kind === "off");
-    badge.classList.toggle("talk", kind === "listen");
-    badge.classList.toggle("think", kind === "work" && !reduce);
-    if (kind === "work") setBadge(BADGE_REST);
-    else if (kind !== "listen") setBadge([3, 3, 3, 3, 3]);
-    sizePill();
+    glyph.classList.toggle("live", kind === "listen");
+    glyph.classList.toggle("work", kind === "work");
+    pbars.classList.toggle("work", kind === "work");
+    pbars.hidden = kind === "note";
+    if (kind === "off") return;
+    ptext.textContent = text;
+    pchip.textContent = chip || "";
+    pchip.hidden = !chip;
+    ptime.hidden = kind !== "listen";
+    fitPill();
   }
 
-  /* ----- listening: the waveform, the timer, the words ----- */
-  function drawWave() {
-    var newest = hist.length - 1;
-    var b;
-    if (!reduce) {
-      for (b = 0; b < LW_BARS; b++) {
-        lwBars[b].style.height = Math.round(3 + hist[newest - (LW_BARS - 1 - b)] * 23) + "px";
-      }
-      // The stage-wide wave spreads out from the pill: newest in the middle.
-      var mid = (SW_BARS - 1) / 2;
-      for (b = 0; b < SW_BARS; b++) {
-        var away = Math.abs(b - mid);
-        var reading = hist[newest - Math.round(away * 1.6)] || 0;
-        var fade = 1 - (away / mid) * 0.55;
-        swBars[b].style.transform = "scaleY(" + (0.06 + reading * fade * 0.94).toFixed(3) + ")";
-      }
-      setBadge(
-        BADGE_SHAPE.map(function (share) {
-          return Math.round(5 + Math.min(1, hist[newest] * share * 1.15) * 15);
-        }),
-      );
-    } else {
-      // Reduced motion: a five-step level meter. Bars light up; nothing moves.
-      var lit = Math.round(hist[newest] * 5);
-      setBadge(
-        BADGE_REST,
-        BADGE_REST.map(function (_, n) {
-          return n < lit ? 1 : 0.35;
-        }),
-      );
+  /* ----- listening: the bars, the timer, the words ----- */
+  function drawLevel() {
+    for (var b = 0; b < LW_BARS; b++) {
+      var h = reduce ? 10 : Math.round(4 + Math.min(1, level * lwShape[b] * 1.2) * 20);
+      lwBars[b].style.height = h + "px";
     }
-  }
-  function flattenWave() {
-    for (var h = 0; h < hist.length; h++) hist[h] = 0;
-    each(lwBars, function (bar) {
-      bar.style.height = "3px";
-    });
-    each(swBars, function (bar) {
-      bar.style.transform = "";
-    });
   }
 
   function tick() {
@@ -307,18 +270,14 @@
     if (!reduce) {
       for (var w = 0; w < spoken; w++) words[w].classList.add("on");
     }
-
     // A made-up loudness reading: lively while "speaking", near silence otherwise.
-    // Speech dips between syllables, so about one reading in four is quiet.
     var target = !speaking
-      ? 0.02 + Math.random() * 0.06
+      ? 0.03 + Math.random() * 0.06
       : Math.random() < 0.26
-        ? 0.06 + Math.random() * 0.16
-        : 0.38 + Math.random() * 0.62;
-    level += (target - level) * (target > level ? 0.7 : 0.28);
-    hist.push(level);
-    hist.shift();
-    drawWave();
+        ? 0.08 + Math.random() * 0.16
+        : 0.4 + Math.random() * 0.6;
+    level += (target - level) * (target > level ? 0.7 : 0.3);
+    drawLevel();
     ptime.textContent = clock(elapsed);
 
     if (timed && elapsed > LEAD_MS + words.length * WORD_MS + TAIL_MS) return finishListen();
@@ -333,13 +292,11 @@
     setPhase("listen");
     saidK.textContent = "You say";
     showWords(reduce);
-    rwchip.hidden = state.mode !== "rewrite";
-    ptime.textContent = "0:00";
     hold.classList.add("down");
     level = 0;
-    flattenWave();
     t0 = performance.now();
-    pillTo("listen");
+    ptime.textContent = "0:00";
+    pillTo("listen", "Listening", state.mode === "rewrite" ? "rewrite" : "");
     ticker = setInterval(tick, 50);
     say("Listening.");
   }
@@ -350,23 +307,17 @@
     hold.classList.remove("down");
     showWords(true);
     saidK.textContent = "Heard";
-    flattenWave();
-
     setPhase("transcribe");
-    worklabel.textContent = "Transcribing";
-    workchip.hidden = true;
-    pillTo("work");
+    pillTo("work", "Transcribing");
     say("Transcribing.");
 
     later(TRANSCRIBE_MS, function () {
       var win = wins[state.app];
       var tidy = state.mode === "tidy";
       setPhase("work");
-      worklabel.textContent = (tidy ? "Tidying for " : "Rewriting for ") + win.getAttribute("data-name");
-      workchip.textContent = win.getAttribute("data-kind");
-      workchip.hidden = !tidy;
-      sizePill();
-      say(worklabel.textContent + ".");
+      if (tidy) pillTo("work", "Tidying", win.getAttribute("data-kind"));
+      else pillTo("work", "Rewriting for " + win.getAttribute("data-name"));
+      say(ptext.textContent + ".");
       later(WORK_MS, finish);
     });
   }
@@ -376,12 +327,8 @@
     hasResult = true;
     setPhase("done");
     if (!reduce) out.classList.add("flash");
-    // The bars lie flat for a moment, then the pill sinks away. Success is quiet.
-    badge.classList.remove("think");
-    setBadge([3, 3, 3, 3, 3]);
-    later(160, function () {
-      pillTo("off");
-    });
+    // Success is quiet: the pill sinks away and the text is the confirmation.
+    pillTo("off");
     say("Typed into " + wins[state.app].getAttribute("data-name") + ": " + outText(out));
     running = false;
     if (auto.on) later(REST_MS, autoNext);
@@ -397,12 +344,11 @@
   function nothingHeard() {
     clearTimers();
     hold.classList.remove("down");
-    flattenWave();
     restore();
-    pillTo("note");
-    say("Nothing heard. Hold the keys while you speak.");
+    pillTo("note", "Nothing heard. Hold the keys while you talk.");
+    say("Nothing heard. Hold the keys while you talk.");
     running = false;
-    later(3800, function () {
+    later(2600, function () {
       pillTo("off");
     });
   }
@@ -410,7 +356,6 @@
   function cancelRun() {
     clearTimers();
     hold.classList.remove("down");
-    flattenWave();
     pillTo("off");
     running = false;
     holding = false;
@@ -504,7 +449,7 @@
     playOnce();
   });
 
-  // Clicking the fake screen puts focus on the keys, so Space works straight away.
+  // Clicking the stage puts focus on the keys, so Space works straight away.
   $("screen").addEventListener("click", function () {
     hold.focus({ preventScroll: true });
   });
@@ -562,10 +507,8 @@
   pillTo("off");
   void pill.offsetWidth;
   pill.style.transition = "";
-  demo.classList.add("ready");
 
-  window.addEventListener("resize", sizePill);
-  if (doc.fonts && doc.fonts.ready) doc.fonts.ready.then(sizePill);
+  window.addEventListener("resize", fitPill);
 
   // Autoplay only while the demo is on screen and the tab is in front.
   if ("IntersectionObserver" in window) {
