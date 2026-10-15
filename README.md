@@ -98,9 +98,8 @@ Get the app from **<https://utter-beta.vercel.app>**, or straight from the
 for Apple Silicon Macs (M1 or later) on macOS 12 or later.
 
 1. Open the DMG and drag Utter into Applications.
-2. Open Utter. Releases are signed with a Developer ID; once a release is also
-   notarised by Apple it simply opens. If macOS says it cannot check the app,
-   go to System Settings > Privacy & Security and click **Open Anyway**.
+2. Open Utter. Releases are signed with a Developer ID and notarised by Apple,
+   so it opens like any other app.
 3. Follow the welcome screens.
 
 ### Build it yourself
@@ -132,10 +131,8 @@ into `/Applications` and open it.
 macOS ties the Microphone and Accessibility permissions to the app's signature,
 and Gatekeeper checks downloads for Apple's notarisation.
 
-- **Releases** are signed with a Developer ID, so permissions survive updates.
-  The release notes say whether that release is notarised too; if it is not,
-  approve the first launch under System Settings > Privacy & Security >
-  **Open Anyway**.
+- **Releases** are signed with a Developer ID and notarised by Apple, so they
+  open without warnings and permissions survive updates.
 - **Your own build** is signed ad hoc. It is never quarantined, so it opens
   straight away, but each rebuild counts as a new app: allow the microphone
   again and use **Reset it** under Permissions for Accessibility. Set

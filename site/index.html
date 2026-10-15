@@ -720,15 +720,8 @@
                 <p>Open it and drag Utter into Applications.</p>
               </li>
               <li>
-                <h3>Open Utter, and let macOS refuse</h3>
-                <p>
-                  It will, the first time. Go to System Settings &gt; Privacy &amp; Security and click
-                  <strong>Open Anyway</strong>. Or run this once in Terminal:
-                </p>
-                <div class="cmd">
-                  <pre><code id="xattr">xattr -dr com.apple.quarantine /Applications/Utter.app</code></pre>
-                  <button class="btn sm copy" type="button" data-copy-from="xattr">Copy</button>
-                </div>
+                <h3>Open Utter</h3>
+                <p>It is signed and notarised by Apple, so it opens like any other app.</p>
               </li>
               <li>
                 <h3>Follow the welcome screens</h3>
@@ -740,22 +733,21 @@
             </ol>
 
             <aside class="why" aria-labelledby="why-h">
-              <h3 id="why-h">Why macOS objects</h3>
+              <h3 id="why-h">Signed and notarised</h3>
               <p>
-                Utter is not signed with a paid Apple Developer ID, so macOS cannot say who made it. Two
-                things follow.
+                Every release is signed with a Developer ID and checked by Apple before it reaches you.
+                Two things follow.
               </p>
               <ul>
-                <li>You approve the first launch by hand, as in step 2.</li>
-                <li>After each update, macOS asks for the Microphone and Accessibility permissions again.</li>
+                <li>macOS opens it without any extra steps.</li>
+                <li>Your Microphone and Accessibility permissions carry over from one update to the next.</li>
               </ul>
             </aside>
 
             <div class="build" id="build">
               <h3>Or build it yourself</h3>
               <p>
-                The source is all there. A copy you build is not quarantined, so step 2 does not apply.
-                The <a href="https://github.com/ShanTirmizi/utter#build-it-yourself">README</a> lists the
+                The source is all there. The <a href="https://github.com/ShanTirmizi/utter#build-it-yourself">README</a> lists the
                 tools you need.
               </p>
               <div class="cmd">
