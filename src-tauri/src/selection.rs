@@ -230,6 +230,87 @@ impl Drop for Field {
     }
 }
 
+/// Text visible in the focused window: its title, and what its labels, text
+/// boxes, headings and links say, read through the Accessibility API within
+/// a small budget of elements, time and length. Used to find names on screen
+/// that the user may be about to say. Nothing here is stored.
+pub fn window_text() -> String {
+    const MOST_ELEMENTS: usize = 800;
+    const MOST_CHARS: usize = 30_000;
+    const MOST_TIME: std::time::Duration = std::time::Duration::from_millis(600);
+    let began = std::time::Instant::now();
+    let mut out = String::new();
+    unsafe {
+        let system = AXUIElementCreateSystemWide();
+        if system.is_null() {
+            return out;
+        }
+        AXUIElementSetMessagingTimeout(system, TIMEOUT_SECONDS);
+        let app = copy(system, "AXFocusedApplication");
+        CFRelease(system);
+        if app.is_null() {
+            return out;
+        }
+        AXUIElementSetMessagingTimeout(app, TIMEOUT_SECONDS);
+        let window = copy(app, "AXFocusedWindow");
+        CFRelease(app);
+        if window.is_null() {
+            return out;
+        }
+        // Breadth first, so the budget is spent on the window's main parts
+        // before the depths of any one of them.
+        let mut queue = std::collections::VecDeque::from([window]);
+        let mut seen = 0;
+        while let Some(element) = queue.pop_front() {
+            seen += 1;
+            if seen > MOST_ELEMENTS || out.len() > MOST_CHARS || began.elapsed() > MOST_TIME {
+                CFRelease(element);
+                continue;
+            }
+            AXUIElementSetMessagingTimeout(element, 0.1);
+            let role = text_of(copy(element, "AXRole")).unwrap_or_default();
+            let wanted: &[&str] = match role.as_str() {
+                "AXStaticText" | "AXTextField" | "AXTextArea" | "AXComboBox" => &["AXValue"],
+                "AXWindow" | "AXHeading" | "AXLink" | "AXButton" | "AXTab" | "AXRadioButton" | "AXMenuButton"
+                | "AXCell" | "AXRow" | "AXGroup" | "AXWebArea" => &["AXTitle", "AXDescription"],
+                _ => &[],
+            };
+            // A password field says nothing.
+            let secure = role == "AXTextField"
+                && text_of(copy(element, "AXSubrole")).as_deref() == Some("AXSecureTextField");
+            if !secure {
+                for attribute in wanted {
+                    if let Some(text) = text_of(copy(element, attribute)) {
+                        let text = text.trim();
+                        if !text.is_empty() {
+                            out.push_str(text);
+                            out.push('\n');
+                        }
+                    }
+                }
+            }
+            let children = copy(element, "AXChildren");
+            CFRelease(element);
+            if children.is_null() {
+                continue;
+            }
+            if CFGetTypeID(children) == core_foundation::array::CFArrayGetTypeID() {
+                let list = children as core_foundation::array::CFArrayRef;
+                let count = core_foundation::array::CFArrayGetCount(list);
+                for i in 0..count {
+                    let child = core_foundation::array::CFArrayGetValueAtIndex(list, i) as CFTypeRef;
+                    if !child.is_null() {
+                        core_foundation::base::CFRetain(child);
+                        queue.push_back(child);
+                    }
+                }
+            }
+            CFRelease(children);
+        }
+    }
+    out
+}
+
 /// One attribute of an accessibility element, owned by the caller, or null.
 unsafe fn copy(element: CFTypeRef, attribute: &'static str) -> CFTypeRef {
     let name = CFString::from_static_string(attribute);

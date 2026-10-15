@@ -139,6 +139,9 @@ pub struct Pipeline {
     history: Mutex<Vec<Dictation>>,
     /// Debug builds: a pretend selection for a simulated dictation.
     simulated_selection: Mutex<Option<String>>,
+    /// Names and terms in the window in front when recording number `.0`
+    /// began; hints for that dictation only.
+    screen: Mutex<(u64, Vec<String>)>,
 }
 
 /// A hold shorter than this is a tap.
@@ -173,6 +176,7 @@ impl Pipeline {
             last: Mutex::new(None),
             history: Mutex::new(Vec::new()),
             simulated_selection: Mutex::new(None),
+            screen: Mutex::new((0, Vec::new())),
         }
     }
 
@@ -413,6 +417,7 @@ pub fn on_press(app: &AppHandle, mode: Mode) {
             }
             warm_local_model(app, mode);
             let id = pipeline.recording_id.fetch_add(1, Ordering::SeqCst) + 1;
+            read_screen(app, id);
             abandon_if_never_released(app, id);
             report_level(app, id);
             transcribe_while_speaking(app, id);
@@ -420,6 +425,43 @@ pub fn on_press(app: &AppHandle, mode: Mode) {
         }
         Err(e) => emit(app, "error", Some(e), None),
     }
+}
+
+/// Read the names and terms in the window in front, for recording number
+/// `id`, on a thread of its own: some apps are slow to describe themselves.
+fn read_screen(app: &AppHandle, id: u64) {
+    let settings = settings::load(app);
+    if !settings.screen_words || !permissions::accessibility() {
+        return;
+    }
+    // Apps built on web technology describe their contents only once asked.
+    selection::wake_frontmost_app();
+    let app = app.clone();
+    std::thread::spawn(move || {
+        // Give a woken app a moment to build its description.
+        std::thread::sleep(Duration::from_millis(150));
+        let text = selection::window_text();
+        let found = crate::screen::terms(&text, &settings.dictionary, &settings.forgotten);
+        let pipeline = app.state::<Pipeline>();
+        if pipeline.recording_id.load(Ordering::SeqCst) == id {
+            *pipeline.screen.lock().unwrap() = (id, found);
+        }
+    });
+}
+
+/// The names on screen for recording number `id`, if they were read in time.
+fn screen_terms(app: &AppHandle, id: u64) -> Vec<String> {
+    let pipeline = app.state::<Pipeline>();
+    let screen = pipeline.screen.lock().unwrap();
+    if screen.0 == id { screen.1.clone() } else { Vec::new() }
+}
+
+/// The user's words plus the names on screen, for the speech model: the
+/// screen's few most frequent, after the user's own.
+fn speech_terms(settings: &Settings, screen: &[String]) -> Vec<String> {
+    let mut terms = crate::words::spellings(&settings.dictionary);
+    terms.extend(screen.iter().take(12).cloned());
+    terms
 }
 
 /// macOS very occasionally fails to report a key coming back up. Without a
@@ -601,8 +643,6 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
         if !models::is_downloaded(&app, &name) {
             return;
         }
-        let terms = settings.dictionary.clone();
-        let spelled = crate::words::spellings(&terms);
         // Each finished stretch is tidied as well, so that only the last one
         // waits for the model when the key comes up. Rewriting needs the
         // whole thing at once, so this is for the dictation hotkey only.
@@ -655,7 +695,9 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
             if pipeline.early.lock().unwrap().id != id {
                 break;
             }
-            let (transcriber, name, path, piece_terms) = (pipeline.transcriber.clone(), name.clone(), path.clone(), spelled.clone());
+            let screen = screen_terms(&app, id);
+            let piece_terms = speech_terms(&settings, &screen);
+            let (transcriber, name, path) = (pipeline.transcriber.clone(), name.clone(), path.clone());
             let text = tauri::async_runtime::spawn_blocking(move || {
                 transcriber.transcribe_with(&name, &path, &piece, models::language(&name), &piece_terms)
             })
@@ -665,6 +707,8 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
             let cleaned = match &endpoint {
                 Some(endpoint) => {
                     let target = pipeline.target.lock().unwrap().clone();
+                    let mut terms = settings.dictionary.clone();
+                    terms.extend(crate::screen::as_words(&screen));
                     Some(tidy_piece(&text, &target, endpoint, &terms).await)
                 }
                 None => None,
@@ -755,11 +799,16 @@ async fn process(
         return Err("Didn't catch any speech. Check which microphone macOS is using.".into());
     }
 
-    let settings = settings::load(app);
+    let mut settings = settings::load(app);
     let name = settings.model.clone();
     let path = models::path(app, &name)?;
     let transcriber = app.state::<Pipeline>().transcriber.clone();
-    let terms = crate::words::spellings(&settings.dictionary);
+    // Names on screen help with this dictation only: they join the user's
+    // words here, in memory, and are never saved with them.
+    let recording = app.state::<Pipeline>().recording_id.load(Ordering::SeqCst);
+    let screen = screen_terms(app, recording);
+    let terms = speech_terms(&settings, &screen);
+    settings.dictionary.extend(crate::screen::as_words(&screen));
 
     // In a browser, which site is open decides the writing style: Gmail is
     // email, claude.ai is a prompt. Ask now, while the speech is transcribed.
@@ -889,6 +938,9 @@ async fn process(
         tidied.text = cleanup::paragraphs(&tidied.text);
     }
     let (inserted, delivery_note) = deliver(app, &tidied.text, delivery, true).await?;
+    if delivery != Delivery::ClipboardOnly && !screen.is_empty() {
+        suggest_from_screen(app, &screen, &raw, &tidied.text, &target.name);
+    }
     // Watch for the user correcting a word of it, to learn from.
     if inserted && delivery == Delivery::Paste {
         let id = app.state::<Pipeline>().recording_id.load(Ordering::SeqCst);
@@ -918,6 +970,21 @@ async fn process(
         total_ms: released.elapsed().as_millis() as u64,
         finished_at: finished_at(),
     }))
+}
+
+/// Note which names from the screen the user said, and tell the window about
+/// any that are now worth suggesting for Your words.
+fn suggest_from_screen(app: &AppHandle, screen: &[String], raw: &str, written: &str, app_name: &str) {
+    let mut saved = settings::load(app);
+    let fresh = crate::screen::note_used(&mut saved.suggested, screen, raw, written, app_name);
+    saved.suggested = crate::screen::clean_suggestions(&saved.suggested, &saved.dictionary, &saved.forgotten);
+    if let Err(e) = settings::save(app, &saved) {
+        eprintln!("[utter] could not save a suggestion: {e}");
+        return;
+    }
+    if !fresh.is_empty() {
+        let _ = app.emit("suggested", fresh);
+    }
 }
 
 /// The text selected in the focused app, if any.

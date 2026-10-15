@@ -284,6 +284,12 @@ entries; a handful of the ones you actually say works best.
   rewording, deletions and everyday words are ignored. Apps that do not expose
   their text (Google Docs, terminals) cannot be learned from; use Fix instead.
   Switch it off on the Words tab.
+- **Names on screen.** When you start dictating, Utter reads the names in the
+  window in front (people in a Slack thread, functions in your editor) and
+  uses them as hints for that one dictation, so they are spelled the way the
+  screen spells them. The window's text is never kept. A name you then say
+  is offered under **Suggested from your screen**; nothing is added without
+  you. Switch it off on the Words tab.
 - **Add a Word…** in the menu bar opens the list ready to type into.
 - A word you remove is never learned or suggested again.
 
@@ -302,7 +308,7 @@ them, copy one again, forget one, or clear them all.
 | Permission | Needed | Why |
 | --- | --- | --- |
 | Microphone | Yes | To hear you while the hotkey is held. |
-| Accessibility | Recommended | To press `⌘V` in the app you are typing in, and to see the text you selected when you edit by voice. Without it, Utter copies the text and you paste it yourself. |
+| Accessibility | Recommended | To press `⌘V` in the app you are typing in, to see the text you selected when you edit by voice, to read names in the window in front while you dictate, and to notice a word you correct right after a paste. Without it, Utter copies the text and you paste it yourself. |
 | Input Monitoring | No | A key combination is registered with macOS as a system hotkey, so Utter never sees your other keystrokes. With the fn key option, Utter notices only that some other key was pressed while fn is held, never which (see "The fn key"). |
 
 You can change these under System Settings > Privacy & Security.

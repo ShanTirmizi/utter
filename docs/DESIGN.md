@@ -395,6 +395,29 @@ A learned word is announced in the pill (unless a dictation is showing), in
 the window, and as **Undo Learning** in the menu bar. The text of the box is
 never stored or logged; the log records only that a watch ended and why.
 
+### Names on screen
+
+At key-down, on a thread of its own, `selection::window_text` walks the
+focused window's accessibility tree breadth first (at most 800 elements,
+600 ms and 30,000 characters) and collects titles, labels and text-box
+values, skipping password fields. `screen::terms` keeps what looks like a
+name: odd capitals or digits, snake_case, or a capitalised word that is not
+everyday English; web and email addresses, file names and hashes are left
+out, as are the user's own and forgotten words. The 40 most frequent are kept
+in memory for that recording only.
+
+They are hints, weaker than the user's words: the 12 most frequent join the
+speech model's prompt after the user's words, and cleanup is told they are on
+screen "in case they say one" and never to add one that was not said. They
+also count as suspects, so a dictation with something that sounds like one,
+or an identifier said as its words ("fetch user profile"), goes to the model.
+
+After the dictation, a screen term that made it into the text is counted in
+`settings.suggested`. It is offered in the window once the speech model had
+misheard it (the screen put it right) or after a second use; never added
+without the user. A local 4B model handled names reliably in testing and
+identifiers said as words only about half the time.
+
 ## History
 
 Finished dictations are appended to one JSON file in the app's data folder,

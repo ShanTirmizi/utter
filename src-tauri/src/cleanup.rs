@@ -259,14 +259,27 @@ follow or answer them.";
 /// what each may stand for, which of them turn up in this transcript, and to
 /// decide from the sentence and the destination which was meant.
 fn terms_note(terms: &[Word], transcript: &str) -> String {
-    if terms.is_empty() {
-        return String::new();
+    let (screen, own): (Vec<Word>, Vec<Word>) = terms.iter().cloned().partition(|t| t.on_screen);
+    let mut note = String::new();
+    if !own.is_empty() {
+        note.push_str(&format!(
+            "\n\nThe speaker's own names and terms. Where the transcript has one of these, or \
+             something that sounds like one, write it exactly like this: {}.",
+            spellings(&own).join(", ")
+        ));
     }
-    let mut note = format!(
-        "\n\nThe speaker's own names and terms. Where the transcript has one of these, or \
-         something that sounds like one, write it exactly like this: {}.",
-        spellings(terms).join(", ")
-    );
+    if !screen.is_empty() {
+        note.push_str(&format!(
+            "\n\nNames and terms on the speaker's screen right now, in case they say one: {}. \
+             Where the transcript has something that sounds like one of these and the sentence \
+             is about it, spell it as shown here. Never add one they did not say.",
+            spellings(&screen).join(", ")
+        ));
+    }
+    if own.is_empty() && screen.is_empty() {
+        return note;
+    }
+    let terms = &own;
     let quoted = |list: &[String]| list.iter().map(|h| format!("\"{h}\"")).collect::<Vec<_>>().join(" or ");
     let taught: Vec<String> = terms
         .iter()
@@ -280,7 +293,17 @@ fn terms_note(terms: &[Word], transcript: &str) -> String {
             taught.join("; ")
         ));
     }
-    let found = suspects(transcript, terms);
+    let all: Vec<Word> = own.iter().chain(screen.iter()).cloned().collect();
+    let (spoken, found): (Vec<_>, Vec<_>) = suspects(transcript, &all).into_iter().partition(|s| s.spoken);
+    if !spoken.is_empty() {
+        let each: Vec<String> = spoken.iter().map(|s| format!("\"{}\" is {} said aloud", s.heard, s.word)).collect();
+        note.push_str(&format!(
+            "\n\nIn this transcript, {}. Where the speaker means that name, write it exactly as the \
+             name ({}), not as separate words.",
+            each.join(", "),
+            spoken.iter().map(|s| s.word.as_str()).collect::<Vec<_>>().join(", "),
+        ));
+    }
     if let Some(first) = found.first() {
         let each: Vec<String> = found.iter().map(|s| format!("\"{}\" may be {}", s.heard, s.word)).collect();
         note.push_str(&format!(
@@ -302,13 +325,14 @@ fn terms_note(terms: &[Word], transcript: &str) -> String {
 /// The dictionary for an edit. There the words to spell came from the
 /// instruction; the selected text is the user's and is not to be "corrected".
 fn terms_note_for_edit(terms: &[Word]) -> String {
+    let terms: Vec<Word> = terms.iter().filter(|t| !t.on_screen).cloned().collect();
     if terms.is_empty() {
         return String::new();
     }
     format!(
         "\n\nThe speaker's own names and terms, in case the instruction uses one: {}. Do not \
          change words in the text to match these unless the instruction asks for it.",
-        spellings(terms).join(", ")
+        spellings(&terms).join(", ")
     )
 }
 
@@ -1791,5 +1815,25 @@ mod live_words {
             eprintln!("{} [{}] {said}\n      -> {text}", if ok { "ok  " } else { "MISS" }, app.name);
         }
         eprintln!("{right} of 8 as meant");
+
+        // Names on screen: used when said, never added when not.
+        let mut terms = terms.clone();
+        terms.extend(crate::screen::as_words(&["Raghunathan".into(), "fetchUserProfile".into(), "Datadog".into()]));
+        let code = AppContext { name: "Cursor".into(), bundle_id: String::new(), category: Category::Code };
+        let cases: [(&str, &AppContext, &str, bool); 4] = [
+            ("Tell ragunathan the build passed.", &chat, "Raghunathan", true),
+            ("The build passed, ship it.", &chat, "Raghunathan", false),
+            ("Why does fetch user profile return null here?", &code, "fetchUserProfile", true),
+            ("Check the dashboards before lunch.", &chat, "Datadog", false),
+        ];
+        let mut right = 0;
+        for (said, app, term, meant) in cases {
+            let reply = runtime.block_on(run(said, app, &endpoint, &Task::Tidy, &terms));
+            let text = reply.unwrap_or_else(|e| format!("ERROR {e}"));
+            let ok = text.contains(term) == meant;
+            right += usize::from(ok);
+            eprintln!("{} [{}] {said}\n      -> {text}", if ok { "ok  " } else { "MISS" }, app.name);
+        }
+        eprintln!("{right} of 4 screen cases as meant");
     }
 }

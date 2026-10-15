@@ -15,6 +15,7 @@ mod models;
 mod permissions;
 mod pipeline;
 mod providers;
+mod screen;
 mod secrets;
 mod selection;
 mod settings;
@@ -44,6 +45,7 @@ fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Settings, Str
     let previous = settings::load(&app);
     settings.dictionary = words::clean(&settings.dictionary);
     settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
+    settings.suggested = screen::clean_suggestions(&settings.suggested, &settings.dictionary, &settings.forgotten);
 
     // Check everything that can be checked before changing anything.
     hotkey::plan(&settings)?;
@@ -311,6 +313,7 @@ pub(crate) fn remember_word(
     }
     settings.dictionary = words::clean(&settings.dictionary);
     settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
+    settings.suggested = screen::clean_suggestions(&settings.suggested, &settings.dictionary, &settings.forgotten);
     settings::save(app, &settings)?;
     Ok((settings, outcome))
 }

@@ -159,12 +159,15 @@ const MODERN: &[&str] = &[
     "emoji", "inbox", "upload", "download", "uploads", "downloads", "texting", "google", "googled", "tweet",
     "hashtag", "livestream", "update", "updates", "feedback", "checklist", "deadline", "workflow", "dashboard",
     "spreadsheet", "startup", "meetup", "signup", "setup", "gonna", "wanna", "gotta", "yeah", "yep", "nope",
+    // Capitalised in the word list, but everyday all the same.
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february",
+    "april", "june", "july", "august", "september", "october", "november", "december", "english", "i",
 ];
 
 /// Which of `words` (lower case) are everyday English words. They are looked
 /// up in the system's word list, where everyday words are written in lower
 /// case and names with a capital. Without the list, none are.
-fn everyday(words: &[String]) -> HashSet<String> {
+pub(crate) fn everyday(words: &[String]) -> HashSet<String> {
     let mut found: HashSet<String> = words.iter().filter(|w| MODERN.contains(&w.as_str())).cloned().collect();
     let Ok(list) = std::fs::read_to_string("/usr/share/dict/words") else {
         return found;

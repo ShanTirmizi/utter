@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { undoLearned, type Learned, type Word } from "../api";
+import { undoLearned, type Learned, type Suggestion, type Word } from "../api";
 import { useApp } from "../state";
 import { Switch } from "../ui";
 
@@ -97,6 +97,35 @@ export default function WordsSection() {
         adopt(saved);
         setError(null);
       },
+      (err) => setError(String(err)),
+    );
+
+  // Offered once the speech model got one wrong, or it was said twice.
+  const offered = settings.suggested.filter((s) => s.heard !== null || s.seen >= 2);
+
+  const accept = (suggestion: Suggestion) =>
+    update({
+      dictionary: [
+        {
+          word: suggestion.word,
+          heardAs: suggestion.heard ? [suggestion.heard] : [],
+          source: "screen",
+          addedAt: Date.now(),
+        },
+        ...words,
+      ],
+      suggested: settings.suggested.filter((s) => s !== suggestion),
+    }).then(
+      () => setError(null),
+      (err) => setError(String(err)),
+    );
+
+  const dismiss = (suggestion: Suggestion) =>
+    update({
+      suggested: settings.suggested.filter((s) => s !== suggestion),
+      forgotten: [...settings.forgotten, suggestion.word.toLowerCase()],
+    }).then(
+      () => setError(null),
       (err) => setError(String(err)),
     );
 
@@ -213,6 +242,42 @@ export default function WordsSection() {
         )}
       </div>
 
+      {offered.length > 0 && (
+        <div className="card stack">
+          <div className="cardhead">
+            <span className="label">Suggested from your screen</span>
+            <span className="meta">{offered.length}</span>
+          </div>
+          <ul className="wlist" aria-label="Suggested words">
+            {offered.map((s) => (
+              <li key={s.word} className="wrow">
+                <div className="wmain">
+                  <span className="wword">{s.word}</span>
+                  <span className="wheard">
+                    <span className="wlab">
+                      {s.heard ? (
+                        <>
+                          heard as <span className="mono">“{s.heard}”</span>, put right from the screen
+                        </>
+                      ) : (
+                        `said ${s.seen} times`
+                      )}
+                      {s.app ? ` · ${s.app}` : ""}
+                    </span>
+                  </span>
+                  <button className="btn sm" onClick={() => accept(s)}>
+                    Add
+                  </button>
+                  <button className="wdel" aria-label={`Not ${s.word}`} title="Don't suggest it again" onClick={() => dismiss(s)}>
+                    ×
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="card stack">
         <div className="cardhead">
           <span className="label">Learn from my corrections</span>
@@ -232,6 +297,24 @@ export default function WordsSection() {
           to <b>Claude</b>, Utter adds it here and tells you. It reads only the text box it typed into, for a
           minute at most, and keeps nothing but the word. Typos, rewording and everyday words are ignored.
           Some apps, such as Google Docs and terminals, do not let it read the box.
+        </p>
+        <div className="cardhead">
+          <span className="label">Use names on screen</span>
+          <Switch
+            label="Use names on screen"
+            checked={settings.screenWords}
+            onChange={(screenWords) =>
+              update({ screenWords }).then(
+                () => setError(null),
+                (err) => setError(String(err)),
+              )
+            }
+          />
+        </div>
+        <p className="hint">
+          When you start dictating, Utter reads the names in the window in front, like the people in a Slack
+          thread or the functions in your editor, so it spells them the way the screen does. That text is
+          used for that one dictation and never kept. A name you then say shows up above as a suggestion.
         </p>
       </div>
 

@@ -35,6 +35,10 @@ pub struct Settings {
     pub forgotten: Vec<String>,
     /// Learn a word when the user corrects it in what Utter just pasted.
     pub learn_words: bool,
+    /// Use names and terms in the window in front as hints while dictating.
+    pub screen_words: bool,
+    /// Names seen on screen that the user then said, offered for the list.
+    pub suggested: Vec<crate::screen::Suggestion>,
     /// Keep past dictations on this Mac so they can be found and copied again.
     pub keep_history: bool,
     /// A quick tap of a hotkey starts a recording that runs until the next
@@ -65,6 +69,8 @@ impl Default for Settings {
             dictionary: Vec::new(),
             forgotten: Vec::new(),
             learn_words: true,
+            screen_words: true,
+            suggested: Vec::new(),
             keep_history: true,
             hands_free: true,
             quiet_globe: true,

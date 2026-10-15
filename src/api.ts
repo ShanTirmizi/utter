@@ -23,6 +23,10 @@ export type Settings = {
   forgotten: string[];
   /** Learn a word when you correct it in what Utter just typed. */
   learnWords: boolean;
+  /** Use names and terms in the window in front as hints while dictating. */
+  screenWords: boolean;
+  /** Names seen on screen that you then said, offered for Your words. */
+  suggested: Suggestion[];
   /** Keep past dictations on this Mac. */
   keepHistory: boolean;
   /** A quick tap starts a recording that runs until the next tap. */
@@ -32,6 +36,18 @@ export type Settings = {
   /** Speech model. */
   model: string;
   onboarded: boolean;
+};
+
+/** A name seen on screen that you then said. */
+export type Suggestion = {
+  word: string;
+  /** What the speech model wrote for it, if it misheard it; lower case. */
+  heard: string | null;
+  /** How many dictations used it. */
+  seen: number;
+  /** The app it was last seen in. */
+  app: string;
+  lastSeen: number;
 };
 
 /** One of the user's own words. */

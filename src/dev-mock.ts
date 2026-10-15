@@ -61,6 +61,14 @@ let settings: Settings = {
     : [],
   forgotten: [],
   learnWords: true,
+  screenWords: true,
+  suggested: query.has("words")
+    ? [
+        { word: "Raghunathan", heard: "ragunathan", seen: 1, app: "Slack", lastSeen: Date.now() - 600_000 },
+        { word: "useQuery", heard: null, seen: 3, app: "Cursor", lastSeen: Date.now() - 900_000 },
+        { word: "Hidden", heard: null, seen: 1, app: "Mail", lastSeen: Date.now() - 900_000 },
+      ]
+    : [],
   keepHistory: true,
   handsFree: true,
   quietGlobe: !query.has("fnconflict"),

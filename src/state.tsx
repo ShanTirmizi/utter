@@ -204,6 +204,7 @@ export function useAppState(): AppState | null {
       reload();
       setJustLearned((old) => [payload, ...old.filter((l) => !same(l, payload))].slice(0, 5));
     });
+    const stopSuggested = listen("suggested", () => reload());
     const stopUnlearned = listen<Learned>("unlearned", ({ payload }) => {
       reload();
       setJustLearned((old) => old.filter((l) => !same(l, payload)));
@@ -214,6 +215,7 @@ export function useAppState(): AppState | null {
       stopAddWord.then((unlisten) => unlisten());
       stopLearned.then((unlisten) => unlisten());
       stopUnlearned.then((unlisten) => unlisten());
+      stopSuggested.then((unlisten) => unlisten());
     };
   }, [refreshModels, refreshHistory]);
 

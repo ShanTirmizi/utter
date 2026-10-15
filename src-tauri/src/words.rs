@@ -38,11 +38,15 @@ pub struct Word {
     pub source: Source,
     /// When it was added, in milliseconds since 1970; 0 if unknown.
     pub added_at: u64,
+    /// Not one of the user's words but a name on screen, used as a hint for
+    /// one dictation only. Never saved.
+    #[serde(skip)]
+    pub on_screen: bool,
 }
 
 impl Word {
     pub fn new(word: &str, source: Source) -> Self {
-        Self { word: word.to_string(), heard_as: Vec::new(), source, added_at: now() }
+        Self { word: word.to_string(), heard_as: Vec::new(), source, added_at: now(), on_screen: false }
     }
 }
 
@@ -65,8 +69,8 @@ impl<'de> Deserialize<'de> for Word {
             },
         }
         Ok(match Stored::deserialize(deserializer)? {
-            Stored::Plain(word) => Word { word, heard_as: Vec::new(), source: Source::Added, added_at: 0 },
-            Stored::Full { word, heard_as, source, added_at } => Word { word, heard_as, source, added_at },
+            Stored::Plain(word) => Word { word, heard_as: Vec::new(), source: Source::Added, added_at: 0, on_screen: false },
+            Stored::Full { word, heard_as, source, added_at } => Word { word, heard_as, source, added_at, on_screen: false },
         })
     }
 }
@@ -97,7 +101,7 @@ pub fn heard_form(text: &str) -> String {
 /// donates its mishearings to the first), within the size limits.
 pub fn clean(words: &[Word]) -> Vec<Word> {
     let mut out: Vec<Word> = Vec::new();
-    for entry in words {
+    for entry in words.iter().filter(|w| !w.on_screen) {
         let word: String = squeeze(&entry.word).chars().take(MAX_WORD_CHARS).collect();
         if word.is_empty() {
             continue;
@@ -105,7 +109,7 @@ pub fn clean(words: &[Word]) -> Vec<Word> {
         let at = match out.iter().position(|w| w.word.to_lowercase() == word.to_lowercase()) {
             Some(at) => at,
             None if out.len() < MAX_WORDS => {
-                out.push(Word { word, heard_as: Vec::new(), source: entry.source, added_at: entry.added_at });
+                out.push(Word { word, heard_as: Vec::new(), source: entry.source, added_at: entry.added_at, on_screen: false });
                 out.len() - 1
             }
             None => continue,
@@ -205,37 +209,50 @@ pub fn clean_forgotten(forgotten: &[String], words: &[Word]) -> Vec<String> {
     out
 }
 
+/// Where `needle` appears in `text` as a whole word (or run of words),
+/// ignoring case, as byte ranges. A match inside a longer word is not one.
+fn whole_matches(text: &str, needle: &str) -> Vec<(usize, usize)> {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let lower = text.to_lowercase();
+    let lower_needle = needle.to_lowercase();
+    // Lower-casing can change byte lengths outside ASCII; then only exact
+    // matches are safe to find.
+    let (haystack, needle) = if lower.len() == text.len() && lower_needle.len() == needle.len() {
+        (lower.as_str(), lower_needle)
+    } else {
+        (text, needle.to_string())
+    };
+    let is_word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(at) = haystack[from..].find(&needle) {
+        let start = from + at;
+        let end = start + needle.len();
+        if !is_word(text[..start].chars().last()) && !is_word(text[end..].chars().next()) {
+            found.push((start, end));
+        }
+        from = end;
+    }
+    found
+}
+
+/// Does `text` hold `word` as a whole word, ignoring case?
+pub fn contains_word(text: &str, word: &str) -> bool {
+    !whole_matches(text, word).is_empty()
+}
+
 /// Replace whole-word occurrences of `wrong` in `text` with `right`. Used to
 /// correct a past dictation. Matches ignore case; a word inside a longer word
 /// is left alone.
 pub fn replace_word(text: &str, wrong: &str, right: &str) -> String {
-    let wrong = wrong.trim();
-    if wrong.is_empty() {
-        return text.to_string();
-    }
-    let lower = text.to_lowercase();
-    let needle = wrong.to_lowercase();
-    // Lower-casing can change byte lengths outside ASCII; then only exact
-    // matches are safe to find.
-    let (haystack, needle) = if lower.len() == text.len() && needle.len() == wrong.len() {
-        (lower.as_str(), needle)
-    } else {
-        (text, wrong.to_string())
-    };
-    let is_word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
     let mut out = String::with_capacity(text.len());
     let mut from = 0;
-    while let Some(found) = haystack[from..].find(&needle) {
-        let start = from + found;
-        let end = start + needle.len();
-        let before = text[..start].chars().last();
-        let after = text[end..].chars().next();
+    for (start, end) in whole_matches(text, wrong) {
         out.push_str(&text[from..start]);
-        if is_word(before) || is_word(after) {
-            out.push_str(&text[start..end]);
-        } else {
-            out.push_str(right);
-        }
+        out.push_str(right);
         from = end;
     }
     out.push_str(&text[from..]);
@@ -250,6 +267,9 @@ pub struct Suspect {
     pub heard: String,
     /// The user's word it may stand for: "Claude".
     pub word: String,
+    /// True when `heard` is an identifier said as its words: "fetch user
+    /// profile" for fetchUserProfile.
+    pub spoken: bool,
 }
 
 /// Lower-case words of a text, apostrophes dropped.
@@ -332,6 +352,37 @@ pub fn sounds_alike(heard: &str, word: &str) -> bool {
         && likeness(&heard, &word) >= 0.5
 }
 
+/// The words an identifier is spoken as: fetchUserProfile is "fetch user
+/// profile", user_id is "user id", GPT4 is "gpt 4".
+fn spoken_parts(identifier: &str) -> Vec<String> {
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut previous: Option<char> = None;
+    for c in identifier.chars() {
+        let boundary = match previous {
+            Some(p) => {
+                (p.is_lowercase() && c.is_uppercase())
+                    || (p.is_alphabetic() && c.is_ascii_digit())
+                    || (p.is_ascii_digit() && c.is_alphabetic())
+            }
+            None => false,
+        };
+        if !c.is_alphanumeric() || boundary {
+            if !current.is_empty() {
+                parts.push(std::mem::take(&mut current).to_lowercase());
+            }
+        }
+        if c.is_alphanumeric() {
+            current.push(c);
+        }
+        previous = Some(c);
+    }
+    if !current.is_empty() {
+        parts.push(current.to_lowercase());
+    }
+    parts
+}
+
 /// Where in `text` the speech model may have misheard one of `words`: a
 /// mishearing the user taught it, or something that sounds like the word
 /// without being it. Only a hint: the cleanup model decides from the
@@ -340,22 +391,29 @@ pub fn suspects(text: &str, words: &[Word]) -> Vec<Suspect> {
     const MOST: usize = 10;
     let said = plain_words(text);
     let mut found: Vec<Suspect> = Vec::new();
-    let mut note = |heard: String, word: &str| {
+    let mut note = |heard: String, word: &str, spoken: bool| {
         if found.len() < MOST && !found.iter().any(|s| s.heard == heard && s.word == word) {
-            found.push(Suspect { heard, word: word.to_string() });
+            found.push(Suspect { heard, word: word.to_string(), spoken });
         }
     };
     for entry in words {
         let own: Vec<String> = plain_words(&entry.word);
         // Already spelled right in this transcript: nothing to put right.
-        if !own.is_empty() && said.windows(own.len()).any(|run| run == own.as_slice()) {
+        if contains_word(text, &entry.word) {
             continue;
         }
         for heard in &entry.heard_as {
             let heard_words = plain_words(heard);
             if !heard_words.is_empty() && said.windows(heard_words.len()).any(|run| run == heard_words.as_slice()) {
-                note(heard.clone(), &entry.word);
+                note(heard.clone(), &entry.word, false);
             }
+        }
+        // An identifier said as the words it is made of.
+        let spoken = spoken_parts(&entry.word);
+        let identifier = entry.word.contains('_')
+            || entry.word.chars().collect::<Vec<_>>().windows(2).any(|p| p[0].is_lowercase() && p[1].is_uppercase());
+        if identifier && said.windows(spoken.len()).any(|run| run == spoken.as_slice()) {
+            note(spoken.join(" "), &entry.word, true);
         }
         // A word, or two run together ("pre a" for Priya), that sounds like
         // one of the word's own longer words.
@@ -363,7 +421,7 @@ pub fn suspects(text: &str, words: &[Word]) -> Vec<Suspect> {
             let length = part.chars().count();
             for (i, one) in said.iter().enumerate() {
                 if sounds_alike(one, part) {
-                    note(one.clone(), &entry.word);
+                    note(one.clone(), &entry.word, false);
                     continue;
                 }
                 // Two pieces about as long as the word itself, together.
@@ -371,7 +429,7 @@ pub fn suspects(text: &str, words: &[Word]) -> Vec<Suspect> {
                     let joined = format!("{one}{next}");
                     let close = joined.chars().count().abs_diff(length) <= 1;
                     if close && !sounds_alike(next, part) && sounds_alike(&joined, part) {
-                        note(format!("{one} {next}"), &entry.word);
+                        note(format!("{one} {next}"), &entry.word, false);
                     }
                 }
             }
@@ -445,6 +503,11 @@ mod tests {
             ("pre a".into(), "Priya".into()),
             ("cuban eats".into(), "Kubernetes".into()),
         ]);
+        // An identifier said as words.
+        let code = plain(&["fetchUserProfile", "user_id"]);
+        let said = |text: &str| -> Vec<String> { suspects(text, &code).into_iter().map(|s| s.heard).collect() };
+        assert_eq!(said("rename fetch user profile and user id"), ["fetch user profile", "user id"]);
+        assert!(said("call fetchUserProfile").is_empty());
         // Spelled right already, or only vaguely alike.
         assert!(heard("Ask Claude about the cloud bill.").is_empty());
         assert!(heard("It is cold and I could go.").is_empty());
