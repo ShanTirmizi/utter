@@ -574,7 +574,10 @@ async fn tidy_piece(text: &str, target: &AppContext, endpoint: &crate::providers
     if text.trim().is_empty() {
         return Some(String::new());
     }
-    if target.category != context::Category::Code && cleanup::already_clean(text) {
+    if target.category != context::Category::Code
+        && cleanup::already_clean(text)
+        && crate::words::suspects(text, terms).is_empty()
+    {
         return Some(text.to_string());
     }
     cleanup::run(text, target, endpoint, &Task::Tidy, terms).await.ok()
@@ -1064,8 +1067,13 @@ async fn improve(
         Mode::Tidy if !settings.cleanup_enabled => return untouched(None, None),
         // Nothing for a model to do: the speech model's text goes straight
         // in, a second or more sooner. Code editors still go to the model,
-        // which spells identifiers and commands exactly.
-        Mode::Tidy if target.category != context::Category::Code && cleanup::already_clean(raw) => {
+        // which spells identifiers and commands exactly, and so does anything
+        // that may have one of the user's words misheard in it.
+        Mode::Tidy
+            if target.category != context::Category::Code
+                && cleanup::already_clean(raw)
+                && crate::words::suspects(raw, &settings.dictionary).is_empty() =>
+        {
             return untouched(None, None);
         }
         Mode::Tidy => (Task::Tidy, "Cleanup"),

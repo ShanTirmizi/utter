@@ -229,6 +229,144 @@ pub fn replace_word(text: &str, wrong: &str, right: &str) -> String {
     out
 }
 
+/// A place in a transcript where the speech model may have misheard one of
+/// the user's words.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Suspect {
+    /// What the transcript says, lower case: "cloud".
+    pub heard: String,
+    /// The user's word it may stand for: "Claude".
+    pub word: String,
+}
+
+/// Lower-case words of a text, apostrophes dropped.
+fn plain_words(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .replace(['\'', '\u{2019}'], "")
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// A rough key for how an English word sounds (Soundex): the first letter,
+/// then digits for the consonant groups that follow. "Claude", "cloud" and
+/// "clawed" share one.
+fn sound_key(word: &str) -> String {
+    let code = |c: char| match c {
+        'b' | 'f' | 'p' | 'v' => '1',
+        'c' | 'g' | 'j' | 'k' | 'q' | 's' | 'x' | 'z' => '2',
+        'd' | 't' => '3',
+        'l' => '4',
+        'm' | 'n' => '5',
+        'r' => '6',
+        _ => '0',
+    };
+    let letters: Vec<char> = word.chars().filter(|c| c.is_ascii_alphabetic()).map(|c| c.to_ascii_lowercase()).collect();
+    let Some(&first) = letters.first() else { return String::new() };
+    let mut key = String::from(first.to_ascii_uppercase());
+    let mut last = code(first);
+    for &c in &letters[1..] {
+        let digit = code(c);
+        // H and W do not separate two of the same sound; vowels do.
+        if c == 'h' || c == 'w' {
+            continue;
+        }
+        if digit != '0' && digit != last {
+            key.push(digit);
+        }
+        last = digit;
+        if key.len() == 4 {
+            break;
+        }
+    }
+    while key.len() < 4 {
+        key.push('0');
+    }
+    key
+}
+
+/// How alike two words are in spelling, from 0 (nothing shared) to 1.
+fn likeness(a: &str, b: &str) -> f32 {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let longest = a.len().max(b.len());
+    if longest == 0 {
+        return 1.0;
+    }
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for i in 1..=a.len() {
+        let mut diagonal = row[0];
+        row[0] = i;
+        for j in 1..=b.len() {
+            let above = row[j];
+            row[j] = (row[j] + 1).min(row[j - 1] + 1).min(diagonal + usize::from(a[i - 1] != b[j - 1]));
+            diagonal = above;
+        }
+    }
+    1.0 - row[b.len()] as f32 / longest as f32
+}
+
+/// Do these two sound alike enough that one may have been misheard as the
+/// other? Both the sound and most of the spelling must match: "cloud" and
+/// "Claude" do; "cold" and "Claude" do not.
+pub fn sounds_alike(heard: &str, word: &str) -> bool {
+    let (heard, word) = (heard.to_lowercase(), word.to_lowercase());
+    heard != word
+        && heard.chars().count() >= 3
+        && word.chars().count() >= 4
+        && sound_key(&heard) == sound_key(&word)
+        && likeness(&heard, &word) >= 0.5
+}
+
+/// Where in `text` the speech model may have misheard one of `words`: a
+/// mishearing the user taught it, or something that sounds like the word
+/// without being it. Only a hint: the cleanup model decides from the
+/// sentence whether the user's word was meant.
+pub fn suspects(text: &str, words: &[Word]) -> Vec<Suspect> {
+    const MOST: usize = 10;
+    let said = plain_words(text);
+    let mut found: Vec<Suspect> = Vec::new();
+    let mut note = |heard: String, word: &str| {
+        if found.len() < MOST && !found.iter().any(|s| s.heard == heard && s.word == word) {
+            found.push(Suspect { heard, word: word.to_string() });
+        }
+    };
+    for entry in words {
+        let own: Vec<String> = plain_words(&entry.word);
+        // Already spelled right in this transcript: nothing to put right.
+        if !own.is_empty() && said.windows(own.len()).any(|run| run == own.as_slice()) {
+            continue;
+        }
+        for heard in &entry.heard_as {
+            let heard_words = plain_words(heard);
+            if !heard_words.is_empty() && said.windows(heard_words.len()).any(|run| run == heard_words.as_slice()) {
+                note(heard.clone(), &entry.word);
+            }
+        }
+        // A word, or two run together ("pre a" for Priya), that sounds like
+        // one of the word's own longer words.
+        for part in own.iter().filter(|p| p.chars().count() >= 4 && p.chars().all(|c| c.is_alphabetic())) {
+            let length = part.chars().count();
+            for (i, one) in said.iter().enumerate() {
+                if sounds_alike(one, part) {
+                    note(one.clone(), &entry.word);
+                    continue;
+                }
+                // Two pieces about as long as the word itself, together.
+                if let Some(next) = said.get(i + 1) {
+                    let joined = format!("{one}{next}");
+                    let close = joined.chars().count().abs_diff(length) <= 1;
+                    if close && !sounds_alike(next, part) && sounds_alike(&joined, part) {
+                        note(format!("{one} {next}"), &entry.word);
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,6 +416,33 @@ mod tests {
         let words = plain(&["Claude"]);
         let forgotten = vec!["claude".to_string(), "Zed ".to_string(), "zed".to_string()];
         assert_eq!(clean_forgotten(&forgotten, &words), ["zed"]);
+    }
+
+    #[test]
+    fn mishearings_and_sound_alikes_are_suspected() {
+        let mut words = plain(&["Claude", "Priya", "Kubernetes", "Q3 roadmap"]);
+        words[2].heard_as = vec!["cuban eats".into()];
+        let heard = |text: &str| -> Vec<(String, String)> {
+            suspects(text, &words).into_iter().map(|s| (s.heard, s.word)).collect()
+        };
+        assert_eq!(heard("Ask cloud to summarise this."), [("cloud".into(), "Claude".into())]);
+        assert_eq!(heard("It was clawed back."), [("clawed".into(), "Claude".into())]);
+        assert_eq!(heard("Ask pre a about the cuban eats migration."), [
+            ("pre a".into(), "Priya".into()),
+            ("cuban eats".into(), "Kubernetes".into()),
+        ]);
+        // Spelled right already, or only vaguely alike.
+        assert!(heard("Ask Claude about the cloud bill.").is_empty());
+        assert!(heard("It is cold and I could go.").is_empty());
+        assert!(heard("Nothing to see here.").is_empty());
+    }
+
+    #[test]
+    fn sound_keys_follow_soundex() {
+        assert_eq!(sound_key("Robert"), "R163");
+        assert_eq!(sound_key("Rupert"), "R163");
+        assert_eq!(sound_key("Ashcraft"), "A261");
+        assert_eq!(sound_key("Claude"), sound_key("cloud"));
     }
 
     #[test]

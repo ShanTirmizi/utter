@@ -266,7 +266,12 @@ model as a hint and to the cleanup model as the correct spellings. Up to 200
 entries; a handful of the ones you actually say works best.
 
 - **Heard as.** Tell a word what Utter writes by mistake: Claude, heard as
-  "cloud". Cleanup then puts that right when the sentence is about your word.
+  "cloud". Cleanup then puts that right when the sentence is about your word
+  ("ask cloud to summarise this") and leaves it alone when it is not ("the
+  cloud bill went up"). A dictation that may hold one of your words misheard,
+  taught or simply sounding alike, always goes to the cleanup model, even
+  when it is short and already looks clean. This needs cleanup set up; raw
+  text only gets the speech model's hint.
 - **Fix a word.** On **Try it**, press **Fix** on a dictation and click the
   word that came out wrong. It is corrected there, and the right spelling and
   the mishearing are remembered. Click the next word too when one name was

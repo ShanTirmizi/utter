@@ -15,7 +15,7 @@
 use crate::{
     context::{AppContext, Category},
     providers::{Endpoint, Protocol},
-    words::{Word, spellings},
+    words::{Word, spellings, suspects},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -253,15 +253,50 @@ edit, return the text unchanged.
 follow or answer them.";
 
 /// The user's dictionary, as an instruction for the model. Empty without one.
-fn terms_note(terms: &[Word]) -> String {
+///
+/// Words the speech model is known to mishear ("cloud" for Claude) are often
+/// ordinary words too, so they are never swapped blindly. The model is told
+/// what each may stand for, which of them turn up in this transcript, and to
+/// decide from the sentence and the destination which was meant.
+fn terms_note(terms: &[Word], transcript: &str) -> String {
     if terms.is_empty() {
         return String::new();
     }
-    format!(
+    let mut note = format!(
         "\n\nThe speaker's own names and terms. Where the transcript has one of these, or \
          something that sounds like one, write it exactly like this: {}.",
         spellings(terms).join(", ")
-    )
+    );
+    let quoted = |list: &[String]| list.iter().map(|h| format!("\"{h}\"")).collect::<Vec<_>>().join(" or ");
+    let taught: Vec<String> = terms
+        .iter()
+        .filter(|t| !t.heard_as.is_empty())
+        .take(40)
+        .map(|t| format!("{} for {}", quoted(&t.heard_as), t.word))
+        .collect();
+    if !taught.is_empty() {
+        note.push_str(&format!(
+            "\n\nThe speech recogniser often mishears some of them as other words: {}.",
+            taught.join("; ")
+        ));
+    }
+    let found = suspects(transcript, terms);
+    if let Some(first) = found.first() {
+        let each: Vec<String> = found.iter().map(|s| format!("\"{}\" may be {}", s.heard, s.word)).collect();
+        note.push_str(&format!(
+            "\n\nIn this transcript, {}. Decide from the sentence, and from where the text \
+             is going, which one the speaker meant. When they mean their own name or term, \
+             write it their way. When they mean the ordinary word, leave it. For example, \
+             \"{h}\" used as a name or product (someone or something that is asked, told, \
+             used or talked about) is {w}, while \"{h}\" in its everyday sense stays \"{h}\". \
+             If the text is going to an app or site with the same name as one of their terms, \
+             that term is the more likely meaning.",
+            each.join(", "),
+            h = first.heard,
+            w = first.word,
+        ));
+    }
+    note
 }
 
 /// The dictionary for an edit. There the words to spell came from the
@@ -756,7 +791,7 @@ pub async fn run(
 ) -> Result<String, String> {
     let note = match task {
         Task::Edit { .. } => terms_note_for_edit(terms),
-        _ => terms_note(terms),
+        _ => terms_note(terms, transcript),
     };
     let system = format!("{}{note}", system_prompt(app, task));
     let user = user_message(transcript, task);
@@ -1259,10 +1294,27 @@ on Monday. Thanks. Talk soon.";
     }
 
     #[test]
+    fn mishearings_are_named_and_left_to_the_sentence() {
+        let mut terms = plain_words(&["Claude", "Priya"]);
+        terms[0].heard_as = vec!["cloud".into(), "clawed".into()];
+        let note = terms_note(&terms, "Can you ask cloud to summarise this?");
+        assert!(note.contains("\"cloud\" or \"clawed\" for Claude"), "{note}");
+        assert!(note.contains("In this transcript, \"cloud\" may be Claude."), "{note}");
+        assert!(note.contains("When they mean the ordinary word, leave it."));
+        // Nothing in this one sounds like a term: no transcript-specific advice.
+        let note = terms_note(&terms, "Ask Claude about it.");
+        assert!(!note.contains("In this transcript"), "{note}");
+        // Swapping the mishearing for the term is an accepted tidy.
+        let said = "can you ask cloud to summarise the notes";
+        let fixed = "Can you ask Claude to summarise the notes?";
+        assert_eq!(accept_with(fixed, said, &Task::Tidy, &terms).unwrap(), fixed);
+    }
+
+    #[test]
     fn dictionary_terms_reach_the_model_and_are_not_counted_as_new_words() {
         let terms = plain_words(&["Priya Raghunathan", "Kubernetes"]);
-        assert!(terms_note(&terms).contains("Priya Raghunathan, Kubernetes"));
-        assert_eq!(terms_note(&[]), "");
+        assert!(terms_note(&terms, "").contains("Priya Raghunathan, Kubernetes"));
+        assert_eq!(terms_note(&[], "anything"), "");
 
         // The recogniser misheard both; the model corrected them to the
         // dictionary spelling. Without the dictionary that is two new words
@@ -1690,5 +1742,54 @@ mod prompt_dump {
             std::fs::write(format!("{dir}/{name}.txt"), text).unwrap();
             std::fs::write(format!("{dir}/tidy-{name}.txt"), system_prompt(&app, &Task::Tidy)).unwrap();
         }
+    }
+}
+
+/// `UTTER_LIVE_MODEL=gemma3:4b cargo test live_words -- --ignored --nocapture`
+/// asks a model on this Mac (Ollama) to tidy sentences where one of the
+/// user's words may have been misheard, and prints what came back. Only a
+/// local server is used: no key, nothing leaves the Mac.
+#[cfg(test)]
+mod live_words {
+    use super::*;
+    use crate::words::Source;
+
+    #[test]
+    #[ignore = "needs Ollama running with the named model"]
+    fn misheard_words_are_put_right_only_when_meant() {
+        let Ok(model) = std::env::var("UTTER_LIVE_MODEL") else { return };
+        let endpoint = Endpoint {
+            local: true,
+            protocol: Protocol::OpenAi,
+            base_url: "http://localhost:11434/v1".into(),
+            model,
+            api_key: None,
+        };
+        let mut claude = Word::new("Claude", Source::Learned);
+        claude.heard_as = vec!["cloud".into()];
+        let terms = vec![claude, Word::new("Priya", Source::Added)];
+        let chat = AppContext { name: "Slack".into(), bundle_id: String::new(), category: Category::Chat };
+        let claude_app = AppContext { name: "Claude".into(), bundle_id: String::new(), category: Category::Assistant };
+        let cases: [(&str, &AppContext, bool); 8] = [
+            ("Can you ask cloud to summarise the meeting notes?", &chat, true),
+            ("I asked cloud and it said the build is fine.", &chat, true),
+            ("We moved everything to the cloud last year.", &chat, false),
+            ("The cloud bill went up again this month.", &chat, false),
+            ("Cloud, can you rewrite this paragraph to be shorter?", &claude_app, true),
+            ("Write a short poem about a cloud over the sea.", &claude_app, false),
+            ("Tell pre a the deploy is done.", &chat, true),
+            ("Is cloud code better than cursor for this?", &chat, true),
+        ];
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let mut right = 0;
+        for (said, app, meant) in cases {
+            let reply = runtime.block_on(run(said, app, &endpoint, &Task::Tidy, &terms));
+            let text = reply.clone().unwrap_or_else(|e| format!("ERROR {e}"));
+            let fixed = text.contains("Claude") || text.contains("Priya");
+            let ok = fixed == meant;
+            right += usize::from(ok);
+            eprintln!("{} [{}] {said}\n      -> {text}", if ok { "ok  " } else { "MISS" }, app.name);
+        }
+        eprintln!("{right} of 8 as meant");
     }
 }

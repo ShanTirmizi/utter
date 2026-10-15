@@ -360,6 +360,17 @@ or from learning. Older settings files hold plain strings; they still load.
 Removed words go on a "forgotten" list so learning never brings them back,
 and adding one by hand takes it off that list again.
 
+A mishearing is usually a real word ("cloud"), so it is never replaced
+blindly. Before cleanup, `words::suspects` looks for places where one of the
+user's words may have been misheard: a taught mishearing, or a word (or two
+short ones run together, "pre a" for Priya) that shares its Soundex key with
+one of the user's words and at least half its spelling. Any hit sends the
+dictation to the cleanup model even when it would otherwise skip it as already
+clean, and the prompt names each suspect ("cloud" may be Claude) and asks the
+model to decide from the sentence and the destination. On a 4B local model
+this put eight test sentences right, including leaving "the cloud bill" alone
+(`cargo test live_words -- --ignored`, against Ollama).
+
 ## History
 
 Finished dictations are appended to one JSON file in the app's data folder,
