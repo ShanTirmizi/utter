@@ -36,6 +36,9 @@ enum Command {
     Prepare,
     Start(Sender<Result<(), String>>),
     Stop(Sender<Vec<f32>>),
+    /// The audio recorded so far from this position on (in the device's own
+    /// samples), at 16 kHz, and the position to ask from next time.
+    Peek(usize, Sender<(Vec<f32>, usize)>),
 }
 
 #[derive(Clone)]
@@ -84,6 +87,9 @@ impl Recorder {
                         Command::Stop(reply) => {
                             let _ = reply.send(stop(&mut ready));
                         }
+                        Command::Peek(from, reply) => {
+                            let _ = reply.send(peek(&ready, from));
+                        }
                     }
                 }
             })
@@ -113,6 +119,17 @@ impl Recorder {
         result
             .recv()
             .map_err(|_| "Recorder thread is gone.".to_string())?
+    }
+
+    /// While recording: the audio captured since `from` (a position this
+    /// returned last time, or 0), as 16 kHz samples, and where to ask from
+    /// next. Lets speech be transcribed while the user is still talking.
+    pub fn peek(&self, from: usize) -> (Vec<f32>, usize) {
+        let (reply, result) = mpsc::channel();
+        if self.commands.send(Command::Peek(from, reply)).is_err() {
+            return (Vec::new(), from);
+        }
+        result.recv().unwrap_or((Vec::new(), from))
     }
 
     /// Stop and return everything captured, as mono 16 kHz samples.
@@ -194,6 +211,18 @@ fn stop(ready: &mut Option<Ready>) -> Vec<f32> {
         *ready = None;
     }
     resample(&raw, rate, TARGET_RATE)
+}
+
+fn peek(ready: &Option<Ready>, from: usize) -> (Vec<f32>, usize) {
+    let Some(current) = ready.as_ref() else {
+        return (Vec::new(), from);
+    };
+    let (copied, end) = {
+        let samples = current.samples.lock().unwrap();
+        let from = from.min(samples.len());
+        (samples[from..].to_vec(), samples.len())
+    };
+    (resample(&copied, current.rate, TARGET_RATE), end)
 }
 
 fn open_stream(gauge: Arc<AtomicU32>, device_id: u32) -> Result<Ready, String> {

@@ -531,6 +531,42 @@ pub fn paragraphs(text: &str) -> String {
     out.join("\n\n")
 }
 
+/// Put back together a dictation that was tidied in pieces while the user
+/// talked. The pieces were cut at pauses, which are not always the ends of
+/// sentences, so they are rejoined into running text and then laid out in
+/// paragraphs the usual way. A piece the model laid out itself (a list, say)
+/// keeps its own lines and stands as a paragraph of its own.
+pub fn join_pieces(pieces: &[String]) -> String {
+    let mut blocks: Vec<String> = Vec::new();
+    let mut running: Vec<String> = Vec::new();
+    let flush = |running: &mut Vec<String>, blocks: &mut Vec<String>| {
+        if !running.is_empty() {
+            blocks.push(paragraphs(&running.join(" ")));
+            running.clear();
+        }
+    };
+    // A list is a layout worth keeping; a paragraph break the model put
+    // inside a few seconds of speech is not, and is laid out again below.
+    let is_list = |piece: &str| {
+        piece.lines().any(|line| {
+            let line = line.trim_start();
+            line.starts_with("- ")
+                || line.starts_with("• ")
+                || line.split_once(". ").is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        })
+    };
+    for piece in pieces.iter().map(|p| p.trim()).filter(|p| !p.is_empty()) {
+        if is_list(piece) {
+            flush(&mut running, &mut blocks);
+            blocks.push(piece.to_string());
+        } else {
+            running.push(piece.split_whitespace().collect::<Vec<_>>().join(" "));
+        }
+    }
+    flush(&mut running, &mut blocks);
+    blocks.join("\n\n")
+}
+
 /// Split text into sentences, keeping their punctuation. A full stop after
 /// an abbreviation, an initial or inside a number does not end a sentence.
 fn sentences(text: &str) -> Vec<&str> {
@@ -745,12 +781,52 @@ pub async fn warm_up(endpoint: &Endpoint) {
     let Some(root) = endpoint.base_url.strip_suffix("/v1") else {
         return;
     };
+    // Loading a 4B model takes seconds; Ollama unloads an idle one after five
+    // minutes. Ask it to keep this one for an hour instead. Every dictation
+    // calls this again afterwards, since the request itself resets the clock.
     let _ = reqwest::Client::new()
         .post(format!("{root}/api/generate"))
         .timeout(Duration::from_secs(30))
-        .json(&json!({ "model": endpoint.model }))
+        .json(&json!({ "model": endpoint.model, "keep_alive": KEEP_LOADED }))
         .send()
         .await;
+}
+
+/// How long Ollama keeps the cleanup model in memory after it was last used.
+const KEEP_LOADED: &str = "60m";
+
+/// Words that mean a transcript needs more than punctuation: fillers, false
+/// starts, spoken corrections and spoken formatting commands.
+const NEEDS_WORK: &[&str] = &[
+    "um", "uh", "uhm", "er", "erm", "ah", "hmm", "mm", "like", "basically", "literally", "actually",
+    "you know", "i mean", "sort of", "kind of", "no wait", "wait no", "sorry", "scratch that",
+    "or rather", "new line", "new paragraph", "bullet point", "full stop", "period", "comma",
+    "question mark", "snake case", "camel case", "kebab case", "all caps",
+];
+
+/// Can this transcript go in exactly as the speech model wrote it? The speech
+/// model already punctuates and capitalises; a short dictation with nothing
+/// to remove reads the same after cleanup, so asking a model would only add
+/// seconds. Longer ones go to the model regardless, for paragraphs and style.
+pub fn already_clean(transcript: &str) -> bool {
+    const MAX_WORDS: usize = 30;
+    let text = transcript.trim();
+    let said = words(text);
+    if said.is_empty() || said.len() > MAX_WORDS {
+        return false;
+    }
+    // Starts like a sentence and ends like one.
+    let starts_well = text.chars().next().is_some_and(|c| c.is_uppercase() || c.is_ascii_digit());
+    let ends_well = text.ends_with(['.', '?', '!']);
+    if !starts_well || !ends_well {
+        return false;
+    }
+    // A stutter or repeat ("the the").
+    if said.windows(2).any(|pair| pair[0] == pair[1]) {
+        return false;
+    }
+    let spaced = format!(" {} ", said.join(" "));
+    !NEEDS_WORK.iter().any(|phrase| spaced.contains(&format!(" {phrase} ")))
 }
 
 /// Ask the provider which models the key can use, for the model picker.
@@ -1009,6 +1085,38 @@ mod tests {
         let said = "ask priya about the deploy before the review on friday please";
         let recited = "Ask Priya about the deploy before the review on Friday, please. Kubernetes, Terraform, Grafana, Datadog.";
         assert!(accept_with(recited, said, &Task::Tidy, &terms).is_err());
+    }
+
+    #[test]
+    fn pieces_tidied_separately_read_as_one_text() {
+        let pieces = vec![
+            "We are currently 14% over on compute.\n\nIt adds up.".to_string(),
+            "Mostly because staging has been running at full size since March. Nobody asked for that.".to_string(),
+            "I would like Priya to scale it down by the end of this week.".to_string(),
+            "Things to do:\n- one\n- two".to_string(),
+            "That's all.".to_string(),
+        ];
+        let joined = join_pieces(&pieces);
+        // A pause mid-sentence does not leave a paragraph break behind.
+        assert!(joined.contains("compute. It adds up. Mostly because"), "{joined}");
+        // A piece with its own layout keeps it, as its own paragraph.
+        assert!(joined.contains("\n\nThings to do:\n- one\n- two\n\nThat's all."), "{joined}");
+        assert_eq!(join_pieces(&[]), "");
+    }
+
+    #[test]
+    fn clean_short_dictations_skip_the_model() {
+        assert!(already_clean("Can you send me the budget spreadsheet before Wednesday?"));
+        assert!(already_clean("Sounds good, see you at three."));
+        // Fillers, repeats, corrections and spoken commands need the model.
+        assert!(!already_clean("Um, can you send me the spreadsheet?"));
+        assert!(!already_clean("Can you send me the the spreadsheet?"));
+        assert!(!already_clean("Meet at five, no wait, six."));
+        assert!(!already_clean("Dear Sam new paragraph thanks for this."));
+        assert!(!already_clean("It was, like, really good."));
+        // Not finished like a sentence, or too long to judge cheaply.
+        assert!(!already_clean("so I was thinking"));
+        assert!(!already_clean(&format!("{}.", "Word ".repeat(40).trim())));
     }
 
     #[test]
@@ -1524,6 +1632,7 @@ mod prompt_dump {
             let app = AppContext { name: name.into(), bundle_id: String::new(), category };
             let text = system_prompt(&app, &rewrite_task("friendly", ""));
             std::fs::write(format!("{dir}/{name}.txt"), text).unwrap();
+            std::fs::write(format!("{dir}/tidy-{name}.txt"), system_prompt(&app, &Task::Tidy)).unwrap();
         }
     }
 }

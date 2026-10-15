@@ -44,7 +44,10 @@ flowchart LR
    dictate and rewrite. Change either in settings.
 2. **Record.** Utter listens only while you are dictating. A double tap
    instead of a hold starts a hands-free recording that runs until the next tap.
-3. **Transcribe.** A Whisper model runs on your Mac, using the GPU through Metal.
+3. **Transcribe.** A Whisper model runs on your Mac, using the GPU through
+   Metal. It starts while you are still talking: each finished stretch of
+   speech is transcribed (and tidied) at the next pause, so when you let go
+   only the last few seconds are left.
 4. **Clean up (optional).** The transcript goes to the model you chose, with a
    prompt that removes filler words, fixes punctuation, splits a long dictation
    into short paragraphs, and matches the app you are typing in. With the rewrite hotkey, the prompt asks for better wording
@@ -273,6 +276,26 @@ under "Why macOS objects to the download".
 - **History:** never. It is a file on your Mac.
 - **Speech models:** downloaded once from Hugging Face, on request.
 - Utter has no account, no analytics and no telemetry.
+
+## Speed
+
+Most of the wait after you let go used to be the language model. Utter now:
+
+- **Works while you talk.** At each clear pause, the speech so far is
+  transcribed and, for the dictation hotkey, tidied. When you let go, only
+  the last stretch is left: a 95-second dictation is typed about 0.3 s after
+  release in testing on an M1 Pro, against 17 s before.
+- **Skips the model when there is nothing to fix.** A short dictation the
+  speech model already wrote cleanly (no ums, repeats or "no wait") goes in
+  as it is.
+- **Keeps a local model loaded.** Ollama unloads a model after five minutes
+  idle, and loading a 4B model back takes seconds. Utter asks it to keep the
+  model for an hour.
+
+How fast the rest is depends on the model. A small model on your Mac writes
+about 30 words a second, so a long reply still takes a few seconds when it
+has to be done at the end. A hosted model such as Groq's is many times
+faster.
 
 ## Long dictations
 

@@ -192,6 +192,35 @@ pub fn split_at_pauses(samples: &[f32]) -> Vec<&[f32]> {
     pieces
 }
 
+/// Where, in audio still being recorded, a finished stretch of speech can be
+/// cut off and transcribed early: the middle of a clear pause that is well
+/// behind the live edge, with enough speech before it to be worth it. `None`
+/// when there is no such pause yet.
+pub fn settled_cut(samples: &[f32]) -> Option<usize> {
+    const RATE: usize = TARGET_RATE as usize;
+    const FRAME: usize = RATE * 45 / 100; // a 450 ms pause: usually between sentences
+    const STEP: usize = RATE / 20; // looked for every 50 ms
+    const MIN_SPEECH: usize = RATE * 6; // at least 6 s before the cut
+    const BEHIND_EDGE: usize = RATE; // at least 1 s behind what is being said now
+    if samples.len() < MIN_SPEECH + FRAME + BEHIND_EDGE {
+        return None;
+    }
+    let rms = |part: &[f32]| (part.iter().map(|s| s * s).sum::<f32>() / part.len().max(1) as f32).sqrt();
+    let overall = rms(samples);
+    if overall < PIECE_SILENCE_PEAK {
+        return None;
+    }
+    // The latest quiet frame, searching back from the live edge.
+    let mut start = samples.len() - BEHIND_EDGE - FRAME;
+    while start >= MIN_SPEECH {
+        if rms(&samples[start..start + FRAME]) < overall * 0.2 {
+            return Some(start + FRAME / 2);
+        }
+        start = start.checked_sub(STEP)?;
+    }
+    None
+}
+
 /// A final piece shorter than this is merged into the one before it.
 const LAST_PIECE_MIN: usize = TARGET_RATE as usize * 2;
 
@@ -281,6 +310,30 @@ pub fn tidy(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn early_cuts_fall_in_a_settled_pause() {
+        let rate = TARGET_RATE as usize;
+        let tone = |seconds: f32| -> Vec<f32> {
+            (0..(seconds * rate as f32) as usize).map(|i| 0.2 * ((i as f32) * 0.05).sin()).collect()
+        };
+        let quiet = |seconds: f32| vec![0.0_f32; (seconds * rate as f32) as usize];
+        // Speech, a pause, speech still going: cut in the pause.
+        let mut audio = tone(7.0);
+        audio.extend(quiet(0.6));
+        audio.extend(tone(2.0));
+        let cut = settled_cut(&audio).expect("a pause after 7 s of speech");
+        assert!(cut > 7 * rate && cut < 7 * rate + rate * 6 / 10, "{cut}");
+        // Too little speech yet, or the only pause is at the live edge.
+        let mut short = tone(3.0);
+        short.extend(quiet(0.6));
+        short.extend(tone(2.0));
+        assert_eq!(settled_cut(&short), None);
+        let mut edge = tone(8.0);
+        edge.extend(quiet(0.5));
+        assert_eq!(settled_cut(&edge), None);
+        assert_eq!(settled_cut(&quiet(10.0)), None);
+    }
 
     #[test]
     fn the_glossary_coming_back_is_not_a_dictation() {

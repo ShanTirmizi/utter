@@ -105,6 +105,12 @@ pub struct Update {
 pub struct Pipeline {
     recorder: Recorder,
     transcriber: Arc<Transcriber>,
+    /// Speech from the recording under way that was already transcribed
+    /// while the user kept talking.
+    early: Mutex<Early>,
+    /// Held while an early piece is being transcribed, so the end of the
+    /// dictation waits for it instead of starting over.
+    early_busy: tokio::sync::Mutex<()>,
     phase: Mutex<Phase>,
     /// Which hotkey started the current dictation.
     mode: Mutex<Mode>,
@@ -152,6 +158,8 @@ impl Pipeline {
         Self {
             recorder: Recorder::spawn(),
             transcriber: Arc::new(Transcriber::default()),
+            early: Mutex::new(Early::default()),
+            early_busy: tokio::sync::Mutex::new(()),
             phase: Mutex::new(Phase::Idle),
             mode: Mutex::new(Mode::Tidy),
             recording_id: AtomicU64::new(0),
@@ -389,6 +397,7 @@ pub fn on_press(app: &AppHandle, mode: Mode) {
             let id = pipeline.recording_id.fetch_add(1, Ordering::SeqCst) + 1;
             abandon_if_never_released(app, id);
             report_level(app, id);
+            transcribe_while_speaking(app, id);
             *pipeline.ready_at.lock().unwrap() = Some(Instant::now());
         }
         Err(e) => emit(app, "error", Some(e), None),
@@ -524,6 +533,134 @@ pub fn cancel(app: &AppHandle) {
     emit(app, "idle", Some(String::new()), None);
 }
 
+/// The part of a recording transcribed before it ended.
+#[derive(Default)]
+struct Early {
+    /// Which recording this belongs to; 0 for none.
+    id: u64,
+    /// The audio so far, at 16 kHz.
+    audio: Vec<f32>,
+    /// Where to ask the recorder for more from.
+    offset: usize,
+    /// How much of `audio` has been transcribed.
+    done: usize,
+    /// What it said, piece by piece.
+    texts: Vec<String>,
+    /// Each piece tidied too, when cleanup is on: `None` if that failed.
+    cleaned: Vec<Option<String>>,
+}
+
+/// Tidy one finished stretch of a dictation. Short, clean speech goes
+/// through as it is, the same as for a whole dictation.
+async fn tidy_piece(text: &str, target: &AppContext, endpoint: &crate::providers::Endpoint, terms: &[String]) -> Option<String> {
+    if text.trim().is_empty() {
+        return Some(String::new());
+    }
+    if target.category != context::Category::Code && cleanup::already_clean(text) {
+        return Some(text.to_string());
+    }
+    cleanup::run(text, target, endpoint, &Task::Tidy, terms).await.ok()
+}
+
+/// How often the recording under way is checked for speech that can be
+/// transcribed already.
+const EARLY_EVERY: Duration = Duration::from_millis(1500);
+
+/// While the user is still talking, transcribe what they have finished
+/// saying, a sentence or two at a time, cut at clear pauses. When they let go
+/// only the last stretch is left, so a long dictation is ready about as fast
+/// as a short one.
+fn transcribe_while_speaking(app: &AppHandle, id: u64) {
+    let app = app.clone();
+    *app.state::<Pipeline>().early.lock().unwrap() = Early { id, ..Early::default() };
+    tauri::async_runtime::spawn(async move {
+        let settings = settings::load(&app);
+        let name = settings.model.clone();
+        let Ok(path) = models::path(&app, &name) else { return };
+        if !models::is_downloaded(&app, &name) {
+            return;
+        }
+        let terms = settings.dictionary.clone();
+        // Each finished stretch is tidied as well, so that only the last one
+        // waits for the model when the key comes up. Rewriting needs the
+        // whole thing at once, so this is for the dictation hotkey only.
+        let mode = *app.state::<Pipeline>().mode.lock().unwrap();
+        let endpoint = if mode == Mode::Tidy && settings.cleanup_enabled {
+            let lookup = settings.clone();
+            tauri::async_runtime::spawn_blocking(move || providers::resolve(&lookup)).await.ok().and_then(Result::ok)
+        } else {
+            None
+        };
+        // In a browser, the site decides the style; find it once, now.
+        if endpoint.is_some() && permissions::accessibility() {
+            let pressed_in = app.state::<Pipeline>().target.lock().unwrap().clone();
+            if context::is_browser(&pressed_in.bundle_id) {
+                let page = tauri::async_runtime::spawn_blocking(selection::focused_page).await.unwrap_or_default();
+                if let Some((site, category)) = context::site(page.url.as_deref(), page.title.as_deref()) {
+                    let pipeline = app.state::<Pipeline>();
+                    let mut target = pipeline.target.lock().unwrap();
+                    target.name = site.to_string();
+                    target.category = category;
+                }
+            }
+        }
+        loop {
+            tokio::time::sleep(EARLY_EVERY).await;
+            let pipeline = app.state::<Pipeline>();
+            let recording = *pipeline.phase.lock().unwrap() == Phase::Recording
+                && pipeline.recording_id.load(Ordering::SeqCst) == id;
+            if !recording {
+                break;
+            }
+            let offset = pipeline.early.lock().unwrap().offset;
+            let recorder = pipeline.recorder.clone();
+            let Ok((chunk, next)) = tauri::async_runtime::spawn_blocking(move || recorder.peek(offset)).await else {
+                break;
+            };
+            let piece = {
+                let mut early = pipeline.early.lock().unwrap();
+                if early.id != id {
+                    break;
+                }
+                early.audio.extend(chunk);
+                early.offset = next;
+                let done = early.done;
+                crate::transcribe::settled_cut(&early.audio[done..]).map(|cut| (done, early.audio[done..done + cut].to_vec()))
+            };
+            let Some((done, piece)) = piece else { continue };
+            let length = piece.len();
+            let _busy = pipeline.early_busy.lock().await;
+            if pipeline.early.lock().unwrap().id != id {
+                break;
+            }
+            let (transcriber, name, path, piece_terms) = (pipeline.transcriber.clone(), name.clone(), path.clone(), terms.clone());
+            let text = tauri::async_runtime::spawn_blocking(move || {
+                transcriber.transcribe_with(&name, &path, &piece, models::language(&name), &piece_terms)
+            })
+            .await;
+            // A piece that fails is simply left for the end.
+            let Ok(Ok(text)) = text else { continue };
+            let cleaned = match &endpoint {
+                Some(endpoint) => {
+                    let target = pipeline.target.lock().unwrap().clone();
+                    Some(tidy_piece(&text, &target, endpoint, &terms).await)
+                }
+                None => None,
+            };
+            let mut early = pipeline.early.lock().unwrap();
+            if early.id == id && early.done == done {
+                early.texts.push(text);
+                if let Some(cleaned) = cleaned {
+                    early.cleaned.push(cleaned);
+                }
+                early.done = done + length;
+                #[cfg(debug_assertions)]
+                eprintln!("[pipeline] transcribed {:.1} s while the user kept talking", length as f32 / TARGET_RATE as f32);
+            }
+        }
+    });
+}
+
 /// How the finished text reaches the user.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Delivery {
@@ -611,11 +748,33 @@ async fn process(
     .then(|| tauri::async_runtime::spawn_blocking(selection::focused_page));
 
     let started = Instant::now();
-    let raw = tauri::async_runtime::spawn_blocking(move || {
-        transcriber.transcribe_with(&name, &path, &samples, models::language(&name), &terms)
+    // Whatever was transcribed while the user was still talking is used as
+    // it is; only the rest is transcribed now. Wait for a piece in progress.
+    let early = {
+        let pipeline = app.state::<Pipeline>();
+        let _busy = pipeline.early_busy.lock().await;
+        let id = pipeline.recording_id.load(Ordering::SeqCst);
+        let mut early = pipeline.early.lock().unwrap();
+        let replayed = cfg!(debug_assertions) && std::env::var_os("UTTER_SIMULATE_LIVE").is_some();
+        let mine = early.id == id && (delivery != Delivery::ClipboardOnly || replayed);
+        let taken = std::mem::take(&mut *early);
+        if mine { taken } else { Early::default() }
+    };
+    let rest_from = early.done.min(samples.len());
+    let early_texts = early.texts.clone();
+    let early_cleaned = early.cleaned;
+    let rest = tauri::async_runtime::spawn_blocking(move || {
+        transcriber.transcribe_with(&name, &path, &samples[rest_from..], models::language(&name), &terms)
     })
     .await
     .map_err(|e| e.to_string())??;
+    let rest_raw = rest.clone();
+    let raw = if early.texts.is_empty() {
+        rest
+    } else {
+        let joined = format!("{} {}", early.texts.join(" "), rest);
+        crate::transcribe::collapse_repeats(joined.trim())
+    };
     let transcribe_ms = started.elapsed().as_millis() as u64;
 
     if raw.is_empty() {
@@ -679,7 +838,29 @@ async fn process(
         }
     }
 
-    let mut tidied = improve(app, &raw, &target, &settings, mode).await;
+    // Pieces tidied while the user talked are used as they are, one
+    // paragraph each, and only the rest is tidied now. If any piece could not
+    // be tidied, the whole dictation is tidied in one go instead.
+    let all_tidied = mode == Mode::Tidy
+        && !early_texts.is_empty()
+        && early_cleaned.len() == early_texts.len()
+        && early_cleaned.iter().all(Option::is_some);
+    let mut tidied = if all_tidied {
+        let mut parts: Vec<String> = early_cleaned.into_iter().flatten().collect();
+        let mut rest = Tidied { text: String::new(), cleaned: false, note: None, ms: None };
+        if !rest_raw.trim().is_empty() {
+            rest = improve(app, &rest_raw, &target, &settings, mode).await;
+            parts.push(rest.text);
+        }
+        Tidied {
+            text: cleanup::join_pieces(&parts),
+            cleaned: true,
+            note: rest.note,
+            ms: Some(rest.ms.unwrap_or(0)),
+        }
+    } else {
+        improve(app, &raw, &target, &settings, mode).await
+    };
     // However it was produced, a long dictation never goes in as one block,
     // except where line breaks have meaning of their own: code and terminals.
     if target.category != context::Category::Code {
@@ -862,6 +1043,12 @@ async fn improve(
     // explicit request, so it always tries.
     let (task, what) = match mode {
         Mode::Tidy if !settings.cleanup_enabled => return untouched(None, None),
+        // Nothing for a model to do: the speech model's text goes straight
+        // in, a second or more sooner. Code editors still go to the model,
+        // which spells identifiers and commands exactly.
+        Mode::Tidy if target.category != context::Category::Code && cleanup::already_clean(raw) => {
+            return untouched(None, None);
+        }
         Mode::Tidy => (Task::Tidy, "Cleanup"),
         Mode::Rewrite => (
             cleanup::rewrite_task(&settings.rewrite_style, &settings.rewrite_prompt),
@@ -895,6 +1082,11 @@ async fn improve(
     let started = Instant::now();
     let result = cleanup::run(raw, target, &endpoint, &task, &settings.dictionary).await;
     let ms = Some(started.elapsed().as_millis() as u64);
+    if endpoint.local {
+        // Keep the model loaded for the next dictation (see `warm_up`).
+        let endpoint = endpoint.clone();
+        tauri::async_runtime::spawn(async move { cleanup::warm_up(&endpoint).await });
+    }
     match result {
         Ok(text) => Tidied {
             text,
@@ -1025,9 +1217,63 @@ pub fn simulate(app: &AppHandle, samples: Vec<f32>, mode: Mode, selected: Option
     *pipeline.target.lock().unwrap() = target;
     emit(app, "recording", None, None);
     warm_local_model(app, mode);
+    // `UTTER_SIMULATE_LIVE=1`: replay the recording as if it were arriving
+    // live, transcribing early pieces the way a real dictation would, so the
+    // stitched result can be compared with transcribing it whole.
+    if std::env::var_os("UTTER_SIMULATE_LIVE").is_some() {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let id = app.state::<Pipeline>().recording_id.fetch_add(1, Ordering::SeqCst) + 1;
+            let for_replay = samples.clone();
+            let replayer = app.clone();
+            let _ = tauri::async_runtime::spawn_blocking(move || replay_early(&replayer, id, &for_replay)).await;
+            emit_stage(&app, "transcribing");
+            finish(app.clone(), samples, Delivery::ClipboardOnly);
+        });
+        return true;
+    }
     emit_stage(app, "transcribing");
     finish(app.clone(), samples, Delivery::ClipboardOnly);
     true
+}
+
+/// The early transcription of `transcribe_while_speaking`, run over a whole
+/// recording as though it arrived 1.5 seconds at a time.
+#[cfg(debug_assertions)]
+fn replay_early(app: &AppHandle, id: u64, samples: &[f32]) {
+    let pipeline = app.state::<Pipeline>();
+    let settings = settings::load(app);
+    let Ok(path) = models::path(app, &settings.model) else { return };
+    let mut early = Early { id, ..Early::default() };
+    let step = EARLY_EVERY.as_millis() as usize * TARGET_RATE as usize / 1000;
+    let mut end = 0;
+    while end < samples.len() {
+        end = (end + step).min(samples.len());
+        early.audio = samples[..end].to_vec();
+        if let Some(cut) = crate::transcribe::settled_cut(&early.audio[early.done..]) {
+            let piece = &early.audio[early.done..early.done + cut];
+            if let Ok(text) = pipeline.transcriber.transcribe_with(
+                &settings.model,
+                &path,
+                piece,
+                models::language(&settings.model),
+                &settings.dictionary,
+            ) {
+                eprintln!("[pipeline] early piece {:.1} s: {text}", cut as f32 / TARGET_RATE as f32);
+                // Tidied as a live dictation would be, on a runtime of its own.
+                if settings.cleanup_enabled && *pipeline.mode.lock().unwrap() == Mode::Tidy {
+                    if let Ok(endpoint) = providers::resolve(&settings) {
+                        let target = pipeline.target.lock().unwrap().clone();
+                        let cleaned = tauri::async_runtime::block_on(tidy_piece(&text, &target, &endpoint, &settings.dictionary));
+                        early.cleaned.push(cleaned);
+                    }
+                }
+                early.texts.push(text);
+                early.done += cut;
+            }
+        }
+    }
+    *pipeline.early.lock().unwrap() = early;
 }
 
 /// True while a dictation is being recorded or processed.

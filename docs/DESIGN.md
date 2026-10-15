@@ -184,6 +184,28 @@ it can find between 12 and 27 seconds, which in speech is a pause, and
 transcribes each piece as its own short dictation. On a 95-second test
 monologue this recovered 97.7% of the words.
 
+### Working while the user talks
+
+A dictation used to start being processed when the key came up, so the wait
+grew with its length: a 95-second dictation took 2.7 s to transcribe and 17 s
+to tidy with a 4B model on an M1 Pro. Now, every 1.5 s while recording, the
+audio so far is checked for a clear pause (450 ms, at least 6 s of speech
+before it, at least 1 s behind the live edge). Everything up to that pause is
+transcribed and, for the dictation hotkey, tidied in the background. When the
+key comes up, only the rest is. The pieces of text are rejoined into running
+prose (the model's own paragraph breaks inside a few seconds of speech are
+dropped; lists are kept) and laid out in paragraphs once. In testing the
+95-second dictation was typed 0.3 s after release, with the same words as
+transcribing it whole (99.7% identical).
+
+The rewrite hotkey still sends the whole dictation to the model at the end,
+because rewriting needs all of it. A short dictation the speech model wrote
+cleanly skips the model altogether (`cleanup::already_clean`). A local model
+is asked to stay loaded for an hour.
+
+`UTTER_SIMULATE_LIVE=1` replays a simulated recording as if it were arriving
+live, to compare against transcribing it whole.
+
 ### Local models
 
 With Ollama, Utter asks the server to load the model as soon as the key goes
