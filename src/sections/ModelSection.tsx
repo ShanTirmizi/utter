@@ -1,7 +1,6 @@
 import { selectedModel } from "../readiness";
 import { shortName, useApp } from "../state";
 import { IconCheck, Notice, WaveProgress } from "../ui";
-import DictionaryCard from "./DictionaryCard";
 
 export default function ModelSection() {
   const app = useApp();
@@ -43,7 +42,13 @@ export default function ModelSection() {
         next dictation.
       </p>
 
-      <DictionaryCard />
+      <p className="foot">
+        Names and jargon it gets wrong? Teach it under{" "}
+        <button className="link" onClick={() => app.setTab("words")}>
+          Words
+        </button>
+        .
+      </p>
     </>
   );
 }

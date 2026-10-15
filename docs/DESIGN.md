@@ -354,6 +354,12 @@ transcript did not contain. The list is capped (200 entries, and a character
 budget for the speech prompt) because a long prompt slows transcription and a
 huge glossary starts to be heard where it was not said.
 
+Each word may also carry what the speech model wrote instead ("heard as"),
+lower case. Those come from the user, from fixing a word in a past dictation,
+or from learning. Older settings files hold plain strings; they still load.
+Removed words go on a "forgotten" list so learning never brings them back,
+and adding one by hand takes it off that list again.
+
 ## History
 
 Finished dictations are appended to one JSON file in the app's data folder,

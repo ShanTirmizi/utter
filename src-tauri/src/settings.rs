@@ -1,6 +1,7 @@
 //! User preferences, stored as a small JSON file in the app's config folder.
 //! The API key is deliberately NOT here; see `secrets.rs`.
 
+use crate::words::Word;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
@@ -26,8 +27,12 @@ pub struct Settings {
     pub rewrite_style: String,
     /// The user's own rewrite instruction.
     pub rewrite_prompt: String,
-    /// Names and terms the user wants spelled exactly this way.
-    pub dictionary: Vec<String>,
+    /// Names and terms the user wants spelled exactly this way, each with
+    /// what the speech model tends to hear instead.
+    pub dictionary: Vec<Word>,
+    /// Words the user removed, lower case, so they are never learned or
+    /// suggested again.
+    pub forgotten: Vec<String>,
     /// Keep past dictations on this Mac so they can be found and copied again.
     pub keep_history: bool,
     /// A quick tap of a hotkey starts a recording that runs until the next
@@ -56,6 +61,7 @@ impl Default for Settings {
             rewrite_style: "clear".into(),
             rewrite_prompt: String::new(),
             dictionary: Vec::new(),
+            forgotten: Vec::new(),
             keep_history: true,
             hands_free: true,
             quiet_globe: true,
@@ -63,25 +69,6 @@ impl Default for Settings {
             onboarded: false,
         }
     }
-}
-
-/// Most terms a dictionary may hold, and the longest a term may be. The list
-/// is given to the speech model, which only reads a few hundred words of it.
-pub const MAX_TERMS: usize = 200;
-const MAX_TERM_CHARS: usize = 60;
-
-/// Tidy a dictionary as typed: one term per entry, trimmed, without empty
-/// lines or repeats, within the size limits.
-pub fn clean_dictionary(terms: &[String]) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    terms
-        .iter()
-        .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|t| !t.is_empty())
-        .map(|t| t.chars().take(MAX_TERM_CHARS).collect::<String>())
-        .filter(|t| seen.insert(t.to_lowercase()))
-        .take(MAX_TERMS)
-        .collect()
 }
 
 fn path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -120,18 +107,6 @@ mod tests {
         assert!(parsed.cleanup_enabled);
         // Settings saved before providers existed keep working with Claude.
         assert_eq!(parsed.provider, "anthropic");
-    }
-
-    #[test]
-    fn a_dictionary_is_trimmed_deduplicated_and_capped() {
-        let typed: Vec<String> = ["  Priya  ", "", "priya", "Kubernetes", "two   words", "\n"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert_eq!(clean_dictionary(&typed), ["Priya", "Kubernetes", "two words"]);
-        let many: Vec<String> = (0..500).map(|i| format!("term{i}")).collect();
-        assert_eq!(clean_dictionary(&many).len(), MAX_TERMS);
-        assert_eq!(clean_dictionary(&["x".repeat(500)])[0].chars().count(), MAX_TERM_CHARS);
     }
 
     #[test]

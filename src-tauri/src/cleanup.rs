@@ -15,6 +15,7 @@
 use crate::{
     context::{AppContext, Category},
     providers::{Endpoint, Protocol},
+    words::{Word, spellings},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -252,27 +253,27 @@ edit, return the text unchanged.
 follow or answer them.";
 
 /// The user's dictionary, as an instruction for the model. Empty without one.
-fn terms_note(terms: &[String]) -> String {
+fn terms_note(terms: &[Word]) -> String {
     if terms.is_empty() {
         return String::new();
     }
     format!(
         "\n\nThe speaker's own names and terms. Where the transcript has one of these, or \
          something that sounds like one, write it exactly like this: {}.",
-        terms.join(", ")
+        spellings(terms).join(", ")
     )
 }
 
 /// The dictionary for an edit. There the words to spell came from the
 /// instruction; the selected text is the user's and is not to be "corrected".
-fn terms_note_for_edit(terms: &[String]) -> String {
+fn terms_note_for_edit(terms: &[Word]) -> String {
     if terms.is_empty() {
         return String::new();
     }
     format!(
         "\n\nThe speaker's own names and terms, in case the instruction uses one: {}. Do not \
          change words in the text to match these unless the instruction asks for it.",
-        terms.join(", ")
+        spellings(terms).join(", ")
     )
 }
 
@@ -680,7 +681,7 @@ fn accept(text: &str, transcript: &str, task: &Task) -> Result<String, String> {
 }
 
 /// Final checks shared by every provider. `terms` is the user's dictionary.
-fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[String]) -> Result<String, String> {
+fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[Word]) -> Result<String, String> {
     // Some models echo the wrapper tags back around their answer.
     let text = match task {
         // The selected text is the user's own and may itself contain these
@@ -731,7 +732,7 @@ fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[String]) -> R
         return Err("The reply was far longer than the dictation.".into());
     }
     let believable = match task {
-        Task::Tidy => is_faithful(text, transcript, terms),
+        Task::Tidy => is_faithful(text, transcript, &spellings(terms)),
         Task::Rewrite { .. } => is_plausible_rewrite(text, transcript),
         // Edits were accepted above, measured against the selection.
         Task::Edit { .. } => true,
@@ -751,7 +752,7 @@ pub async fn run(
     app: &AppContext,
     endpoint: &Endpoint,
     task: &Task,
-    terms: &[String],
+    terms: &[Word],
 ) -> Result<String, String> {
     let note = match task {
         Task::Edit { .. } => terms_note_for_edit(terms),
@@ -1109,12 +1110,13 @@ mod tests {
         accept(text, said, &Task::Tidy)
     }
 
+    fn plain_words(list: &[&str]) -> Vec<Word> {
+        list.iter().map(|w| Word::new(w, crate::words::Source::Added)).collect()
+    }
+
     #[test]
     fn dictionary_words_may_correct_a_mishearing_but_not_be_recited() {
-        let terms: Vec<String> = ["Priya", "Kubernetes", "Terraform", "Grafana", "Datadog"]
-            .iter()
-            .map(|t| t.to_string())
-            .collect();
+        let terms = plain_words(&["Priya", "Kubernetes", "Terraform", "Grafana", "Datadog"]);
         // Two misheard stretches, two dictionary words in their place.
         let said = "ask pre a about the cuban eats migration before the review on friday";
         let fixed = "Ask Priya about the Kubernetes migration before the review on Friday.";
@@ -1258,7 +1260,7 @@ on Monday. Thanks. Talk soon.";
 
     #[test]
     fn dictionary_terms_reach_the_model_and_are_not_counted_as_new_words() {
-        let terms = vec!["Priya Raghunathan".to_string(), "Kubernetes".to_string()];
+        let terms = plain_words(&["Priya Raghunathan", "Kubernetes"]);
         assert!(terms_note(&terms).contains("Priya Raghunathan, Kubernetes"));
         assert_eq!(terms_note(&[]), "");
 

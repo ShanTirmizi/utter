@@ -28,7 +28,7 @@ import {
   type Stage,
 } from "./api";
 
-export type TabId = "try" | "hotkey" | "model" | "cleanup" | "permissions";
+export type TabId = "try" | "words" | "hotkey" | "model" | "cleanup" | "permissions";
 
 /** What the dictation pipeline is doing right now. */
 export type Live = {
@@ -49,6 +49,8 @@ export type AppState = {
   settings: Settings;
   /** Save a partial change. Rejects, leaving settings untouched, if the backend refuses it. */
   update: (change: Partial<Settings>) => Promise<void>;
+  /** Take settings the backend has just saved by itself. */
+  adopt: (saved: Settings) => void;
 
   permissions: PermissionStatus | null;
 
@@ -86,10 +88,12 @@ export type AppState = {
 
   tab: TabId;
   setTab: (tab: TabId) => void;
+  /** Goes up each time "Add a Word…" is chosen from the menu bar. */
+  addWordAsked: number;
 };
 
 const IDLE: Live = { phase: "idle", mode: "tidy", handsFree: false, stage: null, app: null, message: null, since: 0 };
-const TABS: TabId[] = ["try", "hotkey", "model", "cleanup", "permissions"];
+const TABS: TabId[] = ["try", "words", "hotkey", "model", "cleanup", "permissions"];
 
 /** `pnpm dev` only: "?tab=cleanup" opens the window on that section. */
 function firstTab(): TabId {
@@ -117,6 +121,7 @@ export function useAppState(): AppState | null {
   const [fresh, setFresh] = useState(false);
   const [capturing, setCapturing] = useState<Mode | null>(null);
   const [tab, setTabNow] = useState<TabId>(firstTab);
+  const [addWordAsked, setAddWordAsked] = useState(0);
   // Leaving a section abandons a hotkey recording begun there.
   const setTab = useCallback((next: TabId) => {
     setCapturing(null);
@@ -177,9 +182,16 @@ export function useAppState(): AppState | null {
       lastProgress.current = payload;
       setProgress(payload);
     });
+    // "Add a Word…" in the menu bar opens the word list, ready to type into.
+    const stopAddWord = listen("add-word", () => {
+      setCapturing(null);
+      setTabNow("words");
+      setAddWordAsked((n) => n + 1);
+    });
     return () => {
       stopPipeline.then((unlisten) => unlisten());
       stopDownload.then((unlisten) => unlisten());
+      stopAddWord.then((unlisten) => unlisten());
     };
   }, [refreshModels, refreshHistory]);
 
@@ -249,6 +261,11 @@ export function useAppState(): AppState | null {
     return done;
   }, []);
 
+  const adopt = useCallback((saved: Settings) => {
+    latest.current = saved;
+    setSettings(saved);
+  }, []);
+
   const download = useCallback(
     async (name: string) => {
       setDownloadFault(null);
@@ -275,6 +292,7 @@ export function useAppState(): AppState | null {
   return {
     settings,
     update,
+    adopt,
     permissions,
     models,
     progress,
@@ -296,6 +314,7 @@ export function useAppState(): AppState | null {
     setCapturing,
     tab,
     setTab,
+    addWordAsked,
   };
 }
 

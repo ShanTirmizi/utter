@@ -20,6 +20,7 @@ use crate::{
     providers::{self, NotReady},
     settings::{self, Settings},
     transcribe::Transcriber,
+    words::Word,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -219,6 +220,23 @@ pub fn forget(app: &AppHandle, finished_at: u64) -> Result<(), String> {
         *last = entries.last().cloned();
     }
     history::save(app, &entries)
+}
+
+/// Correct a word in one past dictation, named by when it finished. Every
+/// whole-word occurrence of `wrong` in what was written becomes `right`.
+pub fn correct(app: &AppHandle, finished_at: u64, wrong: &str, right: &str) -> Result<(), String> {
+    let pipeline = app.state::<Pipeline>();
+    let mut entries = pipeline.history.lock().unwrap();
+    let mut changed = false;
+    for entry in entries.iter_mut().filter(|d| d.finished_at == finished_at) {
+        entry.text = crate::words::replace_word(&entry.text, wrong, right);
+        changed = true;
+    }
+    let mut last = pipeline.last.lock().unwrap();
+    if let Some(entry) = last.as_mut().filter(|d| d.finished_at == finished_at) {
+        entry.text = crate::words::replace_word(&entry.text, wrong, right);
+    }
+    if changed { history::save(app, &entries) } else { Ok(()) }
 }
 
 fn emit(app: &AppHandle, phase: &'static str, message: Option<String>, dictation: Option<Dictation>) {
@@ -552,7 +570,7 @@ struct Early {
 
 /// Tidy one finished stretch of a dictation. Short, clean speech goes
 /// through as it is, the same as for a whole dictation.
-async fn tidy_piece(text: &str, target: &AppContext, endpoint: &crate::providers::Endpoint, terms: &[String]) -> Option<String> {
+async fn tidy_piece(text: &str, target: &AppContext, endpoint: &crate::providers::Endpoint, terms: &[Word]) -> Option<String> {
     if text.trim().is_empty() {
         return Some(String::new());
     }
@@ -581,6 +599,7 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
             return;
         }
         let terms = settings.dictionary.clone();
+        let spelled = crate::words::spellings(&terms);
         // Each finished stretch is tidied as well, so that only the last one
         // waits for the model when the key comes up. Rewriting needs the
         // whole thing at once, so this is for the dictation hotkey only.
@@ -633,7 +652,7 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
             if pipeline.early.lock().unwrap().id != id {
                 break;
             }
-            let (transcriber, name, path, piece_terms) = (pipeline.transcriber.clone(), name.clone(), path.clone(), terms.clone());
+            let (transcriber, name, path, piece_terms) = (pipeline.transcriber.clone(), name.clone(), path.clone(), spelled.clone());
             let text = tauri::async_runtime::spawn_blocking(move || {
                 transcriber.transcribe_with(&name, &path, &piece, models::language(&name), &piece_terms)
             })
@@ -737,7 +756,7 @@ async fn process(
     let name = settings.model.clone();
     let path = models::path(app, &name)?;
     let transcriber = app.state::<Pipeline>().transcriber.clone();
-    let terms = settings.dictionary.clone();
+    let terms = crate::words::spellings(&settings.dictionary);
 
     // In a browser, which site is open decides the writing style: Gmail is
     // email, claude.ai is a prompt. Ask now, while the speech is transcribed.
@@ -1257,7 +1276,7 @@ fn replay_early(app: &AppHandle, id: u64, samples: &[f32]) {
                 &path,
                 piece,
                 models::language(&settings.model),
-                &settings.dictionary,
+                &crate::words::spellings(&settings.dictionary),
             ) {
                 eprintln!("[pipeline] early piece {:.1} s: {text}", cut as f32 / TARGET_RATE as f32);
                 // Tidied as a live dictation would be, on a runtime of its own.

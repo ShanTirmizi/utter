@@ -5,6 +5,7 @@ import { hotkeyLabel } from "../hotkey";
 import { cleanupGap, readiness, selectedModel } from "../readiness";
 import { shortName, useApp, useElapsed, useLevels, type AppState } from "../state";
 import { clock, FlatMark, IconCheck, InlineKeys, Notice, seconds, Segmented } from "../ui";
+import FixText from "./FixText";
 import HistoryList from "./HistoryList";
 
 type Show = "heard" | "changes" | "written";
@@ -229,11 +230,12 @@ function LastDictation({ dictation }: { dictation: Dictation }) {
   // With text selected, the words spoken were an instruction for changing it.
   const edited = dictation.selection !== null && dictation.cleaned;
   const [show, setShow] = useState<Show>(rewritten && !edited ? "written" : "changes");
+  const [fixing, setFixing] = useState(false);
   // A new dictation starts on the view that suits it.
-  useEffect(
-    () => setShow(dictation.mode === "rewrite" && !(dictation.selection !== null && dictation.cleaned) ? "written" : "changes"),
-    [dictation],
-  );
+  useEffect(() => {
+    setShow(dictation.mode === "rewrite" && !(dictation.selection !== null && dictation.cleaned) ? "written" : "changes");
+    setFixing(false);
+  }, [dictation.finishedAt]);
 
   const failed = !dictation.cleaned && !!dictation.note && /skipped|needs a model/i.test(dictation.note);
   const what = edited || dictation.selection !== null ? "Edit" : rewritten ? "Rewrite" : "Cleanup";
@@ -264,6 +266,11 @@ function LastDictation({ dictation }: { dictation: Dictation }) {
       <div className="lhead">
         <span className="label">Last dictation</span>
         <span className="meta">{meta.join(" · ")}</span>
+        {!edited && dictation.selection === null && !fixing && (
+          <button className="btn sm quiet" onClick={() => setFixing(true)} title="Fix a misheard word">
+            Fix a word
+          </button>
+        )}
       </div>
 
       {failed && (
@@ -283,7 +290,9 @@ function LastDictation({ dictation }: { dictation: Dictation }) {
       )}
       {!failed && dictation.note && <Notice tone="warn">{dictation.note}</Notice>}
 
-      {edited ? (
+      {fixing ? (
+        <FixText dictation={dictation} className="final" onClose={() => setFixing(false)} />
+      ) : edited ? (
         <>
           <p className="asked">
             <span className="label">You said</span> {dictation.raw}

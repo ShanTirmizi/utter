@@ -99,6 +99,12 @@ export const TabIconTry = () => (
     <path d="M3 6.5v3M5.5 4.5v7M8 3v10M10.5 4.5v7M13 6.5v3" />
   </Icon>
 );
+export const TabIconWords = () => (
+  <Icon size={16} width={1.5}>
+    <path d="M3 2.5h7.5a2 2 0 0 1 2 2v9H5a2 2 0 0 1-2-2z" />
+    <path d="M3 11.5a2 2 0 0 1 2-2h7.5M6 5.5h3.5" />
+  </Icon>
+);
 export const TabIconHotkey = () => (
   <Icon size={16} width={1.5}>
     <rect x="1.5" y="3.5" width="13" height="9" rx="2" />

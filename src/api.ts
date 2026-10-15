@@ -18,7 +18,9 @@ export type Settings = {
   /** The user's own rewrite instruction, used when the style is "custom". */
   rewritePrompt: string;
   /** Names and terms to be spelled exactly this way. */
-  dictionary: string[];
+  dictionary: Word[];
+  /** Removed words, lower case: never learned or suggested again. */
+  forgotten: string[];
   /** Keep past dictations on this Mac. */
   keepHistory: boolean;
   /** A quick tap starts a recording that runs until the next tap. */
@@ -28,6 +30,17 @@ export type Settings = {
   /** Speech model. */
   model: string;
   onboarded: boolean;
+};
+
+/** One of the user's own words. */
+export type Word = {
+  /** How the user writes it. */
+  word: string;
+  /** What the speech model wrote instead, lower case: "cloud" for "Claude". */
+  heardAs: string[];
+  source: "added" | "learned" | "screen";
+  /** Milliseconds since 1970; 0 if unknown. */
+  addedAt: number;
 };
 
 export type Provider = {
@@ -128,6 +141,13 @@ export const history = () => invoke<Dictation[]>("history");
 export const clearHistory = () => invoke<void>("clear_history");
 /** Forget one past dictation, named by its `finishedAt`. */
 export const forgetDictation = (finishedAt: number) => invoke<void>("forget_dictation", { finishedAt });
+/**
+ * Correct a misheard word in a past dictation. With `remember`, the right
+ * spelling joins Your words, and the wrong one is kept as how it was heard.
+ * Resolves to the settings as saved.
+ */
+export const fixWord = (finishedAt: number, wrong: string, right: string, remember: boolean) =>
+  invoke<Settings>("fix_word", { finishedAt, wrong, right, remember });
 /** Put text on the clipboard. */
 export const copyText = (text: string) => invoke<void>("copy_text", { text });
 

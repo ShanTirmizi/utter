@@ -362,10 +362,46 @@ html.pill-window,html.pill-window body{background:transparent}
 .tab{flex:1 1 auto;padding:0 8px;white-space:nowrap}
 
 /* ---------- your words ---------- */
-.terms{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
-.term{display:inline-flex;align-items:center;gap:2px;height:26px;padding:0 4px 0 10px;border-radius:13px;background:var(--win-2);box-shadow:inset 0 0 0 1px var(--line);font:500 12.5px/1 var(--font-ui)}
-.term button{appearance:none;border:0;background:none;width:20px;height:20px;border-radius:50%;color:var(--ink-3);font-size:14px;line-height:1;cursor:pointer}
-.term button:hover{background:var(--line);color:var(--ink)}
+.wempty p{margin:0;font-size:13px;line-height:19px;color:var(--ink-2)}
+.wempty b{color:var(--ink)}
+.mono{font-family:var(--font-mono);font-size:.92em}
+.wlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.wrow{border-top:.5px solid var(--line);padding:8px 0}
+.wrow:first-child{border-top:0;padding-top:0}
+.wrow:last-child{padding-bottom:0}
+.wmain{display:flex;align-items:center;gap:8px;min-height:26px}
+.wword{font:600 13.5px/18px var(--font-ui);color:var(--ink);flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wheard{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.wlab{font-size:11.5px;color:var(--ink-3);margin-right:2px}
+.wh{display:inline-flex;align-items:center;height:22px;padding:0 2px 0 8px;border-radius:11px;background:var(--win-2);box-shadow:inset 0 0 0 .5px var(--line-2);font:500 11.5px/1 var(--font-mono);color:var(--ink-2)}
+.wh button,.wdel{appearance:none;border:0;background:none;width:20px;height:20px;border-radius:50%;color:var(--ink-3);font-size:14px;line-height:1;cursor:pointer;flex:none}
+.wh button{width:18px;height:18px;font-size:13px}
+.wh button:hover,.wdel:hover{background:var(--line);color:var(--ink)}
+.wadd{appearance:none;border:0;background:none;height:22px;padding:0 6px;border-radius:11px;font:500 11.5px/1 var(--font-ui);color:var(--accent-fg);cursor:pointer;opacity:.85}
+.wadd:hover{background:var(--accent-soft);opacity:1}
+.wrow:not(:hover):not(:focus-within) .wadd:not(:only-child){opacity:0}
+.wsrc{flex:none;height:20px;display:inline-flex;align-items:center;padding:0 8px;border-radius:10px;font:600 11px/1 var(--font-ui)}
+.wsrc.learned{background:var(--ok-soft);color:var(--ok)}
+.wsrc.screen{background:var(--accent-soft);color:var(--accent-fg)}
+.wteach{display:flex;align-items:center;gap:6px;margin-top:8px}
+.input.sm{height:28px;font-size:12.5px}
+.wh button:focus-visible,.wdel:focus-visible,.wadd:focus-visible{outline:none;box-shadow:0 0 0 2px var(--accent-fg);opacity:1}
+
+/* ---------- fixing a word in a dictation ---------- */
+.fixer{display:flex;flex-direction:column;gap:10px;min-width:0}
+.fixtext{margin:0}
+.pasttext .fixtext{font-size:13px;line-height:20px;-webkit-line-clamp:unset;display:block}
+.fixw{appearance:none;border:0;background:none;padding:0 1px;margin:0 -1px;font:inherit;color:inherit;cursor:pointer;border-radius:4px;text-decoration:underline dotted var(--ink-3);text-underline-offset:3px;text-decoration-thickness:1px}
+.fixw:hover{background:var(--accent-soft);color:var(--accent-fg);text-decoration-color:transparent}
+.fixw.sel{background:var(--accent);color:var(--on-accent);text-decoration-color:transparent}
+.fixw:focus-visible{outline:2px solid var(--accent-fg);outline-offset:1px}
+.fixbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fixbar.idle .hint{flex:1;min-width:0}
+.fixfrom{font:500 12.5px/1 var(--font-mono);color:var(--ink-2);text-decoration:line-through;text-decoration-color:var(--bad);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fixarrow{color:var(--ink-3)}
+.fixto{flex:1;min-width:120px}
+.fixmem{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-2);cursor:pointer}
+.fixmem input{accent-color:var(--accent);margin:0}
 
 /* ---------- earlier dictations ---------- */
 .past{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}

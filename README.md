@@ -260,10 +260,19 @@ crash, at the next launch. Or change it yourself in Keyboard settings.
 
 ## Your words
 
-Under **Model**, add the names, products and terms that are often misheard,
-spelled the way you want them. Utter gives the list to the speech model as a
-hint and to the cleanup model as the correct spellings. Up to 200 entries; a
-handful of the ones you actually say works best.
+The **Words** tab holds the names, products and terms that are often
+misheard, spelled the way you want them. Utter gives the list to the speech
+model as a hint and to the cleanup model as the correct spellings. Up to 200
+entries; a handful of the ones you actually say works best.
+
+- **Heard as.** Tell a word what Utter writes by mistake: Claude, heard as
+  "cloud". Cleanup then puts that right when the sentence is about your word.
+- **Fix a word.** On **Try it**, press **Fix** on a dictation and click the
+  word that came out wrong. It is corrected there, and the right spelling and
+  the mishearing are remembered. Click the next word too when one name was
+  heard as two ("pre a" for Priya).
+- **Add a Word…** in the menu bar opens the list ready to type into.
+- A word you remove is never learned or suggested again.
 
 ## History
 

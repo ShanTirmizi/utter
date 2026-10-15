@@ -5,12 +5,14 @@ import HotkeySection from "./sections/HotkeySection";
 import ModelSection from "./sections/ModelSection";
 import PermissionsSection from "./sections/PermissionsSection";
 import TrySection from "./sections/TrySection";
+import WordsSection from "./sections/WordsSection";
 import { AppContextProvider, useApp, useAppState, type TabId } from "./state";
-import { TabIconCleanup, TabIconHotkey, TabIconModel, TabIconPermissions, TabIconTry } from "./ui";
+import { TabIconCleanup, TabIconHotkey, TabIconModel, TabIconPermissions, TabIconTry, TabIconWords } from "./ui";
 import Welcome from "./Welcome";
 
 const TABS: { id: TabId; label: string; icon: ReactNode }[] = [
   { id: "try", label: "Try it", icon: <TabIconTry /> },
+  { id: "words", label: "Words", icon: <TabIconWords /> },
   { id: "hotkey", label: "Hotkey", icon: <TabIconHotkey /> },
   { id: "model", label: "Model", icon: <TabIconModel /> },
   { id: "cleanup", label: "Cleanup", icon: <TabIconCleanup /> },
@@ -86,6 +88,7 @@ function MainWindow() {
 
       <div className="body" role="tabpanel" id="panel" aria-labelledby={`tab-${tab}`}>
         {tab === "try" && <TrySection />}
+        {tab === "words" && <WordsSection />}
         {tab === "hotkey" && <HotkeySection />}
         {tab === "model" && <ModelSection />}
         {tab === "cleanup" && <CleanupSection />}

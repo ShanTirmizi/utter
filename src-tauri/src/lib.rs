@@ -18,10 +18,11 @@ mod secrets;
 mod selection;
 mod settings;
 pub mod transcribe;
+mod words;
 
 use settings::Settings;
 use tauri::{
-    AppHandle, LogicalPosition, Manager, RunEvent, WindowEvent,
+    AppHandle, Emitter, LogicalPosition, Manager, RunEvent, WindowEvent,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
 };
@@ -40,7 +41,8 @@ fn get_settings(app: AppHandle) -> Settings {
 #[tauri::command]
 fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Settings, String> {
     let previous = settings::load(&app);
-    settings.dictionary = settings::clean_dictionary(&settings.dictionary);
+    settings.dictionary = words::clean(&settings.dictionary);
+    settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
 
     // Check everything that can be checked before changing anything.
     hotkey::plan(&settings)?;
@@ -293,6 +295,42 @@ fn forget_dictation(app: AppHandle, finished_at: u64) -> Result<(), String> {
     pipeline::forget(&app, finished_at)
 }
 
+/// Add a word to the user's list, or teach a word already there what it may
+/// be misheard as, and save. Returns the settings as saved.
+fn remember_word(
+    app: &AppHandle,
+    word: &str,
+    heard: Option<&str>,
+    source: words::Source,
+) -> Result<(Settings, words::Remembered), String> {
+    let mut settings = settings::load(app);
+    let outcome = words::remember(&mut settings.dictionary, word, heard, source);
+    if outcome == words::Remembered::Full {
+        return Err(format!("Your words are full ({} of them). Remove one to add another.", words::MAX_WORDS));
+    }
+    settings.dictionary = words::clean(&settings.dictionary);
+    settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
+    settings::save(app, &settings)?;
+    Ok((settings, outcome))
+}
+
+/// Fix a misheard word in a past dictation: `wrong` becomes `right` in what
+/// was written and, if asked, Utter remembers the spelling and the mishearing.
+#[tauri::command]
+fn fix_word(app: AppHandle, finished_at: u64, wrong: String, right: String, remember: bool) -> Result<Settings, String> {
+    let right = right.split_whitespace().collect::<Vec<_>>().join(" ");
+    if right.is_empty() {
+        return Err("Type the right spelling first.".into());
+    }
+    pipeline::correct(&app, finished_at, &wrong, &right)?;
+    if !remember {
+        return Ok(settings::load(&app));
+    }
+    // A change of case alone is a spelling, not a mishearing.
+    let heard = (wrong.trim().to_lowercase() != right.to_lowercase()).then_some(wrong.as_str());
+    remember_word(&app, &right, heard, words::Source::Added).map(|(settings, _)| settings)
+}
+
 /// Put text on the clipboard, for the Copy buttons in the window.
 #[tauri::command]
 fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
@@ -459,14 +497,15 @@ fn place_pill(app: &AppHandle) {
     }
 }
 
-/// Menu-bar item: reopen settings, recover the last dictation, quit.
+/// Menu-bar item: reopen settings, recover the last dictation, add a word, quit.
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Utter", true, None::<&str>)?;
     let copy = MenuItem::with_id(app, "copy", "Copy Last Dictation", true, None::<&str>)?;
+    let add_word = MenuItem::with_id(app, "add-word", "Add a Word…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Utter", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&open, &copy, &PredefinedMenuItem::separator(app)?, &quit],
+        &[&open, &copy, &add_word, &PredefinedMenuItem::separator(app)?, &quit],
     )?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
     TrayIconBuilder::with_id("utter")
@@ -477,6 +516,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main_window(app),
             "copy" => pipeline::copy_last(app),
+            // The window opens on the word list, ready to type into.
+            "add-word" => {
+                show_main_window(app);
+                let _ = app.emit("add-word", ());
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -539,6 +583,7 @@ pub fn run() {
             clear_history,
             forget_dictation,
             copy_text,
+            fix_word,
         ])
         // Closing the settings window hides it; Utter keeps running in the
         // menu bar so the hotkey stays available.

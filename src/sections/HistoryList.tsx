@@ -2,6 +2,7 @@ import { useState } from "react";
 import { clearHistory, copyText, forgetDictation, type Dictation } from "../api";
 import { useApp } from "../state";
 import { Switch } from "../ui";
+import FixText from "./FixText";
 
 function when(finishedAt: number): string {
   if (!finishedAt) return "";
@@ -21,6 +22,8 @@ export default function HistoryList() {
   const [copied, setCopied] = useState<number | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The dictation whose words are being corrected, by its `finishedAt`.
+  const [fixing, setFixing] = useState<number | null>(null);
 
   // The newest one is already shown in full above, as "Last dictation".
   const earlier = history.filter((d) => d.finishedAt !== dictation?.finishedAt);
@@ -88,13 +91,27 @@ export default function HistoryList() {
           {shown.map((d) => (
             <li key={d.finishedAt}>
               <div className="pasttext">
-                <p>{d.text}</p>
+                {fixing === d.finishedAt ? (
+                  <FixText dictation={d} className="" onClose={() => setFixing(null)} />
+                ) : (
+                  <p>{d.text}</p>
+                )}
                 <span className="meta">
                   {[when(d.finishedAt), d.app.name, d.selection ? "edited selection" : d.mode === "rewrite" ? "rewritten" : null]
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
               </div>
+              {fixing !== d.finishedAt && (
+                <button
+                  className="btn sm quiet"
+                  aria-label="Fix a misheard word"
+                  title="Fix a misheard word"
+                  onClick={() => setFixing(d.finishedAt)}
+                >
+                  Fix
+                </button>
+              )}
               <button className="btn sm" onClick={() => copy(d)}>
                 {copied === d.finishedAt ? "Copied" : "Copy"}
               </button>

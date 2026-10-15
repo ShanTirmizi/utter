@@ -50,7 +50,15 @@ let settings: Settings = {
   rewriteHotkey: "Control+Alt+KeyR",
   rewriteStyle: "clear",
   rewritePrompt: "",
-  dictionary: query.has("words") ? ["Priya", "Kubernetes", "Q3 roadmap"] : [],
+  dictionary: query.has("words")
+    ? [
+        { word: "Claude", heardAs: ["cloud", "clawed"], source: "learned", addedAt: Date.now() - 3_600_000 },
+        { word: "Priya Raghunathan", heardAs: [], source: "added", addedAt: Date.now() - 86_400_000 },
+        { word: "Kubernetes", heardAs: ["cuban eats"], source: "added", addedAt: Date.now() - 86_400_000 },
+        { word: "fetchUserProfile", heardAs: [], source: "screen", addedAt: Date.now() - 86_400_000 },
+      ]
+    : [],
+  forgotten: [],
   keepHistory: true,
   handsFree: true,
   quietGlobe: !query.has("fnconflict"),
@@ -132,8 +140,8 @@ let past: Dictation[] = last
       { ...last, raw: lines[0].raw, text: lines[0].tidy, app: mail, finishedAt: Date.now() - 50 * 60_000 },
       {
         ...last,
-        raw: "okay so the uh the standup is moving to ten thirty from tomorrow",
-        text: "The standup is moving to 10:30 from tomorrow.",
+        raw: "okay so the uh can you ask cloud to summarise the standup notes",
+        text: "Can you ask cloud to summarise the standup notes?",
         finishedAt: Date.now() - 26 * 3_600_000,
       },
     ]
@@ -399,7 +407,13 @@ export function installMock() {
           if (next.baseUrl && !/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)/.test(next.baseUrl)) {
             throw "The base URL must use https, or http on localhost.";
           }
-          settings = { ...next, dictionary: next.dictionary.map((t) => t.trim().slice(0, 60)).filter(Boolean).slice(0, 200) };
+          settings = {
+            ...next,
+            dictionary: next.dictionary
+              .map((w) => ({ ...w, word: w.word.trim().slice(0, 60) }))
+              .filter((w) => w.word)
+              .slice(0, 200),
+          };
           return settings;
         }
         case "providers":
@@ -466,6 +480,25 @@ export function installMock() {
           return;
         case "copy_text":
           return;
+        case "fix_word": {
+          const { finishedAt, wrong, right, remember } = payload as { finishedAt: number; wrong: string; right: string; remember: boolean };
+          const swap = (d: Dictation) =>
+            d.finishedAt === finishedAt ? { ...d, text: d.text.split(wrong).join(right) } : d;
+          past = past.map(swap);
+          if (last) last = swap(last);
+          if (!remember) return settings;
+          const heard = wrong.toLowerCase() === right.toLowerCase() ? [] : [wrong.toLowerCase()];
+          const have = settings.dictionary.find((w) => w.word.toLowerCase() === right.toLowerCase());
+          settings = {
+            ...settings,
+            dictionary: have
+              ? settings.dictionary.map((w) =>
+                  w === have ? { ...w, word: right, heardAs: [...new Set([...w.heardAs, ...heard])] } : w,
+                )
+              : [{ word: right, heardAs: heard, source: "added", addedAt: Date.now() }, ...settings.dictionary],
+          };
+          return settings;
+        }
         case "fn_key_conflict":
           return query.has("fnconflict") && !settings.quietGlobe ? "show emoji and symbols" : null;
         default:
