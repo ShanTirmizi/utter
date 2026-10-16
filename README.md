@@ -1,10 +1,15 @@
 # Utter
 
-**Free, open-source voice dictation for macOS.** Hold a key, speak, let go, and
-clean, well-formatted text appears in whatever app you are typing in.
+**Free, private voice dictation for your Mac.** Hold a key, talk, let go, and
+clean, well-formatted text appears in whatever app you are typing in. Your
+voice never leaves your Mac.
 
-**Beta.** [Download for Mac](https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg)
-(Apple Silicon, macOS 12+) · [Website](https://utter-beta.vercel.app) ·
+```sh
+brew install --cask shantirmizi/tap/utter
+```
+
+Or [download the DMG](https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg)
+(beta, Apple Silicon, macOS 12+) · [Website](https://utter-beta.vercel.app) ·
 [Report a problem](https://github.com/ShanTirmizi/utter/issues/new/choose)
 
 <p align="center">
@@ -13,8 +18,9 @@ clean, well-formatted text appears in whatever app you are typing in.
 
 Why another dictation app:
 
-- **Tiny and native.** A 4.5 MB download, written in Rust and Tauri. No
-  Electron, no account, no analytics.
+- **Free for good.** MIT licensed. No subscription, no account, no analytics.
+- **Tiny and native.** A few megabytes, written in Rust and Tauri. No
+  Electron.
 - **Your speech never leaves your Mac.** Transcription runs on the GPU with
   whisper.cpp, and starts while you are still talking, so long dictations go
   in a moment after you let go.
@@ -93,6 +99,12 @@ flowchart LR
    your previous clipboard back.
 
 ## Install
+
+### Homebrew
+
+```sh
+brew install --cask shantirmizi/tap/utter
+```
 
 ### Download
 
