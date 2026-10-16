@@ -2364,6 +2364,9 @@ html:not(.js) .js-only {
   gap: 28px;
   align-items: center;
 }
+.build .p code {
+  font: 0.92em var(--mono);
+}
 .term {
   position: relative;
   border-radius: 18px;
@@ -2412,6 +2415,12 @@ html:not(.js) .js-only {
   .steps,
   .build {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 520px) {
+  #brew .term pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 }
 
