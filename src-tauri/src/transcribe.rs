@@ -3,7 +3,10 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperSegment, WhisperState};
 
@@ -29,6 +32,9 @@ pub struct Transcriber {
     /// The voice activity model, once it has been downloaded, and the file
     /// it came from.
     vad: Mutex<Option<(PathBuf, Vad)>>,
+    /// Set to hear the recording as it came, without `audio::high_pass`.
+    /// Only for measuring what the filter does.
+    unfiltered: AtomicBool,
 }
 
 impl Transcriber {
@@ -62,6 +68,17 @@ impl Transcriber {
         Ok(())
     }
 
+    /// Stop using the voice activity model. For measuring what it does.
+    pub fn forget_vad(&self) {
+        *self.vad.lock().unwrap() = None;
+    }
+
+    /// Whether to filter out rumble before listening (the default). For
+    /// measuring what the filter does.
+    pub fn set_high_pass(&self, on: bool) {
+        self.unfiltered.store(!on, Ordering::Relaxed);
+    }
+
     /// Where the voice activity model hears speech in mono 16 kHz audio
     /// (high-passed, see `audio::high_pass`). `None` when there is no voice
     /// model, or it failed, so the caller falls back to a loudness check.
@@ -90,7 +107,8 @@ impl Transcriber {
         let loaded = self.loaded.lock().unwrap();
         let mut vad = self.vad.lock().unwrap();
         let vad = vad.as_mut().map(|(_, v)| v);
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, vad, samples, language, &[])
+        let filter = !self.unfiltered.load(Ordering::Relaxed);
+        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, vad, filter, samples, language, &[])
     }
 
     /// Make sure `name` is the loaded model, then transcribe with it. Both
@@ -108,12 +126,14 @@ impl Transcriber {
         Self::load(&mut loaded, name, path)?;
         let mut vad = self.vad.lock().unwrap();
         let vad = vad.as_mut().map(|(_, v)| v);
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, vad, samples, language, terms)
+        let filter = !self.unfiltered.load(Ordering::Relaxed);
+        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, vad, filter, samples, language, terms)
     }
 
     fn run(
         loaded: &Loaded,
         mut vad: Option<&mut Vad>,
+        filter: bool,
         samples: &[f32],
         language: &str,
         terms: &[String],
@@ -121,7 +141,13 @@ impl Transcriber {
         let hint = glossary(terms);
         // Wind and rumble out first: the voice model and the speech model
         // would both try to make sense of them.
-        let samples = &audio::high_pass(samples);
+        let filtered;
+        let samples = if filter {
+            filtered = audio::high_pass(samples);
+            &filtered
+        } else {
+            samples
+        };
         let end_of_text = loaded.context.token_eot();
 
         let mut state = loaded

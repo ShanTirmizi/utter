@@ -242,14 +242,58 @@ broadband hiss, a breath and typing. They were measured with Base; the larger
 models were not measured. `cargo test --test noise -- --ignored --nocapture`
 runs the real models over all of it and prints the figures.
 
+### Speaking over a fan
+
+A fan does not make the speech model invent words so much as mishear real
+ones. `src-tauri/examples/fan_wer.rs` measures it: ten jargon-heavy sentences
+("Rebase the feature branch onto main and squash the WIP commits.") in two
+macOS voices, over a synthetic fan (pink hiss, a brown rumble, 60 Hz hum with
+two harmonics and a 140 Hz blade tone), at 20, 10 and 5 dB below the speech's
+active level, each mix three times with a different stretch of fan noise.
+About 10 dB is a desk fan a metre or two away from a laptop microphone. Word
+error rate, punctuation and case ignored, about 220 words clean and 660 per
+noisy cell:
+
+| Model | Front-end | Clean | 20 dB | 10 dB | 5 dB |
+| --- | --- | --- | --- | --- | --- |
+| Base (English) | Raw | 19.4% | 20.9% | 27.2% | 37.2% |
+| | High-pass | 19.8% | 19.8% | 26.1% | 37.7% |
+| | High-pass + voice activity (shipped) | 18.0% | 18.6% | 24.9% | 38.4% |
+| | RNNoise + shipped | 18.9% | 17.1% | 27.0% | 41.0% |
+| Large v3 Turbo | Raw | 6.8% | 8.1% | 9.0% | 14.7% |
+| | High-pass | 6.3% | 8.1% | 10.4% | 15.8% |
+| | High-pass + voice activity (shipped) | 5.9% | 7.7% | 10.4% | 14.9% |
+| | RNNoise + shipped | 5.9% | 7.4% | 14.7% | 17.0% |
+
+Mix by mix against the shipped front-end, the differences between Raw,
+High-pass and shipped are within chance (Large at 10 dB: Raw better on 12
+mixes, worse on 9). What the numbers do say:
+
+- **The model is the lever.** Large v3 Turbo makes a third to a half as many
+  errors as Base at every noise level, and over a fan at 10 dB it is still
+  better than Base in silence. For dictating over a fan, use Large.
+- **The high-pass and voice activity checks cost nothing in accuracy.** They
+  are there for silence and wind (above); over a fan they neither help nor
+  hurt measurably.
+- **RNNoise hurts where it is needed.** The neural noise suppressor used in
+  many call apps helps a little at 20 dB but makes things worse at 10 dB
+  (Base: better on 16 mixes, worse on 24; Large: 5 and 20) and at 5 dB. A
+  suppressor reshapes the speech along with the noise, and Whisper, which
+  learned from unprocessed audio, hears the difference. It is kept only in
+  the measurement, as a development dependency.
+
 macOS voice processing (the noise suppression FaceTime uses, through
-AVAudioEngine) was considered and left out. It ducks every other app's sound
-while the microphone is open, which a hold-to-talk tool would do dozens of
-times a day; it reshapes the voice (gain control and suppression tuned for
-calls), which speech models were not trained on and which can swallow quiet
-speech; and it would mean replacing the cpal recorder with a second capture
-path. The checks above handle the noise it would have removed, without
-changing what the speech model hears.
+AVAudioEngine) could not be measured the same way: AVAudioEngine refuses it in
+offline rendering (error -10863), and the only virtual audio device here
+passes no sound unless its own app is running. Measuring it would mean playing
+the mixes aloud through the speakers and recording them with it on and off.
+Given what RNNoise did, and its known costs, it was left out without that
+measurement: it ducks every other app's sound while the microphone is open,
+which a hold-to-talk tool would do dozens of times a day; it reshapes the
+voice with gain control and suppression tuned for calls, which speech models
+were not trained on; and it would mean a second capture path beside cpal.
+
+Since no front-end clearly helps, there is no "Noisy room" setting.
 
 ### Working while the user talks
 

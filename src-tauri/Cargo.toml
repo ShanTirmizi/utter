@@ -44,6 +44,7 @@ objc2-app-kit = "0.3.2"
 [dev-dependencies]
 # Reads WAV fixtures in the transcription example.
 hound = "3"
+nnnoiseless = { version = "0.5", default-features = false }
 
 [profile.dev]
 # Smaller debug builds; line numbers in backtraces are enough here.
