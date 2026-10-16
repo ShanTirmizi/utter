@@ -30,6 +30,7 @@
 //   ?fail=startup-hotkey   macOS refused the hotkey at launch
 //   ?pill=listen|handsfree|transcribe|tidy|rewrite|edit|note|note2|paste|blocked|learned
 //                     hold the pill (open /#pill) in one state
+import { version } from "../package.json";
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type {
@@ -400,8 +401,8 @@ function watchHotkeys() {
 }
 
 let updateStatus = {
-  current: "0.5.0",
-  latest: query.get("update") === "new" ? "0.5.1" : query.get("update") === "current" ? "0.5.0" : null,
+  current: version,
+  latest: query.get("update") === "new" ? "1.0.0" : query.get("update") === "current" ? version : null,
   newer: query.get("update") === "new",
   summary: query.get("update") === "new" ? "Fixes hands-free stopping too early, and two crashes." : null,
   url: "https://github.com/ShanTirmizi/utter/releases/latest",
@@ -589,7 +590,7 @@ export function installMock() {
           updateStatus = {
             ...updateStatus,
             checkedAt: Date.now(),
-            latest: query.get("update") === "new" ? "0.5.1" : updateStatus.current,
+            latest: query.get("update") === "new" ? "1.0.0" : updateStatus.current,
             newer: query.get("update") === "new",
             summary: query.get("update") === "new" ? "Fixes hands-free stopping too early, and two crashes." : null,
             url: "https://github.com/ShanTirmizi/utter/releases/latest",

@@ -17,7 +17,7 @@ Or [download the DMG](https://github.com/ShanTirmizi/utter/releases/latest/downl
 </p>
 
 <p align="center">
-  <img src="docs/images/demo.gif" alt="A dictation into Slack: the spoken words with ums and repeats, then the tidied message typed into the box" width="640" />
+  <img src="docs/images/demo.gif" alt="A dictation into Slack: the words as heard, with ums and repeats struck out, then the tidied message typed into the box" width="640" />
 </p>
 
 Why another dictation app:
@@ -175,7 +175,8 @@ After that, the window has a sidebar: Try it, Words, then Settings (Hotkey,
 Speech model, Cleanup, Permissions), and About at the foot. The status card
 above About always says whether Utter is ready; if it is not, it names the one
 problem, the section that fixes it carries a `!`, and clicking the card opens
-it. The window follows the system appearance, light or dark.
+it. The window follows the system appearance, or pick Light or Dark under
+**About**.
 
 Closing the window keeps Utter running in the menu bar. The menu bar icon
 moves while Utter listens or works and shows a dot when it needs you. Its menu
@@ -187,8 +188,9 @@ Word…, Add a Word…, Undo Learning, About Utter, Check for Updates… and Qui
 1. Under **Cleanup**, pick a provider.
 2. Paste an API key for it and press Save. The "Get a key" link opens the
    provider's key page.
-3. Choose a model. **List models** shows what your key can use. Pick a small,
-   fast one: cleanup is light editing, and you wait for it.
+3. Choose a model. Click the model field to pick from what your key can use
+   (**List models** refreshes the list), or type a name. Pick a small, fast
+   one: cleanup is light editing, and you wait for it.
 4. Press **Test** to confirm it works.
 
 | Provider | Key | Model |
@@ -446,7 +448,9 @@ The code is laid out as one file per stage of the pipeline, in
 
 | File | Job |
 | --- | --- |
+| `lib.rs` | App setup, the commands the window calls, windows and appearance |
 | `hotkey.rs` | Register the two push-to-talk hotkeys |
+| `fnkey.rs`, `globe.rs` | The fn key on its own, and switching off macOS's globe-key action while it is used |
 | `audio.rs` | Record the microphone, convert to 16 kHz mono |
 | `transcribe.rs`, `models.rs` | Run whisper.cpp, download models |
 | `context.rs` | Work out which app is focused and what kind it is |
@@ -456,6 +460,8 @@ The code is laid out as one file per stage of the pipeline, in
 | `insert.rs` | Clipboard save, paste, restore |
 | `pipeline.rs` | Runs the stages in order |
 | `history.rs` | Past dictations, in a file on this Mac |
+| `words.rs`, `learn.rs`, `screen.rs` | Your words and their mishearings, learning from corrections, names on screen |
+| `tray.rs`, `updates.rs` | The menu bar icon and menu, the update check |
 | `secrets.rs`, `settings.rs` | Keychain and preferences |
 | `permissions.rs` | Check and request macOS permissions |
 
@@ -494,5 +500,7 @@ see [CONTRIBUTING.md](CONTRIBUTING.md); for security problems,
 [MIT](LICENSE)
 
 The app and the download page use the system font; no typefaces are bundled.
+The launch film's footage, music, sound effects and voice were generated with
+ElevenLabs; every product moment in it is the real app.
 The provider marks come from [@lobehub/icons-static-svg](https://github.com/lobehub/lobe-icons)
 (MIT) and are shown in one colour; they are trademarks of their owners.
