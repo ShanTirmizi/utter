@@ -139,9 +139,19 @@ pub struct Pipeline {
     history: Mutex<Vec<Dictation>>,
     /// Debug builds: a pretend selection for a simulated dictation.
     simulated_selection: Mutex<Option<String>>,
-    /// Names and terms in the window in front when recording number `.0`
-    /// began; hints for that dictation only.
-    screen: Mutex<(u64, Vec<String>)>,
+    /// What was on screen when a recording began; hints for that dictation
+    /// only, never saved.
+    screen: Mutex<Screen>,
+}
+
+/// What was read from the window in front when recording number `id` began.
+#[derive(Debug, Clone, Default)]
+struct Screen {
+    id: u64,
+    /// Names and terms in the window.
+    terms: Vec<String>,
+    /// The text around where the user is typing.
+    around: selection::Around,
 }
 
 /// A hold shorter than this is a tap.
@@ -176,7 +186,7 @@ impl Pipeline {
             last: Mutex::new(None),
             history: Mutex::new(Vec::new()),
             simulated_selection: Mutex::new(None),
-            screen: Mutex::new((0, Vec::new())),
+            screen: Mutex::new(Screen::default()),
         }
     }
 
@@ -449,20 +459,31 @@ fn read_screen(app: &AppHandle, id: u64) {
     std::thread::spawn(move || {
         // Give a woken app a moment to build its description.
         std::thread::sleep(Duration::from_millis(150));
-        let text = selection::window_text();
-        let found = crate::screen::terms(&text, &settings.dictionary, &settings.forgotten);
+        // The text by the cursor first: it helps the most, and is quick.
+        let around = if permissions::secure_input_active() {
+            selection::Around::default()
+        } else {
+            selection::around_cursor(cleanup::BEFORE_CHARS, cleanup::SCREEN_CHARS)
+        };
         let pipeline = app.state::<Pipeline>();
         if pipeline.recording_id.load(Ordering::SeqCst) == id {
-            *pipeline.screen.lock().unwrap() = (id, found);
+            let mut screen = pipeline.screen.lock().unwrap();
+            *screen = Screen { id, terms: Vec::new(), around: around.clone() };
+        }
+        let text = selection::window_text();
+        let found = crate::screen::terms(&text, &settings.dictionary, &settings.forgotten);
+        if pipeline.recording_id.load(Ordering::SeqCst) == id {
+            *pipeline.screen.lock().unwrap() = Screen { id, terms: found, around };
         }
     });
 }
 
-/// The names on screen for recording number `id`, if they were read in time.
-fn screen_terms(app: &AppHandle, id: u64) -> Vec<String> {
+/// What was on screen for recording number `id`, as far as it was read in
+/// time.
+fn screen_for(app: &AppHandle, id: u64) -> Screen {
     let pipeline = app.state::<Pipeline>();
     let screen = pipeline.screen.lock().unwrap();
-    if screen.0 == id { screen.1.clone() } else { Vec::new() }
+    if screen.id == id { screen.clone() } else { Screen::default() }
 }
 
 /// The user's words plus the names on screen, for the speech model: the
@@ -620,8 +641,15 @@ struct Early {
 }
 
 /// Tidy one finished stretch of a dictation. Short, clean speech goes
-/// through as it is, the same as for a whole dictation.
-async fn tidy_piece(text: &str, target: &AppContext, endpoint: &crate::providers::Endpoint, terms: &[Word]) -> Option<String> {
+/// through as it is, the same as for a whole dictation. `around` holds what
+/// came before it, already tidied, so the model reads it as a continuation.
+async fn tidy_piece(
+    text: &str,
+    target: &AppContext,
+    endpoint: &crate::providers::Endpoint,
+    terms: &[Word],
+    around: &cleanup::Context,
+) -> Option<String> {
     if text.trim().is_empty() {
         return Some(String::new());
     }
@@ -631,7 +659,19 @@ async fn tidy_piece(text: &str, target: &AppContext, endpoint: &crate::providers
     {
         return Some(text.to_string());
     }
-    cleanup::run(text, target, endpoint, &Task::Tidy, terms).await.ok()
+    cleanup::run_with(text, target, endpoint, &Task::Tidy, terms, around).await.ok()
+}
+
+/// The text around a dictation, for the cleanup model: what is on screen
+/// near the cursor, and what the dictation follows. `so_far` is the part of
+/// this dictation already tidied, which it follows more closely than
+/// anything before the cursor.
+fn context_for(screen: &Screen, so_far: &[String]) -> cleanup::Context {
+    let so_far = so_far.join(" ");
+    cleanup::Context {
+        before: if so_far.trim().is_empty() { screen.around.before.clone() } else { so_far },
+        screen: screen.around.nearby.clone(),
+    }
 }
 
 /// How often the recording under way is checked for speech that can be
@@ -704,12 +744,17 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
             if pipeline.early.lock().unwrap().id != id {
                 break;
             }
-            let screen = screen_terms(&app, id);
-            let piece_terms = speech_terms(&settings, &screen);
+            let screen = screen_for(&app, id);
+            let piece_terms = speech_terms(&settings, &screen.terms);
+            let (heard_so_far, tidied_so_far) = {
+                let early = pipeline.early.lock().unwrap();
+                (early.texts.join(" "), early.cleaned.iter().flatten().cloned().collect::<Vec<_>>())
+            };
             let (transcriber, name, path, language) =
                 (pipeline.transcriber.clone(), name.clone(), path.clone(), settings.language.clone());
             let text = tauri::async_runtime::spawn_blocking(move || {
-                transcriber.transcribe_with(&name, &path, &piece, &models::language(&name, &language), &piece_terms)
+                let language = models::language(&name, &language);
+                transcriber.transcribe_with(&name, &path, &piece, &language, &piece_terms, &heard_so_far)
             })
             .await;
             // A piece that fails is simply left for the end.
@@ -718,8 +763,9 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
                 Some(endpoint) => {
                     let target = pipeline.target.lock().unwrap().clone();
                     let mut terms = settings.dictionary.clone();
-                    terms.extend(crate::screen::as_words(&screen));
-                    Some(tidy_piece(&text, &target, endpoint, &terms).await)
+                    terms.extend(crate::screen::as_words(&screen.terms));
+                    let around = context_for(&screen, &tidied_so_far);
+                    Some(tidy_piece(&text, &target, endpoint, &terms, &around).await)
                 }
                 None => None,
             };
@@ -817,7 +863,8 @@ async fn process(
     // Names on screen help with this dictation only: they join the user's
     // words here, in memory, and are never saved with them.
     let recording = app.state::<Pipeline>().recording_id.load(Ordering::SeqCst);
-    let screen = screen_terms(app, recording);
+    let on_screen = screen_for(app, recording);
+    let screen = on_screen.terms.clone();
     let terms = speech_terms(&settings, &screen);
     settings.dictionary.extend(crate::screen::as_words(&screen));
 
@@ -845,8 +892,10 @@ async fn process(
     let rest_from = early.done.min(samples.len());
     let early_texts = early.texts.clone();
     let early_cleaned = early.cleaned;
+    let heard_so_far = early.texts.join(" ");
     let rest = tauri::async_runtime::spawn_blocking(move || {
-        transcriber.transcribe_with(&name, &path, &samples[rest_from..], &models::language(&name, &language), &terms)
+        let language = models::language(&name, &language);
+        transcriber.transcribe_with(&name, &path, &samples[rest_from..], &language, &terms, &heard_so_far)
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -901,7 +950,7 @@ async fn process(
                 delivery
             };
             // The result replaces the selection exactly; no space is added.
-            let (inserted, note) = deliver(app, &edited, delivery, false).await?;
+            let (inserted, note) = deliver(app, &edited, delivery, false, false).await?;
             return Ok(Some(Dictation {
                 text: edited,
                 mode,
@@ -920,18 +969,24 @@ async fn process(
         }
     }
 
-    // Pieces tidied while the user talked are used as they are, one
-    // paragraph each, and only the rest is tidied now. If any piece could not
-    // be tidied, the whole dictation is tidied in one go instead.
+    // Pieces tidied while the user talked are used as they are, and only the
+    // rest is tidied now, so long as each piece ended where a sentence did.
+    // Where the user paused mid-sentence, a piece tidied alone ends the
+    // sentence too early, so then the whole dictation is tidied in one go,
+    // as it is when any piece could not be tidied.
+    let mut heard_pieces = early_texts.clone();
+    heard_pieces.push(rest_raw.clone());
     let all_tidied = mode == Mode::Tidy
         && !early_texts.is_empty()
         && early_cleaned.len() == early_texts.len()
-        && early_cleaned.iter().all(Option::is_some);
+        && early_cleaned.iter().all(Option::is_some)
+        && cleanup::meet_at_sentences(&heard_pieces);
     let mut tidied = if all_tidied {
         let mut parts: Vec<String> = early_cleaned.into_iter().flatten().collect();
         let mut rest = Tidied { text: String::new(), cleaned: false, note: None, ms: None };
         if !rest_raw.trim().is_empty() {
-            rest = improve(app, &rest_raw, &target, &settings, mode).await;
+            let around = context_for(&on_screen, &parts);
+            rest = improve(app, &rest_raw, &target, &settings, mode, &around).await;
             parts.push(rest.text);
         }
         Tidied {
@@ -941,14 +996,18 @@ async fn process(
             ms: Some(rest.ms.unwrap_or(0)),
         }
     } else {
-        improve(app, &raw, &target, &settings, mode).await
+        improve(app, &raw, &target, &settings, mode, &context_for(&on_screen, &[])).await
     };
     // However it was produced, a long dictation never goes in as one block,
     // except where line breaks have meaning of their own: code and terminals.
     if target.category != context::Category::Code {
         tidied.text = cleanup::paragraphs(&tidied.text);
     }
-    let (inserted, delivery_note) = deliver(app, &tidied.text, delivery, true).await?;
+    // Carry on from the text before the cursor: no capital in the middle of
+    // a sentence, and a space if the cursor is right after a word.
+    let (space_before, text) = follow_on(&on_screen.around.before, &tidied.text);
+    tidied.text = text;
+    let (inserted, delivery_note) = deliver(app, &tidied.text, delivery, true, space_before).await?;
     if delivery != Delivery::ClipboardOnly && !screen.is_empty() {
         suggest_from_screen(app, &screen, &raw, &tidied.text, &target.name);
     }
@@ -1140,6 +1199,7 @@ async fn improve(
     target: &AppContext,
     settings: &Settings,
     mode: Mode,
+    around: &cleanup::Context,
 ) -> Tidied {
     let untouched = |note: Option<String>, ms: Option<u64>| Tidied {
         text: raw.to_string(),
@@ -1193,7 +1253,7 @@ async fn improve(
     // no key set up, the pill must not claim to be tidying.
     emit_stage(app, if mode == Mode::Rewrite { "rewriting" } else { "tidying" });
     let started = Instant::now();
-    let result = cleanup::run(raw, target, &endpoint, &task, &settings.dictionary).await;
+    let result = cleanup::run_with(raw, target, &endpoint, &task, &settings.dictionary, around).await;
     let ms = Some(started.elapsed().as_millis() as u64);
     if endpoint.local {
         // Keep the model loaded for the next dictation (see `warm_up`).
@@ -1236,6 +1296,7 @@ async fn deliver(
     text: &str,
     delivery: Delivery,
     space_after: bool,
+    space_before: bool,
 ) -> Result<(bool, Option<String>), String> {
     let blocked = if delivery == Delivery::ClipboardOnly {
         Some("simulated dictation")
@@ -1261,11 +1322,15 @@ async fn deliver(
 
     // A trailing space lets the next dictation follow on without running the
     // two together.
-    let spaced = if !space_after || text.ends_with(char::is_whitespace) {
+    let mut spaced = if !space_after || text.ends_with(char::is_whitespace) {
         text.to_string()
     } else {
         format!("{text} ")
     };
+    // And a space before, when it follows a word with none after it.
+    if space_before {
+        spaced.insert(0, ' ');
+    }
     let token = on_main(app, move || insert::stage(&spaced))?;
     // Give the system a moment to publish the new clipboard before pasting.
     tokio::time::sleep(Duration::from_millis(60)).await;
@@ -1289,6 +1354,28 @@ async fn deliver(
         let _ = on_main(&app, move || insert::restore_staged_if(token));
     });
     Ok((true, None))
+}
+
+/// Fit a dictation to the text before the cursor. A space goes first when
+/// the cursor sits right after a word or a full stop; and when that text
+/// stops in the middle of a sentence, the dictation does not open with a
+/// capital, unless its first word is a name or "I". Returns whether a space
+/// goes first, and the text.
+fn follow_on(before: &str, text: &str) -> (bool, String) {
+    let Some(last) = before.chars().last() else { return (false, text.to_string()) };
+    let opens_with_mark = text.starts_with(|c: char| c.is_whitespace() || ",.;:!?)".contains(c));
+    let space = !opens_with_mark && (last.is_alphanumeric() || ".,;:!?)\"'\u{201d}\u{2019}".contains(last));
+    let ended = before.trim_end_matches([' ', '\t']);
+    let mid_sentence = ended.chars().last().is_some_and(|c| c.is_alphanumeric() || c == ',' || c == ';');
+    let first: String = text.chars().take_while(|c| c.is_alphabetic()).collect();
+    let mut chars = first.chars();
+    let capitalised = chars.next().is_some_and(char::is_uppercase) && chars.all(char::is_lowercase);
+    let lower = first.to_lowercase();
+    // A sentence that runs on lower-cases an ordinary first word only.
+    if mid_sentence && capitalised && first != "I" && crate::learn::everyday(std::slice::from_ref(&lower)).contains(&lower) {
+        return (space, format!("{lower}{}", &text[first.len()..]));
+    }
+    (space, text.to_string())
 }
 
 /// Put the most recent dictation on the clipboard. Called from the tray menu,
@@ -1371,13 +1458,16 @@ fn replay_early(app: &AppHandle, id: u64, samples: &[f32]) {
                 piece,
                 &models::language(&settings.model, &settings.language),
                 &crate::words::spellings(&settings.dictionary),
+                &early.texts.join(" "),
             ) {
                 eprintln!("[pipeline] early piece {:.1} s: {text}", cut as f32 / TARGET_RATE as f32);
                 // Tidied as a live dictation would be, on a runtime of its own.
                 if settings.cleanup_enabled && *pipeline.mode.lock().unwrap() == Mode::Tidy {
                     if let Ok(endpoint) = providers::resolve(&settings) {
                         let target = pipeline.target.lock().unwrap().clone();
-                        let cleaned = tauri::async_runtime::block_on(tidy_piece(&text, &target, &endpoint, &settings.dictionary));
+                        let so_far: Vec<String> = early.cleaned.iter().flatten().cloned().collect();
+                        let around = context_for(&Screen::default(), &so_far);
+                        let cleaned = tauri::async_runtime::block_on(tidy_piece(&text, &target, &endpoint, &settings.dictionary, &around));
                         early.cleaned.push(cleaned);
                     }
                 }
@@ -1398,6 +1488,24 @@ pub fn busy(app: &AppHandle) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dictation_carries_on_from_the_text_before_the_cursor() {
+        // Mid-sentence: no capital on an ordinary word, and a space first.
+        assert_eq!(follow_on("Thanks for this and", "Also the logo."), (true, "also the logo.".into()));
+        assert_eq!(follow_on("We should ship it, ", "Then test."), (false, "then test.".into()));
+        // A name, "I" and acronyms keep their capitals.
+        assert_eq!(follow_on("I asked", "Priya about it."), (true, "Priya about it.".into()));
+        assert_eq!(follow_on("and then", "I left."), (true, "I left.".into()));
+        assert_eq!(follow_on("and then", "AWS said no."), (true, "AWS said no.".into()));
+        // After a full stop: a space, and the capital stays.
+        assert_eq!(follow_on("Done.", "Next point."), (true, "Next point.".into()));
+        assert_eq!(follow_on("Done. ", "Next point."), (false, "Next point.".into()));
+        assert_eq!(follow_on("Line one\n", "Next point."), (false, "Next point.".into()));
+        // Nothing before, or an opening bracket: nothing changes.
+        assert_eq!(follow_on("", "Hello."), (false, "Hello.".into()));
+        assert_eq!(follow_on("call(", "User id"), (false, "User id".into()));
+    }
 
     #[test]
     fn an_edit_keeps_the_white_space_around_the_selection() {

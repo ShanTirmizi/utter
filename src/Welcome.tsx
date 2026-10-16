@@ -322,7 +322,7 @@ export default function Welcome() {
               })}
             </div>
             <p className="qp" style={{ margin: "12px 2px 0" }}>
-              Speak something other than English? Pick Large. You can carry on while it downloads.
+              Small suits most people. Speak something other than English? Pick Large. You can carry on while it downloads.
             </p>
           </>
         )}

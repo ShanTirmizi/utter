@@ -163,10 +163,11 @@ and Gatekeeper checks downloads for Apple's notarisation.
 
 Utter opens with a four-step welcome that takes about a minute:
 
-1. **Hello.** Pressing "Get started" also starts downloading the Base speech
-   model (148 MB), so it is usually ready by step 3.
+1. **Hello.** Pressing "Get started" also starts downloading the Small speech
+   model (488 MB), so it is usually ready by step 3.
 2. **Permissions.** Allow the microphone; Accessibility is optional (see below).
-3. **Speech model.** Keep Base, or pick a larger one. Large understands
+3. **Speech model.** Keep Small, or pick another. Base is fastest but
+   mishears names and jargon more often. Large is the most accurate and understands
    languages other than English; under **Speech model** you can tell it which
    one you speak, or leave it to detect.
 4. **Try it.** Hold `⌃ ⌥ Space`, say a sentence, and let go.
@@ -314,7 +315,11 @@ entries; a handful of the ones you actually say works best.
 - **Names on screen.** When you start dictating, Utter reads the names in the
   window in front (people in a Slack thread, functions in your editor) and
   uses them as hints for that one dictation, so they are spelled the way the
-  screen spells them. The window's text is never kept. A name you then say
+  screen spells them. Cleanup is also shown a short excerpt of the text
+  around the cursor (the conversation above a chat box, say), so a misheard
+  word can be put right from it, and what is just before the cursor, so a
+  dictation that continues a sentence starts in lower case with a space.
+  None of the window's text is ever kept. A name you then say
   is offered under **Suggested from your screen**; nothing is added without
   you. Switch it off on the Words tab.
 - **Add a Word…** in the menu bar opens the list ready to type into.
@@ -353,7 +358,10 @@ reason given under "Signing, and why it matters".
 - **Audio:** never.
 - **Text:** only when cleanup is set up. Then the transcript, the name of the
   app (or, in a browser, the site), your word list and any names read from
-  the window in front are sent to the provider you chose. When you
+  the window in front are sent to the provider you chose. With **Use what's
+  on screen** on, so is a short excerpt of the text around the cursor (about
+  1,500 characters near the box you are typing in, and what is before the
+  cursor), to correct misheard words; it is never saved. When you
   edit selected text, that text is sent too. With Ollama, all of it stays on
   your Mac.
 - **History:** never. It is a file on your Mac.

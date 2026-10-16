@@ -282,10 +282,10 @@ export default function WordsSection() {
         </div>
         <div className="qsw">
           <div className="tx">
-            <b>Use names on screen</b>
-            <span>Reads names in the app you’re dictating into so it spells them right. Nothing leaves this Mac.</span>
+            <b>Use what’s on screen</b>
+            <span>Reads the app you’re dictating into, so names are spelled right and misheard words fixed. Nearby text goes to your cleanup model with the dictation, and is never saved.</span>
           </div>
-          <Switch label="Use names on screen" checked={settings.screenWords} onChange={(screenWords) => run(update({ screenWords }))} />
+          <Switch label="Use what’s on screen" checked={settings.screenWords} onChange={(screenWords) => run(update({ screenWords }))} />
         </div>
       </div>
 

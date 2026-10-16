@@ -27,19 +27,19 @@ pub const CATALOG: [ModelInfo; 3] = [
     ModelInfo {
         name: "base.en",
         label: "Base (English)",
-        note: "Fastest. Good for clear speech.",
+        note: "Fastest, but mishears more. Good for clear speech.",
         size_mb: 148,
     },
     ModelInfo {
         name: "small.en",
         label: "Small (English)",
-        note: "More accurate, a little slower.",
+        note: "Recommended. Hears names and jargon far better than Base.",
         size_mb: 488,
     },
     ModelInfo {
         name: "large-v3-turbo-q5_0",
         label: "Large v3 Turbo (multilingual)",
-        note: "Most accurate. Any language.",
+        note: "Most accurate, any language. Several times slower.",
         size_mb: 574,
     },
 ];

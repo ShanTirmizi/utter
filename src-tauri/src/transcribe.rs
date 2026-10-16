@@ -60,12 +60,16 @@ impl Transcriber {
     /// or "auto" to detect it.
     pub fn transcribe(&self, samples: &[f32], language: &str) -> Result<String, String> {
         let loaded = self.loaded.lock().unwrap();
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, &[])
+        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, &[], "")
     }
 
     /// Make sure `name` is the loaded model, then transcribe with it. Both
     /// happen under one lock, so a model change in settings part-way through
     /// cannot swap the model out from under a dictation.
+    ///
+    /// `before` is what was already transcribed of the same dictation, when
+    /// this audio continues it. The model is shown its end, so a sentence cut
+    /// at a pause carries on in lower case instead of starting afresh.
     pub fn transcribe_with(
         &self,
         name: &str,
@@ -73,13 +77,14 @@ impl Transcriber {
         samples: &[f32],
         language: &str,
         terms: &[String],
+        before: &str,
     ) -> Result<String, String> {
         let mut loaded = self.loaded.lock().unwrap();
         Self::load(&mut loaded, name, path)?;
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, terms)
+        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, terms, before)
     }
 
-    fn run(loaded: &Loaded, samples: &[f32], language: &str, terms: &[String]) -> Result<String, String> {
+    fn run(loaded: &Loaded, samples: &[f32], language: &str, terms: &[String], before: &str) -> Result<String, String> {
         let hint = glossary(terms);
 
         let mut state = loaded
@@ -105,12 +110,17 @@ impl Transcriber {
             let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
             params.set_language(Some(language));
             params.set_n_threads(threads());
-            // Each piece stands alone; do not let one bleed into the next.
+            // The model's own memory of the last piece is not used: it is
+            // what lets a stuck model repeat itself. What came before is
+            // given in the prompt instead, where it can be kept short.
             params.set_no_context(true);
-            if !hint.is_empty() {
+            let said_so_far = format!("{before} {}", pieces.join(" "));
+            let prompt = prompt(&hint, &said_so_far);
+            if !prompt.is_empty() {
                 // Text the model is told came just before. Having "seen" the
-                // user's names and terms, it is more likely to hear them.
-                params.set_initial_prompt(&hint);
+                // user's names and terms, it is more likely to hear them, and
+                // having seen the end of what was said, it carries it on.
+                params.set_initial_prompt(&prompt);
             }
             params.set_no_timestamps(true);
             params.set_suppress_blank(true);
@@ -125,12 +135,54 @@ impl Transcriber {
                 .map_err(|e| format!("Transcription failed: {e}"))?;
             let text: String = state.as_iter().map(|segment| segment.to_string()).collect();
             let text = tidy(&text);
-            if !text.is_empty() && !is_prompt_echo(&text, terms) {
+            if !text.is_empty() && !is_prompt_echo(&text, terms) && !is_echo_of(&text, &prompt) {
                 pieces.push(text);
             }
         }
         Ok(collapse_repeats(&pieces.join(" ")))
     }
+}
+
+/// How much of what was already said the speech model is shown. Enough for
+/// the sentence under way and the one before; more only slows it down.
+const BEFORE_CHARS: usize = 200;
+
+/// The prompt for one piece of audio: the glossary, then the end of what was
+/// said before it, cut at a word.
+fn prompt(glossary: &str, said_so_far: &str) -> String {
+    let said = said_so_far.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut tail = said.as_str();
+    if tail.len() > BEFORE_CHARS {
+        let mut cut = tail.len() - BEFORE_CHARS;
+        while !tail.is_char_boundary(cut) {
+            cut += 1;
+        }
+        tail = &tail[cut..];
+        // Start at a whole word.
+        if let Some(space) = tail.find(' ') {
+            tail = &tail[space + 1..];
+        }
+    }
+    match (glossary.is_empty(), tail.is_empty()) {
+        (_, true) => glossary.to_string(),
+        (true, false) => tail.to_string(),
+        (false, false) => format!("{glossary} {tail}"),
+    }
+}
+
+/// Did the model just say back the end of its prompt? On a stretch with
+/// little speech it can. Four or more words found word for word in the
+/// prompt are taken as that, not as speech; a short "no, no" is a person.
+fn is_echo_of(text: &str, prompt: &str) -> bool {
+    let plain = |text: &str| -> Vec<String> {
+        text.split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let heard = plain(text);
+    let shown = plain(prompt);
+    heard.len() >= 4 && shown.windows(heard.len()).any(|run| run == heard.as_slice())
 }
 
 /// Did the model repeat the glossary it was shown instead of hearing speech?
@@ -358,6 +410,29 @@ mod tests {
         assert!(!is_prompt_echo("Priya", &terms));
         assert!(!is_prompt_echo("Ask Priya about Kubernetes.", &terms));
         assert!(!is_prompt_echo("Glossary: anything", &[]));
+    }
+
+    #[test]
+    fn each_piece_is_shown_the_end_of_what_came_before() {
+        assert_eq!(prompt("", ""), "");
+        assert_eq!(prompt("Glossary: Priya.", ""), "Glossary: Priya.");
+        assert_eq!(prompt("Glossary: Priya.", "  so what I want  you to do is "), "Glossary: Priya. so what I want you to do is");
+        // Only the end of a long dictation, starting at a whole word.
+        let long = format!("{}the last few words", "earlier words ".repeat(40));
+        let shown = prompt("", &long);
+        assert!(shown.len() <= BEFORE_CHARS, "{shown}");
+        assert!(shown.ends_with("the last few words"), "{shown}");
+        assert!(long.contains(&format!(" {shown}")), "cut mid-word: {shown}");
+        assert!(prompt("", &"é".repeat(300)).chars().all(|c| c == 'é'));
+    }
+
+    #[test]
+    fn the_end_of_the_prompt_said_back_is_not_speech() {
+        let shown = "Glossary: Priya. and then we deploy it to staging on Friday";
+        assert!(is_echo_of("We deploy it to staging.", shown));
+        // A few words that happen to repeat, or new speech, are kept.
+        assert!(!is_echo_of("On Friday.", shown));
+        assert!(!is_echo_of("And then we test it on Monday.", shown));
     }
 
     #[test]
