@@ -1,20 +1,31 @@
-//! Speech-to-text, entirely on this Mac, using whisper.cpp. No audio leaves
-//! the machine and no API key is involved.
+//! Speech-to-text, entirely on this Mac, using whisper.cpp or Parakeet. No
+//! audio leaves the machine and no API key is involved.
 
 use std::{path::Path, sync::Mutex};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use crate::audio::{self, TARGET_RATE};
+use crate::{
+    audio::{self, TARGET_RATE},
+    models::{self, Engine as Kind},
+    parakeet::Parakeet,
+};
 
 /// The model rejects very short clips, so shorter recordings are padded with
 /// silence up to this length.
 const MIN_SAMPLES: usize = (TARGET_RATE as usize * 11) / 10;
 
+/// A speech-to-text engine with its model loaded.
+trait Engine: Send {
+    /// Mono 16 kHz audio to text. `language` is a code such as "en", or
+    /// "auto"; `terms` are the user's words and the names on screen.
+    fn transcribe(&mut self, samples: &[f32], language: &str, terms: &[String]) -> Result<String, String>;
+}
+
 /// A loaded model, remembered so that only the first dictation pays the
 /// load time.
 struct Loaded {
     name: String,
-    context: WhisperContext,
+    engine: Box<dyn Engine>,
 }
 
 #[derive(Default)]
@@ -32,13 +43,18 @@ impl Transcriber {
         if loaded.as_ref().is_some_and(|l| l.name == name) {
             return Ok(());
         }
-        let path = path.to_str().ok_or("Model path is not valid UTF-8.")?;
-        let context = WhisperContext::new_with_params(path, WhisperContextParameters::default())
-            .map_err(|e| format!("Could not load the speech model: {e}"))?;
-        *loaded = Some(Loaded {
-            name: name.to_string(),
-            context,
-        });
+        // Only one model at a time: let go of the old one first.
+        *loaded = None;
+        // A model outside the catalog (the command-line example) is told
+        // apart by its shape: Whisper's is one file, Parakeet's a folder.
+        let kind = models::find(name)
+            .map(|m| m.engine)
+            .unwrap_or(if path.is_dir() { Kind::Parakeet } else { Kind::Whisper });
+        let engine: Box<dyn Engine> = match kind {
+            Kind::Whisper => Box::new(Whisper::load(path)?),
+            Kind::Parakeet => Box::new(Parakeet::start(path)?),
+        };
+        *loaded = Some(Loaded { name: name.to_string(), engine });
         Ok(())
     }
 
@@ -56,11 +72,13 @@ impl Transcriber {
         }
     }
 
-    /// Turn mono 16 kHz audio into text. `language` is a code such as "en",
-    /// or "auto" to detect it.
-    pub fn transcribe(&self, samples: &[f32], language: &str) -> Result<String, String> {
-        let loaded = self.loaded.lock().unwrap();
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, &[])
+    /// Turn mono 16 kHz audio into text with the model already loaded.
+    /// `language` is a code such as "en", or "auto" to detect it; `terms` are
+    /// names and words to listen for.
+    pub fn transcribe(&self, samples: &[f32], language: &str, terms: &[String]) -> Result<String, String> {
+        let mut loaded = self.loaded.lock().unwrap();
+        let loaded = loaded.as_mut().ok_or("No speech model is loaded.")?;
+        loaded.engine.transcribe(samples, language, terms)
     }
 
     /// Make sure `name` is the loaded model, then transcribe with it. Both
@@ -76,13 +94,30 @@ impl Transcriber {
     ) -> Result<String, String> {
         let mut loaded = self.loaded.lock().unwrap();
         Self::load(&mut loaded, name, path)?;
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, terms)
+        let loaded = loaded.as_mut().ok_or("No speech model is loaded.")?;
+        loaded.engine.transcribe(samples, language, terms)
     }
+}
 
-    fn run(loaded: &Loaded, samples: &[f32], language: &str, terms: &[String]) -> Result<String, String> {
+/// whisper.cpp, on the GPU through Metal.
+struct Whisper {
+    context: WhisperContext,
+}
+
+impl Whisper {
+    fn load(path: &Path) -> Result<Self, String> {
+        let path = path.to_str().ok_or("Model path is not valid UTF-8.")?;
+        let context = WhisperContext::new_with_params(path, WhisperContextParameters::default())
+            .map_err(|e| format!("Could not load the speech model: {e}"))?;
+        Ok(Self { context })
+    }
+}
+
+impl Engine for Whisper {
+    fn transcribe(&mut self, samples: &[f32], language: &str, terms: &[String]) -> Result<String, String> {
         let hint = glossary(terms);
 
-        let mut state = loaded
+        let mut state = self
             .context
             .create_state()
             .map_err(|e| format!("Could not start transcription: {e}"))?;
@@ -130,6 +165,34 @@ impl Transcriber {
             }
         }
         Ok(collapse_repeats(&pieces.join(" ")))
+    }
+}
+
+/// Most of the user's words given to Parakeet for one dictation. Past about a
+/// hundred FluidAudio becomes stricter about matches, and every term costs a
+/// pass over the audio's word-spotting scores.
+const PARAKEET_TERMS: usize = 100;
+
+impl Engine for Parakeet {
+    fn transcribe(&mut self, samples: &[f32], _language: &str, terms: &[String]) -> Result<String, String> {
+        // Parakeet works out the language itself, and walks through long
+        // audio in overlapping windows of its own, so the recording goes over
+        // whole. Silence would only come back as a stray word.
+        if audio::peak(samples) < PIECE_SILENCE_PEAK {
+            return Ok(String::new());
+        }
+        let mut audio = samples.to_vec();
+        if audio.len() < MIN_SAMPLES {
+            audio.resize(MIN_SAMPLES, 0.0);
+        }
+        let terms = &terms[..terms.len().min(PARAKEET_TERMS)];
+        let mut text = Parakeet::transcribe(self, &audio, terms)?;
+        // Whisper takes its capitals from the glossary it is shown; here, a
+        // term heard right but written in the wrong case is set straight.
+        for term in terms {
+            text = crate::words::replace_word(&text, term, term);
+        }
+        Ok(collapse_repeats(&tidy(&text)))
     }
 }
 

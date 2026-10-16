@@ -13,6 +13,17 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
+/// What runs a model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Engine {
+    /// whisper.cpp, on the GPU. The model is one file.
+    Whisper,
+    /// FluidAudio, on the Neural Engine, in a helper program. The model is a
+    /// folder of Core ML bundles. See `parakeet.rs`.
+    Parakeet,
+}
+
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfo {
@@ -20,27 +31,38 @@ pub struct ModelInfo {
     pub label: &'static str,
     pub note: &'static str,
     pub size_mb: u32,
+    pub engine: Engine,
 }
 
 /// Models offered in settings, smallest first.
-pub const CATALOG: [ModelInfo; 3] = [
+pub const CATALOG: [ModelInfo; 4] = [
     ModelInfo {
         name: "base.en",
         label: "Base (English)",
         note: "Fastest. Good for clear speech.",
         size_mb: 148,
+        engine: Engine::Whisper,
     },
     ModelInfo {
         name: "small.en",
         label: "Small (English)",
         note: "More accurate, a little slower.",
         size_mb: 488,
+        engine: Engine::Whisper,
     },
     ModelInfo {
         name: "large-v3-turbo-q5_0",
         label: "Large v3 Turbo (multilingual)",
         note: "Most accurate. Any language.",
         size_mb: 574,
+        engine: Engine::Whisper,
+    },
+    ModelInfo {
+        name: "parakeet-tdt-0.6b-v3",
+        label: "Parakeet v3 (25 languages)",
+        note: "Fast and accurate, on the Neural Engine. European languages. macOS 14 or later.",
+        size_mb: 586,
+        engine: Engine::Parakeet,
     },
 ];
 
@@ -88,18 +110,26 @@ fn dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Where a model is kept: a file for Whisper, a folder for Parakeet.
 pub fn path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
-    find(name).ok_or_else(|| format!("Unknown model: {name}"))?;
-    Ok(dir(app)?.join(format!("ggml-{name}.bin")))
+    let info = find(name).ok_or_else(|| format!("Unknown model: {name}"))?;
+    Ok(match info.engine {
+        Engine::Whisper => dir(app)?.join(format!("ggml-{name}.bin")),
+        Engine::Parakeet => dir(app)?.join(name),
+    })
 }
 
+/// A model is only ever at its path once completely downloaded: it is
+/// assembled under another name and moved there at the end.
 pub fn is_downloaded(app: &AppHandle, name: &str) -> bool {
-    path(app, name).map(|p| p.is_file()).unwrap_or(false)
+    path(app, name).map(|p| p.exists()).unwrap_or(false)
 }
 
+/// The models offered here. Parakeet is left out on a Mac that cannot run it.
 pub fn statuses(app: &AppHandle) -> Vec<ModelStatus> {
     CATALOG
         .iter()
+        .filter(|info| info.engine != Engine::Parakeet || crate::parakeet::available())
         .map(|info| ModelStatus {
             info: *info,
             downloaded: is_downloaded(app, info.name),
@@ -116,50 +146,107 @@ fn url(name: &str) -> String {
 /// interrupted download never looks like a usable model.
 pub async fn download(app: &AppHandle, name: &str) -> Result<(), String> {
     let target = path(app, name)?;
-    if target.is_file() {
+    if target.exists() {
         return Ok(());
     }
     // Two downloads of one model would write over each other's partial file.
     let _claim = Claim::take(name).ok_or("That model is already downloading.")?;
     // A stop asked for before this download began is not for it.
     stop_asked(name);
-    let partial = target.with_extension("bin.part");
+    let mut tally = Tally::default();
 
-    let result = fetch(app, name, &partial).await;
-    match result {
-        Ok(received) => {
-            fs::rename(&partial, &target).map_err(|e| e.to_string())?;
-            let _ = app.emit("model-download", Progress { name, received, total: received });
-            Ok(())
+    let result = match find(name).map(|m| m.engine) {
+        Some(Engine::Parakeet) => {
+            let partial = dir(app)?.join(format!("{name}.part"));
+            let _ = fs::remove_dir_all(&partial);
+            tally.total = crate::parakeet::TOTAL_BYTES;
+            let mut result = Ok(());
+            for (url, file) in crate::parakeet::files() {
+                result = fetch(app, name, &url, &partial.join(file), &mut tally).await;
+                if result.is_err() {
+                    break;
+                }
+            }
+            let result = finish(result, &partial, &target, || fs::remove_dir_all(&partial));
+            if result.is_ok() {
+                // Core ML prepares a model for this Mac's Neural Engine the
+                // first time it is loaded from a new place, which takes a
+                // minute or more. Do it now, while the download still shows
+                // as running, rather than in the first dictation.
+                let folder = target.clone();
+                let prepared = tauri::async_runtime::spawn_blocking(move || {
+                    crate::parakeet::Parakeet::start(&folder).map(drop)
+                })
+                .await;
+                if let Ok(Err(e)) = prepared {
+                    eprintln!("[models] could not prepare {name}: {e}");
+                }
+            }
+            result
         }
-        Err(e) => {
-            // Never leave a half-written file behind, whatever went wrong.
-            let _ = fs::remove_file(&partial);
-            Err(e)
+        _ => {
+            let partial = target.with_extension("bin.part");
+            let result = fetch(app, name, &url(name), &partial, &mut tally).await;
+            finish(result, &partial, &target, || fs::remove_file(&partial))
         }
+    };
+    if result.is_ok() {
+        let received = tally.received;
+        let _ = app.emit("model-download", Progress { name, received, total: received });
     }
+    result
+}
+
+/// Move a finished download into place, or, whatever went wrong, never leave
+/// a half-written model behind.
+fn finish(
+    result: Result<(), String>,
+    partial: &Path,
+    target: &Path,
+    remove: impl FnOnce() -> std::io::Result<()>,
+) -> Result<(), String> {
+    let result = result.and_then(|()| fs::rename(partial, target).map_err(|e| e.to_string()));
+    if result.is_err() {
+        let _ = remove();
+    }
+    result
+}
+
+/// Bytes received so far across every file of one model, for progress.
+#[derive(Default)]
+struct Tally {
+    received: u64,
+    /// Zero until known.
+    total: u64,
+    reported: u64,
 }
 
 /// Give up if the server sends nothing for this long, rather than waiting
 /// forever on a stalled connection.
 const STALL_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Stream the model into `partial`, returning the number of bytes written.
-async fn fetch(app: &AppHandle, name: &str, partial: &Path) -> Result<u64, String> {
+/// Stream one file of model `name` from `url` into `partial`, adding what
+/// arrives to `tally`.
+async fn fetch(app: &AppHandle, name: &str, url: &str, partial: &Path, tally: &mut Tally) -> Result<(), String> {
     let response = reqwest::Client::builder()
         .connect_timeout(STALL_TIMEOUT)
         .build()
         .map_err(|e| e.to_string())?
-        .get(url(name))
+        .get(url)
         .send()
         .await
         .and_then(|r| r.error_for_status())
         .map_err(|e| format!("Download failed: {e}"))?;
-    let total = response.content_length().unwrap_or(0);
+    let expected = response.content_length().unwrap_or(0);
+    if tally.total == 0 {
+        tally.total = expected;
+    }
 
+    if let Some(folder) = partial.parent() {
+        fs::create_dir_all(folder).map_err(|e| e.to_string())?;
+    }
     let mut file = fs::File::create(partial).map_err(|e| e.to_string())?;
     let mut received: u64 = 0;
-    let mut last_reported: u64 = 0;
     let mut stream = response.bytes_stream();
 
     loop {
@@ -174,18 +261,19 @@ async fn fetch(app: &AppHandle, name: &str, partial: &Path) -> Result<u64, Strin
         file.write_all(&chunk)
             .map_err(|e| format!("Could not save the model: {e}"))?;
         received += chunk.len() as u64;
+        tally.received += chunk.len() as u64;
         // Report roughly every megabyte; more often just floods the UI.
-        if received - last_reported >= 1_000_000 {
-            last_reported = received;
-            let _ = app.emit("model-download", Progress { name, received, total });
+        if tally.received - tally.reported >= 1_000_000 {
+            tally.reported = tally.received;
+            let _ = app.emit("model-download", Progress { name, received: tally.received, total: tally.total });
         }
     }
     file.flush().map_err(|e| e.to_string())?;
 
-    if total > 0 && received != total {
+    if expected > 0 && received != expected {
         return Err("Download ended early. Please try again.".into());
     }
-    Ok(received)
+    Ok(())
 }
 
 /// The error a download stopped by the user ends with.
@@ -238,6 +326,12 @@ mod tests {
         assert_eq!(language("base.en", "fr"), "en");
         assert_eq!(language("large-v3-turbo-q5_0", ""), "auto");
         assert_eq!(language("large-v3-turbo-q5_0", "ur"), "ur");
+    }
+
+    #[test]
+    fn each_model_has_one_engine() {
+        assert_eq!(find("base.en").unwrap().engine, Engine::Whisper);
+        assert_eq!(find("parakeet-tdt-0.6b-v3").unwrap().engine, Engine::Parakeet);
     }
 
     #[test]

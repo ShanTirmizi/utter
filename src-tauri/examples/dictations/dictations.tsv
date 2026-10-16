@@ -1,0 +1,12 @@
+01-priya	Samantha	Hey Priya, can you ask the Anthropic team whether Claude handles the new evals before we push to prod on Friday?
+02-qa-hold	Daniel	The QA pass found two regressions in the HyperFrames render pipeline, so let's hold the release until tomorrow morning.
+03-groq	Karen	I switched the cleanup model to Groq because the latency was much lower than the other providers we tried.
+04-remind	Moira	Remind me to update the evals dashboard and send the Claude prompt changes to the QA channel after lunch.
+05-linter	Rishi	We should run the HyperFrames composition through the linter before rendering, otherwise the captions drift out of sync.
+06-release	Tessa	Anthropic released a new Claude model this week, and the evals look strong on coding, reasoning and long context tasks.
+07-endpoint	Reed (English (US))	Can you check whether prod is still pointing at the old Groq endpoint? I think the config change never landed.
+08-signoff	Shelley (English (UK))	Draft a short note to the team: QA signed off, evals are green, and we ship to prod tonight unless anyone objects.
+09-export	Eddy (English (US))	The HyperFrames export failed again on the long video, so I'm going to split it into three scenes and render them separately.
+10-compare	Flo (English (UK))	Let's compare Claude and the Groq hosted models on our internal evals before we decide which one goes to prod.
+11-standup	Samantha	Okay, quick update for the standup. Yesterday I finished the Parakeet prototype and got it running behind the same interface as Whisper. Today I'm going to record a few test clips, run the evals, and write up the comparison. The main open question is whether the Anthropic cleanup step still helps once the raw transcript is this accurate. No blockers, but QA will need a build by Thursday.
+12-email	Daniel	Hi Marcus, thanks for the quick turnaround on the contract. I've read through it and I'm happy with everything except the section on data retention, which still says 90 days. Could you change that to 30 days to match what we agreed on the call? Once that's done I'll sign it and send it back the same afternoon.

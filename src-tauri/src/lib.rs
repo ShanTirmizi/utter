@@ -12,6 +12,7 @@ mod hotkey;
 mod insert;
 mod learn;
 mod models;
+mod parakeet;
 mod permissions;
 mod pipeline;
 mod providers;
@@ -478,6 +479,15 @@ fn simulate_from_env(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         use std::time::Duration;
+        // `UTTER_SIMULATE_DOWNLOAD=name` first downloads that model, as its
+        // button in settings would.
+        if let Ok(name) = std::env::var("UTTER_SIMULATE_DOWNLOAD") {
+            let offered: Vec<_> = models::statuses(&app).iter().map(|m| m.info.name).collect();
+            eprintln!("[simulate] models offered: {offered:?}");
+            let started = std::time::Instant::now();
+            let result = tauri::async_runtime::block_on(models::download(&app, &name));
+            eprintln!("[simulate] download {name}: {result:?} in {:.0}s", started.elapsed().as_secs_f32());
+        }
         // Give the speech model time to load first.
         std::thread::sleep(Duration::from_secs(4));
         probe(&app, "before any dictation");
