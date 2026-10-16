@@ -8,10 +8,11 @@
 //! start of the recording. `--live` also cuts it into the pieces a live
 //! dictation is transcribed in while the speaker talks, and transcribes them
 //! twice: each on its own, and each shown the end of what came before (as
-//! Utter does), to compare where they meet.
+//! Utter does), to compare where they meet. To score models on many
+//! recordings at once, see `replay.rs`.
 
 use std::{path::Path, time::Instant};
-use utter_lib::{audio, transcribe::{self, Transcriber}};
+use utter_lib::{audio, replay, transcribe::{self, Transcriber}};
 
 fn main() -> Result<(), String> {
     whisper_rs::install_logging_hooks();
@@ -25,25 +26,7 @@ fn main() -> Result<(), String> {
     let seconds: Option<f32> = value("--seconds").and_then(|n| n.parse().ok());
     let vad = value("--vad");
 
-    let mut reader = hound::WavReader::open(&wav).map_err(|e| e.to_string())?;
-    let spec = reader.spec();
-    let interleaved: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().filter_map(Result::ok).collect(),
-        hound::SampleFormat::Int => {
-            let scale = (1_i64 << (spec.bits_per_sample - 1)) as f32;
-            reader
-                .samples::<i32>()
-                .filter_map(Result::ok)
-                .map(|s| s as f32 / scale)
-                .collect()
-        }
-    };
-    let channels = spec.channels as usize;
-    let mono: Vec<f32> = interleaved
-        .chunks(channels)
-        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
-        .collect();
-    let mut samples = audio::resample(&mono, spec.sample_rate, audio::TARGET_RATE);
+    let mut samples = replay::read_wav(Path::new(&wav))?;
     if let Some(seconds) = seconds {
         samples.truncate((seconds * audio::TARGET_RATE as f32) as usize);
     }

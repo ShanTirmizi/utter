@@ -12,10 +12,11 @@
 //! exactly one place that decides what a key press means.
 
 use crate::{
+    accuracy::{self, Edit},
     audio::{self, Recorder, TARGET_RATE},
     cleanup::{self, Task},
     context::{self, AppContext},
-    history, insert, models, permissions,
+    history, insert, models, permissions, recordings,
     selection::{self, Selection},
     providers::{self, NotReady},
     settings::{self, Settings},
@@ -85,6 +86,12 @@ pub struct Dictation {
     pub total_ms: u64,
     /// When it finished, in milliseconds since 1970.
     pub finished_at: u64,
+    /// What the user changed in it after it was pasted, once they were done.
+    /// `None` until then, and for good when nobody could tell: it was only
+    /// copied, or the app would not show its text box.
+    pub edit: Option<Edit>,
+    /// Its recording's file name, when Keep recordings is on.
+    pub recording: Option<String>,
 }
 
 /// Sent to the UI on the `pipeline` event whenever something changes.
@@ -215,7 +222,12 @@ pub fn unload_model(app: &AppHandle) {
 /// Read the history file into memory at launch. The newest entry also
 /// becomes "the last dictation", so it can still be copied after a restart.
 pub fn load_history(app: &AppHandle) {
-    let entries = history::load(app);
+    let mut entries = history::load(app);
+    // Anything left over from a crash, or from before Keep recordings was
+    // switched off, goes now.
+    if recordings::tidy(app, &mut entries) {
+        let _ = history::save(app, &entries);
+    }
     let pipeline = app.state::<Pipeline>();
     *pipeline.last.lock().unwrap() = entries.last().cloned();
     *pipeline.history.lock().unwrap() = entries;
@@ -228,6 +240,7 @@ pub fn clear_history(app: &AppHandle) -> Result<(), String> {
     let mut entries = pipeline.history.lock().unwrap();
     entries.clear();
     *pipeline.last.lock().unwrap() = None;
+    recordings::tidy(app, &mut entries);
     history::save(app, &entries)
 }
 
@@ -236,11 +249,56 @@ pub fn forget(app: &AppHandle, finished_at: u64) -> Result<(), String> {
     let pipeline = app.state::<Pipeline>();
     let mut entries = pipeline.history.lock().unwrap();
     entries.retain(|d| d.finished_at != finished_at);
+    recordings::tidy(app, &mut entries);
     let mut last = pipeline.last.lock().unwrap();
     if last.as_ref().is_some_and(|d| d.finished_at == finished_at) {
         *last = entries.last().cloned();
     }
     history::save(app, &entries)
+}
+
+/// Delete every kept recording, because Keep recordings was switched off.
+pub fn drop_recordings(app: &AppHandle) -> Result<(), String> {
+    let pipeline = app.state::<Pipeline>();
+    let mut entries = pipeline.history.lock().unwrap();
+    recordings::remove_all(app, &mut entries);
+    if let Some(last) = pipeline.last.lock().unwrap().as_mut() {
+        last.recording = None;
+        if let Some(edit) = last.edit.as_mut() {
+            edit.corrected = None;
+        }
+    }
+    history::save(app, &entries)
+}
+
+/// The user has finished with the dictation that finished at `finished_at`,
+/// and `edit` is what they changed in it. The corrected text is kept only
+/// next to a recording, to score it by.
+fn note_edit(app: &AppHandle, finished_at: u64, edit: Edit) {
+    let pipeline = app.state::<Pipeline>();
+    let keep = |entry: &mut Dictation| {
+        let mut edit = edit.clone();
+        if entry.recording.is_none() {
+            edit.corrected = None;
+        }
+        entry.edit = Some(edit);
+    };
+    let mut entries = pipeline.history.lock().unwrap();
+    let mut changed = false;
+    for entry in entries.iter_mut().filter(|d| d.finished_at == finished_at) {
+        keep(entry);
+        changed = true;
+    }
+    if let Some(last) = pipeline.last.lock().unwrap().as_mut().filter(|d| d.finished_at == finished_at) {
+        keep(last);
+    }
+    if changed {
+        if let Err(e) = history::save(app, &entries) {
+            eprintln!("[utter] could not save history: {e}");
+        }
+    }
+    drop(entries);
+    let _ = app.emit("edited", finished_at);
 }
 
 /// Correct a word in one past dictation, named by when it finished. Every
@@ -249,13 +307,29 @@ pub fn correct(app: &AppHandle, finished_at: u64, wrong: &str, right: &str) -> R
     let pipeline = app.state::<Pipeline>();
     let mut entries = pipeline.history.lock().unwrap();
     let mut changed = false;
+    // A word that needed fixing was an edit, even if made here rather than
+    // in the app it was pasted into.
+    let fix = |entry: &mut Dictation| {
+        let before = std::mem::take(&mut entry.text);
+        entry.text = crate::words::replace_word(&before, wrong, right);
+        if entry.text != before {
+            let earlier = entry.edit.as_ref().and_then(|e| e.corrected.clone());
+            let mut edit = accuracy::fixed_later(entry.edit.take(), &before, &entry.text, entry.recording.is_some());
+            // What the user already corrected in the app stays, with this
+            // fix made in it too.
+            if let (Some(corrected), Some(earlier)) = (edit.corrected.as_mut(), earlier) {
+                *corrected = crate::words::replace_word(&earlier, wrong, right);
+            }
+            entry.edit = Some(edit);
+        }
+    };
     for entry in entries.iter_mut().filter(|d| d.finished_at == finished_at) {
-        entry.text = crate::words::replace_word(&entry.text, wrong, right);
+        fix(entry);
         changed = true;
     }
     let mut last = pipeline.last.lock().unwrap();
     if let Some(entry) = last.as_mut().filter(|d| d.finished_at == finished_at) {
-        entry.text = crate::words::replace_word(&entry.text, wrong, right);
+        fix(entry);
     }
     if changed { history::save(app, &entries) } else { Ok(()) }
 }
@@ -684,10 +758,7 @@ async fn tidy_piece(
     if text.trim().is_empty() {
         return Some(String::new());
     }
-    if target.category != context::Category::Code
-        && cleanup::already_clean(text)
-        && crate::words::suspects(text, terms).is_empty()
-    {
+    if cleanup::goes_as_is(text, target.category, terms) {
         return Some(text.to_string());
     }
     cleanup::run_with(text, target, endpoint, &Task::Tidy, terms, around).await.ok()
@@ -831,6 +902,11 @@ enum Delivery {
 /// Process a finished recording in the background and report the outcome.
 fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
     tauri::async_runtime::spawn(async move {
+        // A recording is kept only with a history entry to belong to, and a
+        // simulated dictation is a test, not something the user said.
+        let saved = settings::load(&app);
+        let keep_audio = saved.keep_audio && saved.keep_history && delivery != Delivery::ClipboardOnly;
+        let audio = keep_audio.then(|| samples.clone());
         let outcome = process(&app, samples, delivery).await;
         let pipeline = app.state::<Pipeline>();
         #[cfg(debug_assertions)]
@@ -845,12 +921,20 @@ fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
         // Report the outcome before accepting a new press, so that press's
         // "recording" event can never be overtaken by this "done".
         match outcome {
-            Ok(Some(dictation)) => {
+            Ok(Some(mut dictation)) => {
+                if let Some(audio) = audio {
+                    match recordings::save(&app, dictation.finished_at, &audio) {
+                        Ok(file) => dictation.recording = Some(file),
+                        Err(e) => eprintln!("[utter] could not save the recording: {e}"),
+                    }
+                }
                 *pipeline.last.lock().unwrap() = Some(dictation.clone());
                 // A simulated dictation is a test, not something the user said.
                 if delivery != Delivery::ClipboardOnly && settings::load(&app).keep_history {
                     let mut entries = pipeline.history.lock().unwrap();
                     history::push(&mut entries, dictation.clone());
+                    // The oldest entry's recording, if it just dropped off.
+                    recordings::tidy(&app, &mut entries);
                     if let Err(e) = history::save(&app, &entries) {
                         eprintln!("[utter] could not save history: {e}");
                     }
@@ -1003,6 +1087,8 @@ async fn process(
                 spoken_ms,
                 total_ms: released.elapsed().as_millis() as u64,
                 finished_at: finished_at(),
+                edit: None,
+                recording: None,
             }));
         }
     }
@@ -1049,13 +1135,18 @@ async fn process(
     if delivery != Delivery::ClipboardOnly && !screen.is_empty() {
         suggest_from_screen(app, &screen, &raw, &tidied.text, &target.name);
     }
-    // Watch for the user correcting a word of it, to learn from.
+    // Named by when it finished, which the watch below needs to know.
+    let finished_at = finished_at();
+    // Watch for the user correcting a word of it, to learn from and to count.
     if inserted && delivery == Delivery::Paste {
         let id = app.state::<Pipeline>().recording_id.load(Ordering::SeqCst);
-        let watcher = app.clone();
-        crate::learn::watch(app.clone(), tidied.text.clone(), move || {
-            watcher.state::<Pipeline>().recording_id.load(Ordering::SeqCst) == id
-        });
+        let (watcher, noter) = (app.clone(), app.clone());
+        crate::learn::watch(
+            app.clone(),
+            tidied.text.clone(),
+            move || watcher.state::<Pipeline>().recording_id.load(Ordering::SeqCst) == id,
+            move |edit| note_edit(&noter, finished_at, edit),
+        );
     }
 
     Ok(Some(Dictation {
@@ -1076,7 +1167,9 @@ async fn process(
         transcribe_ms,
         spoken_ms,
         total_ms: released.elapsed().as_millis() as u64,
-        finished_at: finished_at(),
+        finished_at,
+        edit: None,
+        recording: None,
     }))
 }
 
@@ -1253,11 +1346,7 @@ async fn improve(
         // in, a second or more sooner. Code editors still go to the model,
         // which spells identifiers and commands exactly, and so does anything
         // that may have one of the user's words misheard in it.
-        Mode::Tidy
-            if target.category != context::Category::Code
-                && cleanup::already_clean(raw)
-                && crate::words::suspects(raw, &settings.dictionary).is_empty() =>
-        {
+        Mode::Tidy if cleanup::goes_as_is(raw, target.category, &settings.dictionary) => {
             return untouched(None, None);
         }
         Mode::Tidy => (Task::Tidy, "Cleanup"),

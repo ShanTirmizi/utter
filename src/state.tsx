@@ -234,6 +234,8 @@ export function useAppState(): AppState | null {
       setJustLearned((old) => [payload, ...old.filter((l) => !same(l, payload))].slice(0, 5));
     });
     const stopSuggested = listen("suggested", () => reload());
+    // You finished with a pasted dictation; its edit count is in now.
+    const stopEdited = listen("edited", () => refreshHistory());
     const stopUnlearned = listen<Learned>("unlearned", ({ payload }) => {
       reload();
       setJustLearned((old) => old.filter((l) => !same(l, payload)));
@@ -245,6 +247,7 @@ export function useAppState(): AppState | null {
       stopLearned.then((unlisten) => unlisten());
       stopUnlearned.then((unlisten) => unlisten());
       stopSuggested.then((unlisten) => unlisten());
+      stopEdited.then((unlisten) => unlisten());
       stopUpdate.then((unlisten) => unlisten());
       stopSection.then((unlisten) => unlisten());
       stopFixLast.then((unlisten) => unlisten());

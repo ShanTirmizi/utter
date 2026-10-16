@@ -29,6 +29,8 @@ export type Settings = {
   suggested: Suggestion[];
   /** Keep past dictations on this Mac. */
   keepHistory: boolean;
+  /** Also keep the audio of the last 50, on this Mac, to replay through other models. Off by default. */
+  keepAudio: boolean;
   /** A quick tap starts a recording that runs until the next tap. */
   handsFree: boolean;
   /** While fn dictates, switch macOS's own globe-key action off, and back afterwards. */
@@ -132,6 +134,23 @@ export type Dictation = {
   totalMs: number;
   /** When it finished, in milliseconds since 1970. */
   finishedAt: number;
+  /**
+   * What you changed in it after it was pasted, once you were done. Null
+   * until then, and for good when Utter couldn't follow the text box.
+   */
+  edit: Edit | null;
+  /** Its recording's file name, when Keep recordings is on. */
+  recording: string | null;
+};
+
+/** What you did to a pasted dictation afterwards. */
+export type Edit = {
+  /** Words Utter pasted. */
+  words: number;
+  /** Words you changed, added or took out in it; 0 if you left it alone. */
+  changed: number;
+  /** The text as you left it, kept only next to a recording. */
+  corrected: string | null;
 };
 
 export type AppContext = {

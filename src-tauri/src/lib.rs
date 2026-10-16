@@ -2,6 +2,7 @@
 //! app you are using. This file wires the pieces together; each piece lives in
 //! its own module.
 
+pub mod accuracy;
 pub mod audio;
 mod cleanup;
 mod context;
@@ -11,10 +12,12 @@ mod history;
 mod hotkey;
 mod insert;
 mod learn;
-mod models;
+pub mod models;
 mod permissions;
 mod pipeline;
 mod providers;
+mod recordings;
+pub mod replay;
 mod screen;
 mod secrets;
 mod selection;
@@ -83,6 +86,10 @@ fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Settings, Str
     }
     if settings.model != previous.model {
         pipeline::preload_model(&app);
+    }
+    // Switching Keep recordings off deletes the ones already kept.
+    if previous.keep_audio && !settings.keep_audio {
+        pipeline::drop_recordings(&app)?;
     }
     if settings.appearance != previous.appearance {
         apply_appearance(&app, &settings.appearance);

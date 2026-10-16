@@ -7,9 +7,15 @@
 //! sounds like it and is a name or term rather than an everyday word ("cloud"
 //! became "Claude") is added to Your words, with the mishearing, and the user
 //! is told. Everything else (typo fixes, rewording, deletions, carrying on
-//! typing) is ignored. Nothing read from the box is kept.
+//! typing) is ignored.
+//!
+//! The same watch also says how many of the pasted words the user changed,
+//! for the edit rate (see `accuracy.rs`). That count is all that is kept from
+//! the box, except with Keep recordings on, when the dictation's own part of
+//! it, as the user left it, is kept next to its recording.
 
 use crate::{
+    accuracy::{self, Edit},
     settings,
     words::{self, Remembered, Source},
 };
@@ -273,9 +279,19 @@ const SETTLED: Duration = Duration::from_secs(4);
 /// Watch the text box that `pasted` just went into, and learn from what the
 /// user changes in it. `still_current` says whether this dictation is still
 /// the latest one; a new one ends the watch, since its own paste would look
-/// like an edit.
-pub fn watch(app: AppHandle, pasted: String, still_current: impl Fn() -> bool + Send + 'static) {
-    if !settings::load(&app).learn_words || !crate::permissions::accessibility() {
+/// like an edit. `edited` is told what the user changed, when that can be
+/// told.
+///
+/// The box is watched while learning is on, or while recordings are kept to
+/// measure accuracy; with both off, it is left alone.
+pub fn watch(
+    app: AppHandle,
+    pasted: String,
+    still_current: impl Fn() -> bool + Send + 'static,
+    edited: impl FnOnce(Edit) + Send + 'static,
+) {
+    let settings = settings::load(&app);
+    if !(settings.learn_words || settings.keep_audio) || !crate::permissions::accessibility() {
         return;
     }
     std::thread::spawn(move || {
@@ -329,7 +345,18 @@ pub fn watch(app: AppHandle, pasted: String, still_current: impl Fn() -> bool + 
             }
         }
         let found = corrections(&pasted, &before, &last);
-        log(&format!("watch ended ({reason}): {} change(s) to consider", found.len()));
+        let edit = accuracy::edit(&pasted, &before, &last);
+        log(&format!(
+            "watch ended ({reason}): {} change(s) to consider, {}",
+            found.len(),
+            match &edit {
+                Some(edit) => format!("{} of {} word(s) edited", edit.changed, edit.words),
+                None => "edits unclear".to_string(),
+            }
+        ));
+        if let Some(edit) = edit {
+            edited(edit);
+        }
         if !found.is_empty() {
             learn(&app, found);
         }
