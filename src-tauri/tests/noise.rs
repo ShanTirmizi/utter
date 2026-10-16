@@ -243,12 +243,12 @@ fn noise_comes_out_as_nothing_and_quiet_speech_as_words() {
     transcriber.ensure_loaded("test", &speech_model).unwrap();
     transcriber.use_vad(&model("UTTER_VAD_MODEL", "ggml-silero-v6.2.0.bin")).unwrap();
     for (name, samples) in noises() {
-        let text = transcriber.transcribe(&samples, "en").unwrap();
+        let text = transcriber.transcribe(&samples, "en", &[]).unwrap();
         eprintln!("{name:>18}: {text:?}");
         assert_eq!(text, "", "{name}");
     }
     for (name, samples, expected) in speech_in_noise() {
-        let text = transcriber.transcribe(&samples, "en").unwrap();
+        let text = transcriber.transcribe(&samples, "en", &[]).unwrap();
         eprintln!("{name:>18}: {text:?}");
         assert!(text.contains(expected), "{name}: {text:?}");
     }
@@ -262,7 +262,7 @@ fn the_high_pass_does_not_change_what_is_heard() {
     transcriber.ensure_loaded("test", &model("UTTER_SPEECH_MODEL", "ggml-base.en.bin")).unwrap();
     for name in ["send", "deep", "thanks", "yes"] {
         let speech = clip(name);
-        let filtered = transcriber.transcribe(&speech, "en").unwrap();
+        let filtered = transcriber.transcribe(&speech, "en", &[]).unwrap();
         eprintln!("{name:>8}: {filtered:?}");
         assert!(!filtered.is_empty(), "{name}");
     }
@@ -295,13 +295,13 @@ fn without_the_voice_model_noise_still_comes_out_as_nothing() {
     for (name, samples) in cases {
         // Straight to the speech model, as if the loudness check had let
         // it through.
-        let text = transcriber.transcribe(&samples, "en").unwrap();
+        let text = transcriber.transcribe(&samples, "en", &[]).unwrap();
         eprintln!("{name:>18}: {text:?}");
         assert_eq!(text, "", "{name}");
     }
     for (name, samples, _) in speech_in_noise() {
         assert!(audio::has_speech(&audio::high_pass(&samples)), "{name}");
-        let text = transcriber.transcribe(&samples, "en").unwrap();
+        let text = transcriber.transcribe(&samples, "en", &[]).unwrap();
         eprintln!("{name:>18}: {text:?}");
         assert!(!text.is_empty(), "{name}");
     }

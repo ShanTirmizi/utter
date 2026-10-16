@@ -91,7 +91,7 @@ fn main() -> Result<(), String> {
                     None => pad(speech),
                 };
                 let input = if matches!(front, Front::Rnnoise) { denoise(&input) } else { input };
-                let heard = transcriber.transcribe(&input, language)?;
+                let heard = transcriber.transcribe(&input, language, &[])?;
                 let (e, n) = word_errors(reference, &heard);
                 if verbose && e > 0 {
                     eprintln!("{front:?} {snr:?} [{e}/{n}] {heard:?}");
