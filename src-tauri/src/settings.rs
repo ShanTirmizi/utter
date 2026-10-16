@@ -84,7 +84,11 @@ impl Default for Settings {
             keep_history: true,
             hands_free: true,
             quiet_globe: true,
-            model: "base.en".into(),
+            // Base mishears names and jargon far more often, and cleanup
+            // cannot always put that right. Small costs about a second per
+            // stretch of speech on an M1 Pro; Large Turbo, the most accurate,
+            // five or more, which is too slow to start everyone on.
+            model: "small.en".into(),
             language: String::new(),
             removed: Vec::new(),
             check_updates: false,
@@ -128,6 +132,8 @@ mod tests {
         assert_eq!(parsed.hotkey, "Alt+KeyD");
         assert_eq!(parsed.model, Settings::default().model);
         assert!(parsed.cleanup_enabled);
+        // New users start on Small, more accurate than Base; Base stays on offer.
+        assert_eq!(Settings::default().model, "small.en");
         // Settings saved before providers existed keep working with Claude.
         assert_eq!(parsed.provider, "anthropic");
     }

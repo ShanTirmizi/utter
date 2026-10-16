@@ -117,9 +117,9 @@ const permissions: PermissionStatus = {
 };
 
 const models: ModelStatus[] = [
-  { name: "base.en", label: "Base (English)", note: "Fastest. Good for clear speech.", sizeMb: 148, downloaded: query.get("model") !== "missing" && !query.has("welcome") },
-  { name: "small.en", label: "Small (English)", note: "More accurate, a little slower.", sizeMb: 488, downloaded: query.has("small") },
-  { name: "large-v3-turbo-q5_0", label: "Large v3 Turbo (multilingual)", note: "Most accurate. Any language.", sizeMb: 574, downloaded: query.has("large") },
+  { name: "base.en", label: "Base (English)", note: "Fastest, but mishears more. Good for clear speech.", sizeMb: 148, downloaded: query.get("model") !== "missing" && !query.has("welcome") },
+  { name: "small.en", label: "Small (English)", note: "Recommended. Hears names and jargon far better than Base.", sizeMb: 488, downloaded: query.has("small") },
+  { name: "large-v3-turbo-q5_0", label: "Large v3 Turbo (multilingual)", note: "Most accurate, any language. Several times slower.", sizeMb: 574, downloaded: query.has("large") },
 ];
 
 const slack: AppContext = { name: "Slack", bundleId: "com.tinyspeck.slackmacgap", category: "chat" };

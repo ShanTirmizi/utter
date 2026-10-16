@@ -24,7 +24,12 @@ unsafe extern "C" {
     ) -> i32;
     fn AXUIElementSetAttributeValue(element: CFTypeRef, attribute: CFStringRef, value: CFTypeRef) -> i32;
     fn AXUIElementSetMessagingTimeout(element: CFTypeRef, seconds: f32) -> i32;
+    fn AXValueGetTypeID() -> core_foundation::base::CFTypeID;
+    fn AXValueGetValue(value: CFTypeRef, kind: u32, out: *mut std::ffi::c_void) -> bool;
 }
+
+/// `kAXValueTypeCFRange`: an AXValue holding a CFRange.
+const AX_VALUE_CF_RANGE: u32 = 4;
 
 /// How long to wait for an app to answer before treating it as unable to.
 const TIMEOUT_SECONDS: f32 = 0.3;
@@ -268,47 +273,224 @@ pub fn window_text() -> String {
                 continue;
             }
             AXUIElementSetMessagingTimeout(element, 0.1);
-            let role = text_of(copy(element, "AXRole")).unwrap_or_default();
-            let wanted: &[&str] = match role.as_str() {
-                "AXStaticText" | "AXTextField" | "AXTextArea" | "AXComboBox" => &["AXValue"],
-                "AXWindow" | "AXHeading" | "AXLink" | "AXButton" | "AXTab" | "AXRadioButton" | "AXMenuButton"
-                | "AXCell" | "AXRow" | "AXGroup" | "AXWebArea" => &["AXTitle", "AXDescription"],
-                _ => &[],
-            };
-            // A password field says nothing.
-            let secure = role == "AXTextField"
-                && text_of(copy(element, "AXSubrole")).as_deref() == Some("AXSecureTextField");
-            if !secure {
-                for attribute in wanted {
-                    if let Some(text) = text_of(copy(element, attribute)) {
-                        let text = text.trim();
-                        if !text.is_empty() {
-                            out.push_str(text);
-                            out.push('\n');
-                        }
-                    }
-                }
-            }
-            let children = copy(element, "AXChildren");
+            own_text(element, &mut out);
+            queue.extend(children(element));
             CFRelease(element);
-            if children.is_null() {
-                continue;
-            }
-            if CFGetTypeID(children) == core_foundation::array::CFArrayGetTypeID() {
-                let list = children as core_foundation::array::CFArrayRef;
-                let count = core_foundation::array::CFArrayGetCount(list);
-                for i in 0..count {
-                    let child = core_foundation::array::CFArrayGetValueAtIndex(list, i) as CFTypeRef;
-                    if !child.is_null() {
-                        core_foundation::base::CFRetain(child);
-                        queue.push_back(child);
-                    }
-                }
-            }
-            CFRelease(children);
         }
     }
     out
+}
+
+/// What one element says (see `window_text`), added to `out` a line at a
+/// time. A password field says nothing.
+unsafe fn own_text(element: CFTypeRef, out: &mut String) {
+    unsafe {
+        let role = text_of(copy(element, "AXRole")).unwrap_or_default();
+        let wanted: &[&str] = match role.as_str() {
+            "AXStaticText" | "AXTextField" | "AXTextArea" | "AXComboBox" => &["AXValue"],
+            "AXWindow" | "AXHeading" | "AXLink" | "AXButton" | "AXTab" | "AXRadioButton" | "AXMenuButton"
+            | "AXCell" | "AXRow" | "AXGroup" | "AXWebArea" => &["AXTitle", "AXDescription"],
+            _ => &[],
+        };
+        let secure = role == "AXTextField"
+            && text_of(copy(element, "AXSubrole")).as_deref() == Some("AXSecureTextField");
+        if secure {
+            return;
+        }
+        for attribute in wanted {
+            if let Some(text) = text_of(copy(element, attribute)) {
+                let text = text.trim();
+                if !text.is_empty() {
+                    out.push_str(text);
+                    out.push('\n');
+                }
+            }
+        }
+    }
+}
+
+/// An element's children, each owned by the caller, in order.
+unsafe fn children(element: CFTypeRef) -> Vec<CFTypeRef> {
+    let mut found = Vec::new();
+    unsafe {
+        let list = copy(element, "AXChildren");
+        if list.is_null() {
+            return found;
+        }
+        if CFGetTypeID(list) == core_foundation::array::CFArrayGetTypeID() {
+            let array = list as core_foundation::array::CFArrayRef;
+            for i in 0..core_foundation::array::CFArrayGetCount(array) {
+                let child = core_foundation::array::CFArrayGetValueAtIndex(array, i) as CFTypeRef;
+                if !child.is_null() {
+                    core_foundation::base::CFRetain(child);
+                    found.push(child);
+                }
+            }
+        }
+        CFRelease(list);
+    }
+    found
+}
+
+/// The text around where the user is typing, read when a dictation starts.
+/// Only ever used for that one dictation, and never stored.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Around {
+    /// What the focused text box holds before the cursor, at most
+    /// `most_before` characters of it.
+    pub before: String,
+    /// Text near the box on screen (the conversation above a chat box, say),
+    /// at most `most_nearby` characters, mostly from before the box.
+    pub nearby: String,
+}
+
+/// Read the text before the cursor and the text near the focused box. An app
+/// that will not say, or a password field, gives nothing.
+pub fn around_cursor(most_before: usize, most_nearby: usize) -> Around {
+    const MOST_TIME: std::time::Duration = std::time::Duration::from_millis(500);
+    const MOST_ELEMENTS: usize = 600;
+    const MOST_LEVELS: usize = 25;
+    let began = std::time::Instant::now();
+    let mut around = Around::default();
+    unsafe {
+        let system = AXUIElementCreateSystemWide();
+        if system.is_null() {
+            return around;
+        }
+        AXUIElementSetMessagingTimeout(system, TIMEOUT_SECONDS);
+        let focused = copy(system, "AXFocusedUIElement");
+        CFRelease(system);
+        if focused.is_null() {
+            return around;
+        }
+        AXUIElementSetMessagingTimeout(focused, TIMEOUT_SECONDS);
+        if text_of(copy(focused, "AXSubrole")).as_deref() == Some("AXSecureTextField") {
+            CFRelease(focused);
+            return around;
+        }
+        if let Some(value) = text_of(copy(focused, "AXValue")) {
+            let cursor = cursor_at(focused);
+            around.before = last_chars(&before_cursor(&value, cursor), most_before);
+        }
+
+        // The box's ancestors, nearest first, up to its window.
+        let mut ancestors = Vec::new();
+        let mut element = copy(focused, "AXParent");
+        while !element.is_null() && ancestors.len() < MOST_LEVELS {
+            AXUIElementSetMessagingTimeout(element, 0.1);
+            let is_window = text_of(copy(element, "AXRole")).as_deref() == Some("AXWindow");
+            ancestors.push(element);
+            if is_window {
+                break;
+            }
+            element = copy(element, "AXParent");
+        }
+
+        // Read ever larger parts of the window around the box until there is
+        // enough text, or no time left.
+        for ancestor in &ancestors {
+            if began.elapsed() > MOST_TIME {
+                break;
+            }
+            let (text, at) = read_in_order(*ancestor, focused, MOST_ELEMENTS, began, MOST_TIME);
+            around.nearby = excerpt(&text, at, most_nearby);
+            if text.chars().count() >= most_nearby * 2 {
+                break;
+            }
+        }
+        for ancestor in ancestors {
+            CFRelease(ancestor);
+        }
+        CFRelease(focused);
+    }
+    around
+}
+
+/// Where the cursor is in a text box, in UTF-16 units, if it will say.
+unsafe fn cursor_at(field: CFTypeRef) -> Option<usize> {
+    unsafe {
+        let value = copy(field, "AXSelectedTextRange");
+        if value.is_null() {
+            return None;
+        }
+        let mut range = core_foundation::base::CFRange { location: 0, length: 0 };
+        let ok = CFGetTypeID(value) == AXValueGetTypeID()
+            && AXValueGetValue(value, AX_VALUE_CF_RANGE, &mut range as *mut _ as *mut std::ffi::c_void);
+        CFRelease(value);
+        (ok && range.location >= 0).then_some(range.location as usize)
+    }
+}
+
+/// The text of a box before the cursor at `cursor` (UTF-16 units, as macOS
+/// counts). Without a cursor, the whole text: it is usually at the end.
+fn before_cursor(value: &str, cursor: Option<usize>) -> String {
+    match cursor {
+        Some(at) => String::from_utf16_lossy(&value.encode_utf16().take(at).collect::<Vec<_>>()),
+        None => value.to_string(),
+    }
+}
+
+/// The last `most` characters of `text`, from the start of a line or word.
+fn last_chars(text: &str, most: usize) -> String {
+    let count = text.chars().count();
+    if count <= most {
+        return text.to_string();
+    }
+    let tail: String = text.chars().skip(count - most).collect();
+    // Start at a whole word, unless the cut came right after one.
+    let at_word = text.chars().nth(count - most - 1).is_some_and(char::is_whitespace);
+    match tail.find(char::is_whitespace) {
+        Some(space) if !at_word => tail[space..].trim_start().to_string(),
+        _ => tail,
+    }
+}
+
+/// About `most` characters of `text` around position `at` (in characters),
+/// four fifths from before it: what is above a chat box matters most.
+fn excerpt(text: &str, at: usize, most: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let at = at.min(chars.len());
+    let before_budget = most * 4 / 5;
+    let after = (chars.len() - at).min(most - before_budget.min(at));
+    let start = at - at.min(most - after);
+    chars[start..at + after].iter().collect::<String>().trim().to_string()
+}
+
+/// The text of `root` and everything in it, in reading order, leaving out
+/// `skip` (the box being typed in), and where in the text `skip` sits.
+unsafe fn read_in_order(
+    root: CFTypeRef,
+    skip: CFTypeRef,
+    most_elements: usize,
+    began: std::time::Instant,
+    most_time: std::time::Duration,
+) -> (String, usize) {
+    let mut out = String::new();
+    let mut at = None;
+    unsafe {
+        core_foundation::base::CFRetain(root);
+        let mut stack = vec![root];
+        let mut seen = 0;
+        while let Some(element) = stack.pop() {
+            seen += 1;
+            let over = seen > most_elements || began.elapsed() > most_time;
+            if over || CFEqual(element, skip) != 0 {
+                if !over {
+                    at = Some(out.chars().count());
+                }
+                CFRelease(element);
+                continue;
+            }
+            AXUIElementSetMessagingTimeout(element, 0.1);
+            own_text(element, &mut out);
+            let mut kids = children(element);
+            kids.reverse();
+            stack.extend(kids);
+            CFRelease(element);
+        }
+    }
+    let length = out.chars().count();
+    (out, at.unwrap_or(length))
 }
 
 /// One attribute of an accessibility element, owned by the caller, or null.
@@ -340,6 +522,38 @@ unsafe fn text_of(value: CFTypeRef) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_text_before_the_cursor_counts_as_macos_does() {
+        // macOS counts in UTF-16 units: the emoji is two of them.
+        assert_eq!(before_cursor("Hi 👋 there", Some(5)), "Hi 👋");
+        assert_eq!(before_cursor("Hi there", None), "Hi there");
+        assert_eq!(last_chars("one two three four", 9), "four");
+        assert_eq!(last_chars("short", 100), "short");
+    }
+
+    #[test]
+    fn the_excerpt_is_mostly_from_before_the_box() {
+        let text: String = ('a'..='z').cycle().take(1000).collect();
+        let around = excerpt(&text, 900, 100);
+        assert_eq!(around.chars().count(), 100);
+        assert_eq!(around, text.chars().skip(820).take(100).collect::<String>());
+        // Near the end, the rest of the budget goes before it.
+        assert_eq!(excerpt(&text, 1000, 100), text.chars().skip(900).collect::<String>());
+        assert_eq!(excerpt("short", 5, 100), "short");
+        assert_eq!(excerpt("", 0, 100), "");
+    }
+
+    /// Run with `cargo test -- --ignored --nocapture`. Prints what Utter would
+    /// read around the cursor in the app in front a few seconds from now.
+    #[test]
+    #[ignore = "reads the focused app, and needs the Accessibility permission"]
+    fn report_the_text_around_the_cursor() {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        let started = std::time::Instant::now();
+        let around = around_cursor(600, 1500);
+        eprintln!("took {:?}\nBEFORE: {:?}\nNEARBY: {}", started.elapsed(), around.before, around.nearby);
+    }
 
     /// Run with `cargo test -- --ignored --nocapture`. Reports what the app
     /// in front right now says about its selection. It only reads.

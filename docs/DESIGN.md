@@ -50,7 +50,7 @@ cloud speech-to-text API.
 | Setup | One model download (148 to 574 MB) | Create an account and key |
 | Latency, short dictation | About 0.3 s for 10 s of speech with the Base model on an M1 Pro (measured) | Upload plus processing; not measured here, typically around a second |
 | Latency, long dictation | Grows with length and model size | Roughly flat |
-| Accuracy | Good with Base, better with Small or Large v3 Turbo | Best, especially for names and accents |
+| Accuracy | Good with Base, better with Small (the default) or Large v3 Turbo. On an M1 Pro, 8 s of speech took about 0.75 s with Base, 1.5 s with Small and 6 s with Large v3 Turbo (measured, under load) | Best, especially for names and accents |
 | First use after launch | Model takes a moment to load (done in the background at startup) | None |
 
 Local wins on the goals that matter here: one key at most, free, private. The
@@ -411,6 +411,21 @@ speech model's prompt after the user's words, and cleanup is told they are on
 screen "in case they say one" and never to add one that was not said. They
 also count as suspects, so a dictation with something that sounds like one,
 or an identifier said as its words ("fetch user profile"), goes to the model.
+
+In the same thread, before the names, `selection::around_cursor` reads the
+text box in focus: its value up to the cursor (`AXSelectedTextRange`, counted
+in UTF-16 units), and then the text of ever larger ancestors of the box, in
+reading order, until there is enough (500 ms and 600 elements at most). Up to
+1,500 characters of that, four fifths from before the box, go to cleanup as
+`<screen>`, and the last 600 characters before the cursor as `<before>`, both
+marked read-only and used only to resolve mishearings and to continue a
+sentence. `pipeline::follow_on` uses the text before the cursor to add a
+leading space and drop a stray capital when the dictation carries on a
+sentence. None of it is stored, and it is skipped for password fields and
+while secure input is on. Screen names are only listed for cleanup when the
+transcript has one, or a word whose whole sound key (Soundex without the cut
+after three consonant groups) matches, so "whisper" never becomes
+"Whisperflow".
 
 After the dictation, a screen term that made it into the text is counted in
 `settings.suggested`. It is offered in the window once the speech model had
