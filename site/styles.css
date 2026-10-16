@@ -2553,3 +2553,26 @@ html:not(.js) .js-only {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------ film */
+.film-frame {
+  margin: 34px auto 0;
+  max-width: 1080px;
+  border-radius: 24px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 0 1px var(--hair), 0 40px 90px -40px rgba(0, 0, 0, 0.55);
+}
+.film-frame video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+.film-note {
+  margin: 16px auto 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--mid);
+}

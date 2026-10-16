@@ -13,6 +13,10 @@ Or [download the DMG](https://github.com/ShanTirmizi/utter/releases/latest/downl
 [Report a problem](https://github.com/ShanTirmizi/utter/issues/new/choose)
 
 <p align="center">
+  <a href="https://utter-beta.vercel.app/#film"><img src="docs/images/film-poster.jpg" alt="Watch the Utter launch film (45 seconds)" width="720" /></a>
+</p>
+
+<p align="center">
   <img src="docs/images/demo.gif" alt="A dictation into Slack: the spoken words with ums and repeats, then the tidied message typed into the box" width="640" />
 </p>
 
