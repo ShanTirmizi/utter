@@ -184,6 +184,73 @@ it can find between 12 and 27 seconds, which in speech is a pause, and
 transcribes each piece as its own short dictation. On a 95-second test
 monologue this recovered 97.7% of the words.
 
+### Silence, wind and noise
+
+Whisper learned from subtitled video, so given audio with nobody talking it
+writes what subtitles say then: "you", "Thank you.", ".", a stray word. In one
+user's history 7 of 78 dictations were exactly that, all from clips of 0.7 to
+3 seconds. Four checks now stand between noise and the cursor, in order:
+
+1. **High-pass filter** (`audio::high_pass`): 4th-order Butterworth at 100 Hz.
+   Wind on the microphone, traffic and desk thumps are mostly below it; 50 Hz
+   comes out 24 dB quieter, 25 Hz 48 dB, and above 150 Hz less than 0.2 dB is
+   lost. Ordinary voices keep 99% of their level. A deep test voice (pitch
+   84-107 Hz) loses 1.3 dB of its fundamental but none of the harmonics that
+   carry the words; Base wrote exactly the same text for all four test clips
+   with the filter as without, and did better with it on the deep voice spoken
+   quietly over room noise.
+2. **Voice activity** (`speech::Vad`): Silero VAD v6.2.0 (885 KB, from
+   ggml-org on Hugging Face, fetched with the first speech model or on the
+   next start for anyone who already has one). A recording with less than
+   250 ms of speech in it is not transcribed; in one that is, only the
+   stretches of speech (padded 200 ms each side, pauses under 300 ms kept)
+   reach the speech model. Frame threshold 0.5, Silero's own default: it
+   judges the shape of the sound rather than its loudness, and found 1.8 s of
+   speech in a 2 s sentence at -42 dBFS while finding 0 ms in silence, room
+   noise, a fan, loud hiss and four kinds of wind gusts. whisper.cpp can run
+   the same model itself, but only from `whisper_full`; whisper-rs calls
+   `whisper_full_with_state`, which ignores the setting, so Utter runs it.
+   Until the model is here, the old loudness check stands in.
+3. **Per-segment confidence** (`speech::keep_segment`). whisper.cpp's own
+   no-speech estimate is read one token too late when timestamps are off,
+   and is always about 0.00002, so Utter asks the model itself: one decoder
+   step after "start of transcript", the chance the next token is "no
+   speech", as Whisper was published. Given noise with nothing to stop it,
+   Whisper wrote "you", "Shh." or "." at 0.77 to 0.92; speech, however quiet
+   or windy, never went above 0.46, and its mean log-probability never below
+   -0.69. A segment is dropped at 0.7 or above whatever its words (leaning
+   towards keeping words, since losing a dictation costs more than a rare
+   stray word), at 0.6 with a log-probability under -1.0 (Whisper's own
+   rule), or under -1.5 log-probability alone (noise came out at -1.5 to
+   -1.9; accented speech can reach -1.2).
+4. **Known inventions** (`speech::is_invented`). With under 700 ms of speech,
+   a transcript that is only "you", "Thank you.", "Thanks for watching!",
+   "Bye", "." and the like is dropped unless the model was sure (no-speech at
+   most 0.4, log-probability at least -0.4: a quiet "Thank you." measured
+   0.19 and -0.14). Any other lone word is dropped if no-speech reached 0.5
+   or log-probability fell under -1.0; a quiet "Yes." measured 0.40 and
+   -0.61. With 700 ms or more nothing is second-guessed.
+
+A recording turned away by any of these shows "Didn't hear any speech." in the
+pill, as a note rather than an error, and types nothing. A recording with no
+sound at all (peak under 0.003) still gets the microphone advice.
+
+The figures come from `src-tauri/tests/noise.rs`: speech rendered with macOS
+voices (`tests/fixtures/render.sh`) at normal, -34 and -42 dBFS, over room
+noise, a fan and gusts, against silence, hiss, gusts with and without
+broadband hiss, a breath and typing. They were measured with Base; the larger
+models were not measured. `cargo test --test noise -- --ignored --nocapture`
+runs the real models over all of it and prints the figures.
+
+macOS voice processing (the noise suppression FaceTime uses, through
+AVAudioEngine) was considered and left out. It ducks every other app's sound
+while the microphone is open, which a hold-to-talk tool would do dozens of
+times a day; it reshapes the voice (gain control and suppression tuned for
+calls), which speech models were not trained on and which can swallow quiet
+speech; and it would mean replacing the cpal recorder with a second capture
+path. The checks above handle the noise it would have removed, without
+changing what the speech model hears.
+
 ### Working while the user talks
 
 A dictation used to start being processed when the key came up, so the wait

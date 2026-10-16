@@ -359,7 +359,38 @@ pub fn preload_model(app: &AppHandle) {
                 eprintln!("[utter] {e}");
             }
         }
+        // Someone who downloaded a speech model before there was a voice
+        // model gets the voice model now, once.
+        if models::vad(&app).is_none() {
+            if let Err(e) = tauri::async_runtime::block_on(models::ensure_vad(&app)) {
+                eprintln!("[utter] could not download the voice activity model: {e}");
+            }
+        }
+        use_vad(&app);
     });
+}
+
+/// Have the transcriber use the voice activity model, if it is here.
+fn use_vad(app: &AppHandle) {
+    if let Some(path) = models::vad(app) {
+        if let Err(e) = app.state::<Pipeline>().transcriber.use_vad(&path) {
+            eprintln!("[utter] {e}");
+        }
+    }
+}
+
+/// What the pill says when a recording held no speech: silence, wind, a
+/// fan, a cough. Not an error, so it is said calmly, and nothing is typed.
+pub const NO_SPEECH: &str = "Didn't hear any speech.";
+
+/// Is there enough speech in this recording to transcribe? The voice
+/// activity model decides when it is here, and a loudness check when not.
+fn heard_speech(transcriber: &Transcriber, samples: &[f32]) -> bool {
+    let samples = audio::high_pass(samples);
+    match transcriber.speech(&samples) {
+        Some(speech) => speech.ms >= crate::speech::MIN_SPEECH_MS,
+        None => audio::has_speech(&samples),
+    }
 }
 
 /// A hotkey went down: start recording. `mode` says which hotkey.
@@ -786,6 +817,7 @@ fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
                 let note = settings::load(&app).hands_free.then(|| "Nothing heard.".to_string());
                 emit(&app, "idle", note, None)
             }
+            Err(e) if e == NO_SPEECH => emit(&app, "idle", Some(e), None),
             Err(e) => emit(&app, "error", Some(e), None),
         }
         *pipeline.phase.lock().unwrap() = Phase::Idle;
@@ -805,15 +837,21 @@ async fn process(
     if samples.len() < MIN_SAMPLES {
         return Ok(None);
     }
-    if !audio::has_speech(&samples) {
+    // Nothing at all: the microphone is muted, or it is the wrong one.
+    if audio::peak(&samples) < audio::SILENCE_PEAK {
         return Err("Didn't catch any speech. Check which microphone macOS is using.".into());
+    }
+    let transcriber = app.state::<Pipeline>().transcriber.clone();
+    use_vad(app);
+    let (judge, audio) = (transcriber.clone(), samples.clone());
+    if !tauri::async_runtime::spawn_blocking(move || heard_speech(&judge, &audio)).await.unwrap_or(true) {
+        return Err(NO_SPEECH.into());
     }
 
     let mut settings = settings::load(app);
     let name = settings.model.clone();
     let language = settings.language.clone();
     let path = models::path(app, &name)?;
-    let transcriber = app.state::<Pipeline>().transcriber.clone();
     // Names on screen help with this dictation only: they join the user's
     // words here, in memory, and are never saved with them.
     let recording = app.state::<Pipeline>().recording_id.load(Ordering::SeqCst);
@@ -860,7 +898,7 @@ async fn process(
     let transcribe_ms = started.elapsed().as_millis() as u64;
 
     if raw.is_empty() {
-        return Err("No speech detected.".into());
+        return Err(NO_SPEECH.into());
     }
 
     if let Some(lookup) = page_lookup {

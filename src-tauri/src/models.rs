@@ -111,6 +111,40 @@ fn url(name: &str) -> String {
     format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{name}.bin")
 }
 
+/// The voice activity model: Silero VAD, converted for whisper.cpp. It
+/// tells speech from silence, wind and other noise (see `speech`). Under
+/// 1 MB, so it is fetched with whichever speech model is downloaded first,
+/// and by itself for anyone who already has a speech model.
+pub const VAD: &str = "silero-v6.2.0";
+const VAD_URL: &str = "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin";
+
+pub fn vad_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(dir(app)?.join(format!("ggml-{VAD}.bin")))
+}
+
+/// The voice activity model, if it has been downloaded.
+pub fn vad(app: &AppHandle) -> Option<PathBuf> {
+    vad_path(app).ok().filter(|p| p.is_file())
+}
+
+/// Download the voice activity model unless it is already here. Quietly:
+/// it is small, and until it arrives a simpler loudness check stands in.
+pub async fn ensure_vad(app: &AppHandle) -> Result<(), String> {
+    let target = vad_path(app)?;
+    if target.is_file() {
+        return Ok(());
+    }
+    let Some(_claim) = Claim::take(VAD) else { return Ok(()) };
+    let partial = target.with_extension("bin.part");
+    match fetch(None, VAD, VAD_URL, &partial).await {
+        Ok(_) => fs::rename(&partial, &target).map_err(|e| e.to_string()),
+        Err(e) => {
+            let _ = fs::remove_file(&partial);
+            Err(e)
+        }
+    }
+}
+
 /// Download a model, reporting progress on the `model-download` event. The
 /// file is written under a temporary name and renamed at the end, so an
 /// interrupted download never looks like a usable model.
@@ -125,10 +159,15 @@ pub async fn download(app: &AppHandle, name: &str) -> Result<(), String> {
     stop_asked(name);
     let partial = target.with_extension("bin.part");
 
-    let result = fetch(app, name, &partial).await;
+    let result = fetch(Some(app), name, &url(name), &partial).await;
     match result {
         Ok(received) => {
             fs::rename(&partial, &target).map_err(|e| e.to_string())?;
+            // Not worth failing the speech model over: without it a simpler
+            // check stands in, and the next start tries again.
+            if let Err(e) = ensure_vad(app).await {
+                eprintln!("[utter] could not download the voice activity model: {e}");
+            }
             let _ = app.emit("model-download", Progress { name, received, total: received });
             Ok(())
         }
@@ -144,13 +183,14 @@ pub async fn download(app: &AppHandle, name: &str) -> Result<(), String> {
 /// forever on a stalled connection.
 const STALL_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Stream the model into `partial`, returning the number of bytes written.
-async fn fetch(app: &AppHandle, name: &str, partial: &Path) -> Result<u64, String> {
+/// Stream the model at `url` into `partial`, returning the number of bytes
+/// written. Progress is reported to `app`, when given.
+async fn fetch(app: Option<&AppHandle>, name: &str, url: &str, partial: &Path) -> Result<u64, String> {
     let response = reqwest::Client::builder()
         .connect_timeout(STALL_TIMEOUT)
         .build()
         .map_err(|e| e.to_string())?
-        .get(url(name))
+        .get(url)
         .send()
         .await
         .and_then(|r| r.error_for_status())
@@ -177,7 +217,9 @@ async fn fetch(app: &AppHandle, name: &str, partial: &Path) -> Result<u64, Strin
         // Report roughly every megabyte; more often just floods the UI.
         if received - last_reported >= 1_000_000 {
             last_reported = received;
-            let _ = app.emit("model-download", Progress { name, received, total });
+            if let Some(app) = app {
+                let _ = app.emit("model-download", Progress { name, received, total });
+            }
         }
     }
     file.flush().map_err(|e| e.to_string())?;
