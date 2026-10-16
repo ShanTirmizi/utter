@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   deleteApiKey,
@@ -411,7 +412,9 @@ function ModelField({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
+  const field = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState<React.CSSProperties | null>(null);
 
   // Typing filters the list; the saved name, untouched, shows everything.
   const needle = value.trim().toLowerCase();
@@ -425,6 +428,38 @@ function ModelField({
       input.current?.focus();
     }
   }, [openAsked]);
+
+  // The card clips what overflows it, so the list floats over the page, just
+  // under the field, or just above it when there is more room there.
+  const showing = open && shown.length > 0;
+  useLayoutEffect(() => {
+    if (!showing) return setPlace(null);
+    const measure = () => {
+      const box = field.current?.getBoundingClientRect();
+      if (!box) return;
+      const gap = 6;
+      const edge = 12;
+      const below = window.innerHeight - box.bottom - gap - edge;
+      const above = box.top - gap - edge;
+      const want = Math.min(240, shown.length * 30 + 10);
+      const up = below < want && above > below;
+      const maxHeight = Math.max(80, Math.min(240, up ? above : below));
+      setPlace(
+        up
+          ? { left: box.left, width: box.width, bottom: window.innerHeight - box.top + gap, maxHeight }
+          : { left: box.left, width: box.width, top: box.bottom + gap, maxHeight },
+      );
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    // Scrolling the page moves the field; scrolling the list itself does not.
+    const onScroll = (e: Event) => e.target !== list.current && measure();
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [showing, shown.length]);
 
   // Keep the highlighted option in view.
   useEffect(() => {
@@ -460,8 +495,8 @@ function ModelField({
   };
 
   return (
-    <div style={{ position: "relative" }}>
-      <div className="qfld mono">
+    <div>
+      <div className="qfld mono" ref={field}>
         <input
           ref={input}
           role="combobox"
@@ -505,8 +540,10 @@ function ModelField({
           {listing && <span className="qspin" />}List models
         </button>
       </div>
-      {open && shown.length > 0 && (
-        <div className="qpop wide" role="listbox" id="model-list" aria-label="Models" ref={list}>
+      {showing &&
+        place &&
+        createPortal(
+        <div className="qpop float" role="listbox" id="model-list" aria-label="Models" ref={list} style={place}>
           {shown.map((m, i) => (
             <button
               key={m}
@@ -525,8 +562,9 @@ function ModelField({
               {m}
             </button>
           ))}
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
     </div>
   );
 }
