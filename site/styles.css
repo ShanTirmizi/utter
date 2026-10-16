@@ -3047,3 +3047,38 @@ html:not(.js) .js-only {
   font-size: 14px;
   color: var(--mid);
 }
+
+/* ------------------------------------------------------------------ inside the app */
+.shots {
+  margin-top: 34px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.shot {
+  margin: 0;
+  padding: 10px 10px 18px;
+  overflow: hidden;
+}
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px var(--hair);
+}
+.shot figcaption {
+  margin: 14px 8px 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--mid);
+}
+.shot figcaption b {
+  color: var(--ink);
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .shots {
+    grid-template-columns: 1fr;
+  }
+}
