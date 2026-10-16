@@ -184,6 +184,117 @@ it can find between 12 and 27 seconds, which in speech is a pause, and
 transcribes each piece as its own short dictation. On a 95-second test
 monologue this recovered 97.7% of the words.
 
+### Silence, wind and noise
+
+Whisper learned from subtitled video, so given audio with nobody talking it
+writes what subtitles say then: "you", "Thank you.", ".", a stray word. In one
+user's history 7 of 78 dictations were exactly that, all from clips of 0.7 to
+3 seconds. Four checks now stand between noise and the cursor, in order:
+
+1. **High-pass filter** (`audio::high_pass`): 4th-order Butterworth at 100 Hz.
+   Wind on the microphone, traffic and desk thumps are mostly below it; 50 Hz
+   comes out 24 dB quieter, 25 Hz 48 dB, and above 150 Hz less than 0.2 dB is
+   lost. Ordinary voices keep 99% of their level. A deep test voice (pitch
+   84-107 Hz) loses 1.3 dB of its fundamental but none of the harmonics that
+   carry the words; Base wrote exactly the same text for all four test clips
+   with the filter as without, and did better with it on the deep voice spoken
+   quietly over room noise.
+2. **Voice activity** (`speech::Vad`): Silero VAD v6.2.0 (885 KB, from
+   ggml-org on Hugging Face, fetched with the first speech model or on the
+   next start for anyone who already has one). A recording with less than
+   250 ms of speech in it is not transcribed; in one that is, only the
+   stretches of speech (padded 200 ms each side, pauses under 300 ms kept)
+   reach the speech model. Frame threshold 0.5, Silero's own default: it
+   judges the shape of the sound rather than its loudness, and found 1.8 s of
+   speech in a 2 s sentence at -42 dBFS while finding 0 ms in silence, room
+   noise, a fan, loud hiss and four kinds of wind gusts. whisper.cpp can run
+   the same model itself, but only from `whisper_full`; whisper-rs calls
+   `whisper_full_with_state`, which ignores the setting, so Utter runs it.
+   Until the model is here, the old loudness check stands in.
+3. **Per-segment confidence** (`speech::keep_segment`). whisper.cpp's own
+   no-speech estimate is read one token too late when timestamps are off,
+   and is always about 0.00002, so Utter asks the model itself: one decoder
+   step after "start of transcript", the chance the next token is "no
+   speech", as Whisper was published. Given noise with nothing to stop it,
+   Whisper wrote "you", "Shh." or "." at 0.77 to 0.92; speech, however quiet
+   or windy, never went above 0.46, and its mean log-probability never below
+   -0.69. A segment is dropped at 0.7 or above whatever its words (leaning
+   towards keeping words, since losing a dictation costs more than a rare
+   stray word), at 0.6 with a log-probability under -1.0 (Whisper's own
+   rule), or under -1.5 log-probability alone (noise came out at -1.5 to
+   -1.9; accented speech can reach -1.2).
+4. **Known inventions** (`speech::is_invented`). With under 700 ms of speech,
+   a transcript that is only "you", "Thank you.", "Thanks for watching!",
+   "Bye", "." and the like is dropped unless the model was sure (no-speech at
+   most 0.4, log-probability at least -0.4: a quiet "Thank you." measured
+   0.19 and -0.14). Any other lone word is dropped if no-speech reached 0.5
+   or log-probability fell under -1.0; a quiet "Yes." measured 0.40 and
+   -0.61. With 700 ms or more nothing is second-guessed.
+
+A recording turned away by any of these shows "Didn't hear any speech." in the
+pill, as a note rather than an error, and types nothing. A recording with no
+sound at all (peak under 0.003) still gets the microphone advice.
+
+The figures come from `src-tauri/tests/noise.rs`: speech rendered with macOS
+voices (`tests/fixtures/render.sh`) at normal, -34 and -42 dBFS, over room
+noise, a fan and gusts, against silence, hiss, gusts with and without
+broadband hiss, a breath and typing. They were measured with Base; the larger
+models were not measured. `cargo test --test noise -- --ignored --nocapture`
+runs the real models over all of it and prints the figures.
+
+### Speaking over a fan
+
+A fan does not make the speech model invent words so much as mishear real
+ones. `src-tauri/examples/fan_wer.rs` measures it: ten jargon-heavy sentences
+("Rebase the feature branch onto main and squash the WIP commits.") in two
+macOS voices, over a synthetic fan (pink hiss, a brown rumble, 60 Hz hum with
+two harmonics and a 140 Hz blade tone), at 20, 10 and 5 dB below the speech's
+active level, each mix three times with a different stretch of fan noise.
+About 10 dB is a desk fan a metre or two away from a laptop microphone. Word
+error rate, punctuation and case ignored, about 220 words clean and 660 per
+noisy cell:
+
+| Model | Front-end | Clean | 20 dB | 10 dB | 5 dB |
+| --- | --- | --- | --- | --- | --- |
+| Base (English) | Raw | 19.4% | 20.9% | 27.2% | 37.2% |
+| | High-pass | 19.8% | 19.8% | 26.1% | 37.7% |
+| | High-pass + voice activity (shipped) | 18.0% | 18.6% | 24.9% | 38.4% |
+| | RNNoise + shipped | 18.9% | 17.1% | 27.0% | 41.0% |
+| Large v3 Turbo | Raw | 6.8% | 8.1% | 9.0% | 14.7% |
+| | High-pass | 6.3% | 8.1% | 10.4% | 15.8% |
+| | High-pass + voice activity (shipped) | 5.9% | 7.7% | 10.4% | 14.9% |
+| | RNNoise + shipped | 5.9% | 7.4% | 14.7% | 17.0% |
+
+Mix by mix against the shipped front-end, the differences between Raw,
+High-pass and shipped are within chance (Large at 10 dB: Raw better on 12
+mixes, worse on 9). What the numbers do say:
+
+- **The model is the lever.** Large v3 Turbo makes a third to a half as many
+  errors as Base at every noise level, and over a fan at 10 dB it is still
+  better than Base in silence. For dictating over a fan, use Large.
+- **The high-pass and voice activity checks cost nothing in accuracy.** They
+  are there for silence and wind (above); over a fan they neither help nor
+  hurt measurably.
+- **RNNoise hurts where it is needed.** The neural noise suppressor used in
+  many call apps helps a little at 20 dB but makes things worse at 10 dB
+  (Base: better on 16 mixes, worse on 24; Large: 5 and 20) and at 5 dB. A
+  suppressor reshapes the speech along with the noise, and Whisper, which
+  learned from unprocessed audio, hears the difference. It is kept only in
+  the measurement, as a development dependency.
+
+macOS voice processing (the noise suppression FaceTime uses, through
+AVAudioEngine) could not be measured the same way: AVAudioEngine refuses it in
+offline rendering (error -10863), and the only virtual audio device here
+passes no sound unless its own app is running. Measuring it would mean playing
+the mixes aloud through the speakers and recording them with it on and off.
+Given what RNNoise did, and its known costs, it was left out without that
+measurement: it ducks every other app's sound while the microphone is open,
+which a hold-to-talk tool would do dozens of times a day; it reshapes the
+voice with gain control and suppression tuned for calls, which speech models
+were not trained on; and it would mean a second capture path beside cpal.
+
+Since no front-end clearly helps, there is no "Noisy room" setting.
+
 ### Working while the user talks
 
 A dictation used to start being processed when the key came up, so the wait

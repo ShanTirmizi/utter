@@ -365,7 +365,10 @@ reason given under "Signing, and why it matters".
   edit selected text, that text is sent too. With Ollama, all of it stays on
   your Mac.
 - **History:** never. It is a file on your Mac.
-- **Speech models:** downloaded once from Hugging Face, on request.
+- **Speech models:** downloaded once from Hugging Face, on request. The
+  first one brings a small (under 1 MB) voice activity model that tells
+  speech from noise; if you had a speech model before it existed, it is
+  fetched once, from the same place, the next time Utter starts.
 - **Update check:** only when you press **Check for updates** in About, or
   once a day if you switch on **Check automatically** (off by default). It is
   one request to GitHub for the latest release and sends nothing about you.
@@ -459,8 +462,9 @@ The code is laid out as one file per stage of the pipeline, in
 | `lib.rs` | App setup, the commands the window calls, windows and appearance |
 | `hotkey.rs` | Register the two push-to-talk hotkeys |
 | `fnkey.rs`, `globe.rs` | The fn key on its own, and switching off macOS's globe-key action while it is used |
-| `audio.rs` | Record the microphone, convert to 16 kHz mono |
+| `audio.rs` | Record the microphone, convert to 16 kHz mono, filter out rumble |
 | `transcribe.rs`, `models.rs` | Run whisper.cpp, download models |
+| `speech.rs` | Tell speech from silence and noise, so none of it becomes text |
 | `context.rs` | Work out which app is focused and what kind it is |
 | `cleanup.rs` | The tidy and rewrite prompts, the two API formats, reply checks |
 | `providers.rs` | The list of cleanup providers |

@@ -1,12 +1,14 @@
 //! Transcribe a WAV file from the command line, without the app. Handy for
 //! checking a model or comparing models on the same recording.
 //!
-//!   cargo run --example transcribe -- path/to/ggml-base.en.bin recording.wav
+//!   cargo run --example transcribe -- path/to/ggml-base.en.bin recording.wav [--vad ggml-silero-v6.2.0.bin]
 //!
-//! `--seconds 60` uses only the start of the recording. `--live` also cuts it
-//! into the pieces a live dictation is transcribed in while the speaker
-//! talks, and transcribes them twice: each on its own, and each shown the
-//! end of what came before (as Utter does), to compare where they meet.
+//! With `--vad` and the voice activity model, only the speech in the
+//! recording is transcribed, as in the app. `--seconds 60` uses only the
+//! start of the recording. `--live` also cuts it into the pieces a live
+//! dictation is transcribed in while the speaker talks, and transcribes them
+//! twice: each on its own, and each shown the end of what came before (as
+//! Utter does), to compare where they meet.
 
 use std::{path::Path, time::Instant};
 use utter_lib::{audio, transcribe::{self, Transcriber}};
@@ -15,15 +17,13 @@ fn main() -> Result<(), String> {
     whisper_rs::install_logging_hooks();
     let mut args = std::env::args().skip(1);
     let (Some(model), Some(wav)) = (args.next(), args.next()) else {
-        return Err("usage: transcribe <model.bin> <audio.wav> [--seconds N] [--live]".into());
+        return Err("usage: transcribe <model.bin> <audio.wav> [--vad vad.bin] [--seconds N] [--live]".into());
     };
     let rest: Vec<String> = args.collect();
     let live = rest.iter().any(|a| a == "--live");
-    let seconds: Option<f32> = rest
-        .iter()
-        .position(|a| a == "--seconds")
-        .and_then(|i| rest.get(i + 1))
-        .and_then(|n| n.parse().ok());
+    let value = |flag: &str| rest.iter().position(|a| a == flag).and_then(|i| rest.get(i + 1)).cloned();
+    let seconds: Option<f32> = value("--seconds").and_then(|n| n.parse().ok());
+    let vad = value("--vad");
 
     let mut reader = hound::WavReader::open(&wav).map_err(|e| e.to_string())?;
     let spec = reader.spec();
@@ -53,9 +53,15 @@ fn main() -> Result<(), String> {
 
     let started = Instant::now();
     transcriber.ensure_loaded("cli", Path::new(&model))?;
+    if let Some(vad) = &vad {
+        transcriber.use_vad(Path::new(vad))?;
+    }
     let loaded = started.elapsed();
     let text = transcriber.transcribe(&samples, language)?;
-    eprintln!("speech detected: {}", audio::has_speech(&samples));
+    match transcriber.speech(&audio::high_pass(&samples)) {
+        Some(speech) => eprintln!("speech detected: {} ms", speech.ms),
+        None => eprintln!("speech detected: {}", audio::has_speech(&audio::high_pass(&samples))),
+    }
 
     println!("{text}");
     if live {

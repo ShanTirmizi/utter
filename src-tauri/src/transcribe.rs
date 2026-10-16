@@ -1,10 +1,19 @@
 //! Speech-to-text, entirely on this Mac, using whisper.cpp. No audio leaves
 //! the machine and no API key is involved.
 
-use std::{path::Path, sync::Mutex};
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use std::{
+    path::{Path, PathBuf},
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperSegment, WhisperState};
 
-use crate::audio::{self, TARGET_RATE};
+use crate::{
+    audio::{self, TARGET_RATE},
+    speech::{self, Heard, Speech, Vad},
+};
 
 /// The model rejects very short clips, so shorter recordings are padded with
 /// silence up to this length.
@@ -20,6 +29,12 @@ struct Loaded {
 #[derive(Default)]
 pub struct Transcriber {
     loaded: Mutex<Option<Loaded>>,
+    /// The voice activity model, once it has been downloaded, and the file
+    /// it came from.
+    vad: Mutex<Option<(PathBuf, Vad)>>,
+    /// Set to hear the recording as it came, without `audio::high_pass`.
+    /// Only for measuring what the filter does.
+    unfiltered: AtomicBool,
 }
 
 impl Transcriber {
@@ -42,6 +57,36 @@ impl Transcriber {
         Ok(())
     }
 
+    /// Use the voice activity model at `path` from now on (see `speech`).
+    /// Without one, every stretch of a recording goes to the speech model.
+    pub fn use_vad(&self, path: &Path) -> Result<(), String> {
+        let mut vad = self.vad.lock().unwrap();
+        if vad.as_ref().is_some_and(|(loaded, _)| loaded == path) {
+            return Ok(());
+        }
+        *vad = Some((path.to_path_buf(), Vad::open(path)?));
+        Ok(())
+    }
+
+    /// Stop using the voice activity model. For measuring what it does.
+    pub fn forget_vad(&self) {
+        *self.vad.lock().unwrap() = None;
+    }
+
+    /// Whether to filter out rumble before listening (the default). For
+    /// measuring what the filter does.
+    pub fn set_high_pass(&self, on: bool) {
+        self.unfiltered.store(!on, Ordering::Relaxed);
+    }
+
+    /// Where the voice activity model hears speech in mono 16 kHz audio
+    /// (high-passed, see `audio::high_pass`). `None` when there is no voice
+    /// model, or it failed, so the caller falls back to a loudness check.
+    pub fn speech(&self, samples: &[f32]) -> Option<Speech> {
+        let mut vad = self.vad.lock().unwrap();
+        detect(vad.as_mut().map(|(_, v)| v), samples)
+    }
+
     /// Let go of the model, and the GPU memory it holds. Called on the way
     /// out: whisper.cpp's Metal backend aborts the process at exit if a model
     /// is still loaded then, which macOS reports as a crash. Waits up to two
@@ -60,7 +105,10 @@ impl Transcriber {
     /// or "auto" to detect it.
     pub fn transcribe(&self, samples: &[f32], language: &str) -> Result<String, String> {
         let loaded = self.loaded.lock().unwrap();
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, &[], "")
+        let mut vad = self.vad.lock().unwrap();
+        let vad = vad.as_mut().map(|(_, v)| v);
+        let filter = !self.unfiltered.load(Ordering::Relaxed);
+        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, vad, filter, samples, language, &[], "")
     }
 
     /// Make sure `name` is the loaded model, then transcribe with it. Both
@@ -81,11 +129,32 @@ impl Transcriber {
     ) -> Result<String, String> {
         let mut loaded = self.loaded.lock().unwrap();
         Self::load(&mut loaded, name, path)?;
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, terms, before)
+        let mut vad = self.vad.lock().unwrap();
+        let vad = vad.as_mut().map(|(_, v)| v);
+        let filter = !self.unfiltered.load(Ordering::Relaxed);
+        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, vad, filter, samples, language, terms, before)
     }
 
-    fn run(loaded: &Loaded, samples: &[f32], language: &str, terms: &[String], before: &str) -> Result<String, String> {
+    fn run(
+        loaded: &Loaded,
+        mut vad: Option<&mut Vad>,
+        filter: bool,
+        samples: &[f32],
+        language: &str,
+        terms: &[String],
+        before: &str,
+    ) -> Result<String, String> {
         let hint = glossary(terms);
+        // Wind and rumble out first: the voice model and the speech model
+        // would both try to make sense of them.
+        let filtered;
+        let samples = if filter {
+            filtered = audio::high_pass(samples);
+            &filtered
+        } else {
+            samples
+        };
+        let end_of_text = loaded.context.token_eot();
 
         let mut state = loaded
             .context
@@ -102,7 +171,17 @@ impl Transcriber {
             if audio::peak(piece) < PIECE_SILENCE_PEAK {
                 continue;
             }
-            let mut audio = piece.to_vec();
+            // Only the stretches with speech in them reach the model: it
+            // invents words for the rest. (whisper.cpp can do this itself,
+            // but only in the call that does not take a state of its own.)
+            let speech = detect(vad.as_deref_mut(), piece);
+            if speech.as_ref().is_some_and(|s| s.ms < speech::MIN_SPEECH_MS) {
+                continue;
+            }
+            let mut audio = match &speech {
+                Some(speech) => speech.keep(piece),
+                None => piece.to_vec(),
+            };
             if audio.len() < MIN_SAMPLES {
                 audio.resize(MIN_SAMPLES, 0.0);
             }
@@ -133,9 +212,18 @@ impl Transcriber {
             state
                 .full(params, &audio)
                 .map_err(|e| format!("Transcription failed: {e}"))?;
-            let text: String = state.as_iter().map(|segment| segment.to_string()).collect();
+            let no_speech = no_speech(&mut state, &loaded.context);
+            let all: Vec<Heard> = state.as_iter().map(|segment| heard(&segment, end_of_text, no_speech)).collect();
+            #[cfg(debug_assertions)]
+            eprintln!("[transcribe] speech {:?} ms, heard {all:?}", speech.as_ref().map(|s| s.ms));
+            let kept: Vec<Heard> = all.into_iter().filter(speech::keep_segment).collect();
+            let text: String = kept.iter().map(|h| h.text.as_str()).collect();
             let text = tidy(&text);
-            if !text.is_empty() && !is_prompt_echo(&text, terms) && !is_echo_of(&text, &prompt) {
+            if !text.is_empty()
+                && !is_prompt_echo(&text, terms)
+                && !is_echo_of(&text, &prompt)
+                && !speech::is_invented(&text, speech.as_ref(), &kept)
+            {
                 pieces.push(text);
             }
         }
@@ -183,6 +271,52 @@ fn is_echo_of(text: &str, prompt: &str) -> bool {
     let heard = plain(text);
     let shown = plain(prompt);
     heard.len() >= 4 && shown.windows(heard.len()).any(|run| run == heard.as_slice())
+}
+
+/// Run the voice model if there is one. A failure is logged and treated as
+/// having no voice model, so dictation still works.
+fn detect(vad: Option<&mut Vad>, samples: &[f32]) -> Option<Speech> {
+    match vad?.detect(samples) {
+        Ok(speech) => Some(speech),
+        Err(e) => {
+            eprintln!("[utter] {e}");
+            None
+        }
+    }
+}
+
+/// How likely the model thinks it is that nobody spoke in the audio it just
+/// read: the chance that the first thing it would write after "start of
+/// transcript" is "no speech", as Whisper was published. (whisper.cpp keeps
+/// its own figure, but with timestamps off it reads it one token too late,
+/// where it is always about zero.) Costs one step of the decoder.
+fn no_speech(state: &mut WhisperState, context: &WhisperContext) -> f32 {
+    if state.decode(&[context.token_sot()], 0, threads() as usize).is_err() {
+        return 0.0;
+    }
+    let Ok(logits) = state.get_logits() else { return 0.0 };
+    let Some(&target) = logits.get(context.token_nosp() as usize) else { return 0.0 };
+    let top = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let total: f32 = logits.iter().map(|l| (l - top).exp()).sum();
+    (target - top).exp() / total
+}
+
+/// A segment's text and how sure the model was of it. Its confidence is
+/// the mean log-probability of its text tokens; the special tokens (end of
+/// text, timestamps and the like, numbered from `end_of_text` up) say
+/// nothing about the words.
+fn heard(segment: &WhisperSegment, end_of_text: i32, no_speech: f32) -> Heard {
+    let logprobs: Vec<f32> = (0..segment.n_tokens())
+        .filter_map(|i| segment.get_token(i))
+        .map(|token| token.token_data())
+        .filter(|data| data.id < end_of_text)
+        .map(|data| data.plog)
+        .collect();
+    Heard {
+        text: segment.to_str_lossy().map(|t| t.into_owned()).unwrap_or_default(),
+        no_speech,
+        avg_logprob: if logprobs.is_empty() { 0.0 } else { logprobs.iter().sum::<f32>() / logprobs.len() as f32 },
+    }
 }
 
 /// Did the model repeat the glossary it was shown instead of hearing speech?

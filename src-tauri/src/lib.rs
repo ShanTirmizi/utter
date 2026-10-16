@@ -19,6 +19,7 @@ mod screen;
 mod secrets;
 mod selection;
 mod settings;
+pub mod speech;
 pub mod transcribe;
 mod tray;
 mod updates;
