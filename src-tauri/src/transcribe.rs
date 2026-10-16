@@ -242,7 +242,11 @@ impl Engine for Whisper {
             // very quiet speech look like silence to the model, so if all of
             // it is then thrown away although the voice model heard speech,
             // the piece is heard once more as it was recorded.
+            // The same when what came back is far too little for the speech
+            // heard (one word for four seconds of whispering): the longer of
+            // the two is kept.
             let tries: &[bool] = if speech.is_some() { &[true, false] } else { &[false] };
+            let mut best: Option<String> = None;
             for &trimmed in tries {
                 let mut audio = match &speech {
                     Some(speech) if trimmed => speech.keep(piece),
@@ -290,14 +294,27 @@ impl Engine for Whisper {
                     && !is_echo_of(&text, &prompt)
                     && !speech::is_invented(&text, speech.as_ref(), &kept)
                 {
-                    pieces.push(text);
-                    break;
+                    let words = text.split_whitespace().count();
+                    let enough = speech.as_ref().is_none_or(|s| words as u32 * MS_PER_WORD_AT_MOST >= s.ms);
+                    if best.as_ref().is_none_or(|b| words > b.split_whitespace().count()) {
+                        best = Some(text);
+                    }
+                    if enough {
+                        break;
+                    }
                 }
+            }
+            if let Some(text) = best {
+                pieces.push(text);
             }
         }
         Ok(collapse_repeats(&pieces.join(" ")))
     }
 }
+
+/// Even slow speech has a word in this long: less than that from a piece
+/// means some of it was lost.
+const MS_PER_WORD_AT_MOST: u32 = 1_500;
 
 /// Most of the user's words given to Parakeet for one dictation. Past about a
 /// hundred FluidAudio becomes stricter about matches, and every term costs a
