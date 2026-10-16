@@ -35,6 +35,7 @@
     </script>
     <script src="/utter.js" defer></script>
     <script src="/scenes.js" defer></script>
+    <script src="/film.js" defer></script>
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -323,10 +324,44 @@
             <p class="kicker">The film</p>
             <h2 class="h2" id="film-h">Your voice, <span class="soft">made visible.</span></h2>
           </div>
-          <div class="film-frame rv">
+          <!-- film.js swaps the browser's controls for these; without script the native ones stay. -->
+          <div class="film-frame rv" id="film-player" data-state="ready">
             <video controls playsinline preload="none" poster="/utter-film-poster.jpg" width="1920" height="1080" aria-label="Utter launch film, 45 seconds">
               <source src="/utter-film.mp4" type="video/mp4" />
             </video>
+            <div class="fp-ui js-only">
+              <button class="fp-big" type="button" data-fp="toggle" aria-label="Play the film">
+                <span class="fp-disc">
+                  <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.6v12.8c0 .8.9 1.3 1.6.9l10-6.4c.6-.4.6-1.4 0-1.8l-10-6.4c-.7-.4-1.6.1-1.6.9z" /></svg>
+                  <svg class="i-replay" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2.5L7.5 6 12 9.5V7a5.5 5.5 0 1 1-5.5 5.5H4.5A7.5 7.5 0 1 0 12 5z" /></svg>
+                </span>
+                <span class="fp-label"><span class="fp-label-t">Play the film</span><span class="fp-label-d">0:45</span></span>
+              </button>
+              <span class="fp-spin" aria-hidden="true"></span>
+              <div class="fp-bar">
+                <button class="fp-btn" type="button" data-fp="toggle" aria-label="Play">
+                  <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.6v12.8c0 .8.9 1.3 1.6.9l10-6.4c.6-.4.6-1.4 0-1.8l-10-6.4c-.7-.4-1.6.1-1.6.9z" /></svg>
+                  <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2" /><rect x="13.5" y="5" width="4" height="14" rx="1.2" /></svg>
+                </button>
+                <span class="fp-time"><span data-fp="now">0:00</span><span class="fp-of"> / </span><span data-fp="dur">0:45</span></span>
+                <div class="fp-seek">
+                  <div class="fp-track"><span class="fp-buf"></span><span class="fp-done"></span></div>
+                  <input type="range" min="0" max="45" step="0.1" value="0" data-fp="seek" aria-label="Seek" />
+                  <span class="fp-tip" aria-hidden="true">0:00</span>
+                </div>
+                <div class="fp-vol">
+                  <button class="fp-btn" type="button" data-fp="mute" aria-label="Mute">
+                    <svg class="i-sound" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L11.5 6v12l-4.3-3.5H4z" /><path class="i-wave" d="M15 9a4.2 4.2 0 0 1 0 6M17.6 6.6a7.6 7.6 0 0 1 0 10.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+                    <svg class="i-muted" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L11.5 6v12l-4.3-3.5H4z" /><path d="M15.5 9.5l5 5m0-5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+                  </button>
+                  <input type="range" min="0" max="1" step="0.05" value="1" data-fp="vol" aria-label="Volume" />
+                </div>
+                <button class="fp-btn" type="button" data-fp="full" aria-label="Full screen">
+                  <svg class="i-full" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 9V5.5c0-.6.4-1 1-1H9M15 4.5h3.5c.6 0 1 .4 1 1V9M19.5 15v3.5c0 .6-.4 1-1 1H15M9 19.5H5.5c-.6 0-1-.4-1-1V15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" /></svg>
+                  <svg class="i-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4.5V8c0 .6-.4 1-1 1H4.5M19.5 9H16c-.6 0-1-.4-1-1V4.5M15 19.5V16c0-.6.4-1 1-1h3.5M4.5 15H8c.6 0 1 .4 1 1v3.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" /></svg>
+                </button>
+              </div>
+            </div>
           </div>
           <p class="film-note">45 seconds, with sound. AI-generated footage; every product moment is the real app.</p>
         </div>

@@ -2556,12 +2556,14 @@ html:not(.js) .js-only {
 
 /* ------------------------------------------------------------------ film */
 .film-frame {
+  position: relative;
   margin: 34px auto 0;
   max-width: 1080px;
   border-radius: 24px;
   overflow: hidden;
   background: #000;
   box-shadow: 0 0 0 1px var(--hair), 0 40px 90px -40px rgba(0, 0, 0, 0.55);
+  isolation: isolate;
 }
 .film-frame video {
   display: block;
@@ -2569,6 +2571,475 @@ html:not(.js) .js-only {
   height: auto;
   aspect-ratio: 16 / 9;
   background: #000;
+}
+
+/* The player (film.js). Glass on a dark picture, white marks, nothing else coloured. */
+.film-frame:not(.fp-on) .fp-ui {
+  display: none;
+}
+.fp-ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: #fff;
+}
+.fp-ui > * {
+  pointer-events: auto;
+}
+.fp-on video {
+  cursor: pointer;
+}
+.fp-on[data-idle],
+.fp-on[data-idle] video {
+  cursor: none;
+}
+/* A soft vignette while the poster or the end frame is showing, so the button reads. */
+.fp-ui::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.5));
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+  pointer-events: none;
+}
+[data-state="ready"] .fp-ui::before,
+[data-state="ended"] .fp-ui::before {
+  opacity: 1;
+}
+/* The last frame is the title card; blur it back so "Watch again" is not read as part of it. */
+[data-state="ended"] .fp-ui::before {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.fp-ui svg {
+  fill: currentColor;
+}
+
+/* The big button over the poster */
+.fp-big {
+  appearance: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.35s var(--ease), transform 0.5s var(--ease);
+}
+.fp-disc {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28), 0 18px 50px -12px rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  transition: transform 0.45s var(--spring), background 0.25s;
+}
+.fp-disc svg {
+  width: 38px;
+  height: 38px;
+}
+.fp-disc .i-play {
+  margin-left: 4px;
+}
+.fp-big:hover .fp-disc {
+  transform: scale(1.07);
+  background: rgba(255, 255, 255, 0.22);
+}
+.fp-big:active .fp-disc {
+  transform: scale(0.97);
+}
+.fp-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  font: 600 14px/1 var(--f);
+  letter-spacing: -0.005em;
+}
+.fp-label-d {
+  color: rgba(255, 255, 255, 0.62);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.fp-big .i-replay,
+[data-state="ended"] .fp-big .i-play {
+  display: none;
+}
+[data-state="ended"] .fp-big .i-replay {
+  display: block;
+}
+/* Paused: the disc stays as a quiet way back in; playing: it goes. */
+[data-state="paused"] .fp-big .fp-label {
+  display: none;
+}
+[data-state="paused"] .fp-disc {
+  width: 76px;
+  height: 76px;
+}
+[data-state="paused"] .fp-disc svg {
+  width: 30px;
+  height: 30px;
+}
+[data-state="playing"] .fp-big {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(1.15);
+  pointer-events: none;
+}
+
+/* Buffering */
+.fp-spin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  animation: fp-spin 0.8s linear infinite;
+}
+[data-waiting][data-state="playing"] .fp-spin {
+  opacity: 1;
+  transition-delay: 0.25s;
+}
+@keyframes fp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The control bar */
+.fp-bar {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 52px;
+  padding: 0 8px;
+  border-radius: 18px;
+  background: rgba(22, 22, 24, 0.5);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 14px 40px -14px rgba(0, 0, 0, 0.7);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  backdrop-filter: blur(22px) saturate(1.5);
+  transition: opacity 0.35s var(--ease), transform 0.45s var(--ease);
+}
+[data-state="ready"] .fp-bar,
+.fp-on[data-idle] .fp-bar {
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+}
+.fp-btn {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s var(--ease);
+}
+.fp-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.fp-btn:active {
+  transform: scale(0.92);
+}
+.fp-btn svg {
+  width: 22px;
+  height: 22px;
+}
+.fp-ui :focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+}
+.fp-btn .i-pause,
+.fp-btn .i-muted,
+.fp-btn .i-exit,
+[data-state="playing"] .fp-btn .i-play,
+[data-muted] .fp-btn .i-sound,
+[data-full] .fp-btn .i-full {
+  display: none;
+}
+[data-state="playing"] .fp-btn .i-pause,
+[data-muted] .fp-btn .i-muted,
+[data-full] .fp-btn .i-exit {
+  display: block;
+}
+.fp-time {
+  flex: none;
+  padding: 0 8px 0 4px;
+  font: 500 13px/1 var(--f);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.fp-of,
+[data-fp="dur"] {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Scrubber: a drawn track with an invisible range input over it, so it keeps
+   the keyboard and screen-reader behaviour of a real slider. */
+.fp-seek {
+  position: relative;
+  flex: 1;
+  height: 38px;
+  min-width: 60px;
+}
+.fp-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+  transition: height 0.2s var(--ease), margin-top 0.2s var(--ease);
+}
+.fp-seek:hover .fp-track {
+  height: 6px;
+  margin-top: -3px;
+}
+.fp-buf,
+.fp-done {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-radius: inherit;
+}
+.fp-buf {
+  background: rgba(255, 255, 255, 0.22);
+}
+.fp-done {
+  background: #fff;
+}
+.fp-ui input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.fp-seek input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.fp-ui input[type="range"]::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+.fp-ui input[type="range"]::-moz-range-track {
+  background: transparent;
+}
+.fp-ui input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  transform: scale(0);
+  transition: transform 0.2s var(--spring);
+}
+.fp-ui input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  transform: scale(0);
+  transition: transform 0.2s var(--spring);
+}
+.fp-seek:hover input::-webkit-slider-thumb,
+.fp-seek input:focus-visible::-webkit-slider-thumb,
+.fp-seek input:active::-webkit-slider-thumb {
+  transform: scale(1);
+}
+.fp-seek:hover input::-moz-range-thumb,
+.fp-seek input:focus-visible::-moz-range-thumb,
+.fp-seek input:active::-moz-range-thumb {
+  transform: scale(1);
+}
+.fp-tip {
+  position: absolute;
+  left: 0;
+  bottom: 40px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.72);
+  font: 600 12px/1 var(--f);
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%) translateY(4px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, transform 0.2s var(--ease);
+}
+.fp-seek:hover .fp-tip {
+  opacity: 1;
+  transform: translateX(-50%);
+}
+
+/* Volume: the slider slides out from the speaker on hover */
+.fp-vol {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+.fp-vol input {
+  width: 0;
+  height: 38px;
+  opacity: 0;
+  --p: 100%;
+  transition: width 0.3s var(--ease), opacity 0.2s, margin 0.3s var(--ease);
+}
+.fp-vol:hover input,
+.fp-vol input:focus-visible {
+  width: 76px;
+  margin: 0 8px 0 2px;
+  opacity: 1;
+}
+.fp-ui .fp-vol input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #fff var(--p), rgba(255, 255, 255, 0.22) var(--p));
+}
+.fp-ui .fp-vol input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #fff var(--p), rgba(255, 255, 255, 0.22) var(--p));
+}
+.fp-ui .fp-vol input[type="range"]::-webkit-slider-thumb {
+  margin-top: -5px;
+  transform: scale(1);
+  width: 12px;
+  height: 12px;
+}
+.fp-ui .fp-vol input[type="range"]::-moz-range-thumb {
+  transform: scale(1);
+  width: 12px;
+  height: 12px;
+}
+/* Touch screens have a volume rocker, and no hover to reveal the slider. */
+@media (hover: none) {
+  .fp-vol input {
+    display: none;
+  }
+}
+
+/* Full screen: the frame fills it, the picture letterboxes. */
+.film-frame:fullscreen {
+  max-width: none;
+  border-radius: 0;
+  display: grid;
+  place-items: center;
+}
+.film-frame:fullscreen video {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+.film-frame:-webkit-full-screen {
+  max-width: none;
+  border-radius: 0;
+}
+.film-frame:-webkit-full-screen video {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+[data-full] .fp-bar {
+  left: 50%;
+  right: auto;
+  width: min(880px, 100% - 48px);
+  bottom: 28px;
+  transform: translateX(-50%);
+}
+.fp-on[data-full][data-idle] .fp-bar {
+  transform: translateX(-50%) translateY(12px);
+}
+
+@media (max-width: 640px) {
+  .film-frame {
+    border-radius: 16px;
+  }
+  .fp-disc {
+    width: 72px;
+    height: 72px;
+  }
+  .fp-disc svg {
+    width: 30px;
+    height: 30px;
+  }
+  .fp-label {
+    display: none;
+  }
+  [data-state="paused"] .fp-disc {
+    width: 60px;
+    height: 60px;
+  }
+  /* A small frame has room for one thing at the end: the replay button. */
+  [data-state="ended"] .fp-bar {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .fp-bar {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    height: 44px;
+    padding: 0 4px;
+    border-radius: 14px;
+    gap: 2px;
+  }
+  .fp-btn {
+    width: 34px;
+    height: 34px;
+  }
+  .fp-of,
+  [data-fp="dur"] {
+    display: none;
+  }
 }
 .film-note {
   margin: 16px auto 0;
