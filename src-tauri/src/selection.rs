@@ -376,7 +376,12 @@ pub fn around_cursor(most_before: usize, most_nearby: usize) -> Around {
         // The box's ancestors, nearest first, up to its window.
         let mut ancestors = Vec::new();
         let mut element = copy(focused, "AXParent");
-        while !element.is_null() && ancestors.len() < MOST_LEVELS {
+        while !element.is_null() {
+            if ancestors.len() >= MOST_LEVELS {
+                // Too deep to be worth reading; this one is not kept.
+                CFRelease(element);
+                break;
+            }
             AXUIElementSetMessagingTimeout(element, 0.1);
             let is_window = text_of(copy(element, "AXRole")).as_deref() == Some("AXWindow");
             ancestors.push(element);

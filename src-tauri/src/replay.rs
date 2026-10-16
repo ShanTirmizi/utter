@@ -94,7 +94,8 @@ fn reference_from(entry: &Dictation) -> Option<(String, Source)> {
         return None;
     }
     let edit = entry.edit.as_ref()?;
-    if edit.changed == 0 {
+    // Left as it was only counts when Utter saw the user finish with it.
+    if edit.changed == 0 && !edit.unwatched {
         return Some((entry.text.clone(), Source::Accepted));
     }
     edit.corrected.clone().map(|text| (text, Source::Corrected))
@@ -305,9 +306,11 @@ mod tests {
     fn a_dictation_is_scored_against_what_the_user_kept() {
         let entry = |edit: Option<Edit>| Dictation { text: "Ask cloud.".into(), edit, ..Dictation::default() };
         assert_eq!(reference_from(&entry(None)), None);
-        let left = Edit { words: 2, changed: 0, corrected: None };
-        assert_eq!(reference_from(&entry(Some(left))), Some(("Ask cloud.".into(), Source::Accepted)));
-        let fixed = Edit { words: 2, changed: 1, corrected: Some("Ask Claude.".into()) };
+        let left = Edit { words: 2, changed: 0, corrected: None, unwatched: false };
+        assert_eq!(reference_from(&entry(Some(left.clone()))), Some(("Ask cloud.".into(), Source::Accepted)));
+        // Never seen in the text box: not accepted.
+        assert_eq!(reference_from(&entry(Some(Edit { unwatched: true, ..left }))), None);
+        let fixed = Edit { words: 2, changed: 1, corrected: Some("Ask Claude.".into()), unwatched: false };
         assert_eq!(reference_from(&entry(Some(fixed.clone()))), Some(("Ask Claude.".into(), Source::Corrected)));
         // Edited, but the text was not kept.
         assert_eq!(reference_from(&entry(Some(Edit { corrected: None, ..fixed.clone() }))), None);
@@ -337,7 +340,7 @@ mod tests {
                 text: "Ask cloud.".into(),
                 finished_at: 100,
                 recording: Some("100.wav".into()),
-                edit: Some(Edit { words: 2, changed: 1, corrected: Some("Ask Claude.".into()) }),
+                edit: Some(Edit { words: 2, changed: 1, corrected: Some("Ask Claude.".into()), unwatched: false }),
                 ..Dictation::default()
             },
             // Its recording is gone.

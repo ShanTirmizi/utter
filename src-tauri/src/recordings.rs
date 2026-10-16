@@ -113,12 +113,13 @@ fn tidy_in(dir: &Path, entries: &mut [Dictation]) -> bool {
 }
 
 /// Delete every recording and forget them in `entries`, because the user
-/// switched Keep recordings off.
-pub fn remove_all(app: &AppHandle, entries: &mut [Dictation]) {
+/// switched Keep recordings off. Returns true if an entry changed.
+pub fn remove_all(app: &AppHandle, entries: &mut [Dictation]) -> bool {
+    let mut changed = false;
     for entry in entries.iter_mut() {
-        entry.recording = None;
+        changed |= entry.recording.take().is_some();
     }
-    tidy(app, entries);
+    tidy(app, entries) || changed
 }
 
 #[cfg(test)]
@@ -138,7 +139,7 @@ mod tests {
         Dictation {
             finished_at: n,
             recording: Some(name(n)),
-            edit: Some(Edit { words: 3, changed: 1, corrected: Some("fixed text".into()) }),
+            edit: Some(Edit { words: 3, changed: 1, corrected: Some("fixed text".into()), unwatched: false }),
             ..Dictation::default()
         }
     }

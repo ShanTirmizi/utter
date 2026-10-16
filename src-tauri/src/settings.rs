@@ -37,6 +37,10 @@ pub struct Settings {
     pub learn_words: bool,
     /// Use names and terms in the window in front as hints while dictating.
     pub screen_words: bool,
+    /// Also give the cleanup model the text around the cursor, so it can put
+    /// misheard words right from what the user is writing about. Off unless
+    /// the user turns it on: with a hosted provider, that text leaves the Mac.
+    pub screen_context: bool,
     /// Names seen on screen that the user then said, offered for the list.
     pub suggested: Vec<crate::screen::Suggestion>,
     /// Keep past dictations on this Mac so they can be found and copied again.
@@ -84,6 +88,7 @@ impl Default for Settings {
             forgotten: Vec::new(),
             learn_words: true,
             screen_words: true,
+            screen_context: false,
             suggested: Vec::new(),
             keep_history: true,
             keep_audio: false,

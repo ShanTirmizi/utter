@@ -386,14 +386,17 @@ fn likeness(a: &str, b: &str) -> f32 {
 /// Do these two sound alike enough that one may have been misheard as the
 /// other? Both the sound of the whole word and most of the spelling must
 /// match: "cloud" and "Claude" do; "cold" and "Claude" do not, and nor do
-/// "whisper" and "Whisperflow", which only begins the same way.
+/// "whisper" and "Whisperflow", which only begins the same way. A word cut
+/// short or made plural by a letter or two still counts: "raghunath" for
+/// Raghunathan, "terraforms" for Terraform.
 pub fn sounds_alike(heard: &str, word: &str) -> bool {
     let (heard, word) = (heard.to_lowercase(), word.to_lowercase());
-    heard != word
-        && heard.chars().count() >= 3
-        && word.chars().count() >= 4
-        && full_sound_key(&heard) == full_sound_key(&word)
-        && likeness(&heard, &word) >= 0.5
+    if heard == word || heard.chars().count() < 3 || word.chars().count() < 4 || likeness(&heard, &word) < 0.5 {
+        return false;
+    }
+    let (a, b) = (full_sound_key(&heard), full_sound_key(&word));
+    let near_in_length = heard.chars().count().abs_diff(word.chars().count()) <= 2;
+    a == b || (near_in_length && a.len() >= 3 && b.len() >= 3 && (a.starts_with(b.as_str()) || b.starts_with(a.as_str())))
 }
 
 /// The words an identifier is spoken as: fetchUserProfile is "fetch user
@@ -568,6 +571,9 @@ mod tests {
         // A real sound-alike still is one.
         assert_eq!(heard("Tell ragunathan the build passed."), ["Raghunathan"]);
         assert!(sounds_alike("whisperflo", "Whisperflow"));
+        // Cut short or made plural by a letter or two.
+        assert!(sounds_alike("raghunath", "Raghunathan"));
+        assert!(sounds_alike("terraforms", "Terraform"));
     }
 
     #[test]

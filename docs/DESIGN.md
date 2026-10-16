@@ -527,13 +527,20 @@ or an identifier said as its words ("fetch user profile"), goes to the model.
 In the same thread, before the names, `selection::around_cursor` reads the
 text box in focus: its value up to the cursor (`AXSelectedTextRange`, counted
 in UTF-16 units), and then the text of ever larger ancestors of the box, in
-reading order, until there is enough (500 ms and 600 elements at most). Up to
-1,500 characters of that, four fifths from before the box, go to cleanup as
-`<screen>`, and the last 600 characters before the cursor as `<before>`, both
-marked read-only and used only to resolve mishearings and to continue a
-sentence. `pipeline::follow_on` uses the text before the cursor to add a
-leading space and drop a stray capital when the dictation carries on a
-sentence. None of it is stored, and it is skipped for password fields and
+reading order, until there is enough (500 ms and 600 elements at most). With
+`screen_context` on (Send nearby text to cleanup, off by default) and a
+destination that is not Code, up to 1,500 characters of that, four fifths
+from before the box, go to cleanup as `<screen>`, and the last 600
+characters before the cursor as `<before>`, both marked read-only and used
+only to resolve mishearings and to continue a sentence. `cleanup::as_material`
+turns angle brackets in it into look-alikes, so text on screen cannot close
+the tags, and leaves out anything shaped like a key or token. The names are
+read on a thread of their own alongside, so a slow window does not delay
+them. `pipeline::follow_on` uses the text before the cursor, on this Mac
+whatever that setting, to add a leading space and lower-case a word that is
+never a name (`RUN_ON_WORDS`) when the dictation carries on a sentence. It
+adds no space after an opening quote or between Chinese or Japanese, and
+does nothing in Code. None of it is stored, and it is skipped for password fields and
 while secure input is on. Screen names are only listed for cleanup when the
 transcript has one, or a word whose whole sound key (Soundex without the cut
 after three consonant groups) matches, so "whisper" never becomes

@@ -22,6 +22,11 @@ pub struct Edit {
     /// The pasted text as the user left it. Kept only next to a saved
     /// recording, so the recording can be scored against it later.
     pub corrected: Option<String>,
+    /// True when Utter never saw how the user left it in the text box, and
+    /// all it knows is a word fixed later with Fix a word. Such a dictation
+    /// is not one Utter followed, so the edit rate leaves it out.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unwatched: bool,
 }
 
 /// Word-sized pieces of text, split at white space.
@@ -48,15 +53,43 @@ pub fn word_distance<T: PartialEq>(from: &[T], to: &[T]) -> usize {
 /// edited, and lining it up would take too long.
 const MOST_WORDS: usize = 1_500;
 
+/// The fewest words to add, remove or swap to turn `from` into some run of
+/// words in `to`, and where that run is: words of `to` before or after it
+/// cost nothing. Of runs that cost the same, the longest is taken, so a word
+/// swapped at either end counts as swapped rather than as taken out.
+fn closest_run<T: PartialEq>(from: &[T], to: &[T]) -> (usize, std::ops::Range<usize>) {
+    // The usual table one row at a time, each cell with the cost so far and
+    // where in `to` its run starts. The first row is free anywhere.
+    let mut above: Vec<(usize, usize)> = (0..=to.len()).map(|j| (0, j)).collect();
+    for (i, a) in from.iter().enumerate() {
+        let mut row = vec![(i + 1, 0); to.len() + 1];
+        for (j, b) in to.iter().enumerate() {
+            let swap = (above[j].0 + usize::from(a != b), above[j].1);
+            let take_out = (above[j + 1].0 + 1, above[j + 1].1);
+            let add = (row[j].0 + 1, row[j].1);
+            // Cheapest first, then the earliest start: the longer run.
+            row[j + 1] = swap.min(take_out).min(add);
+        }
+        above = row;
+    }
+    let (end, &(cost, start)) = above
+        .iter()
+        .enumerate()
+        .min_by_key(|&(end, &(cost, start))| (cost, std::cmp::Reverse(end - start)))
+        .expect("the row always has a first cell");
+    (cost, start..end)
+}
+
 /// What the user changed in the part of a text box Utter pasted. `before` is
 /// the box just after the paste and `after` its final state. `None` when that
 /// cannot be told: the paste is not in `before`, or the user also changed
 /// their own text around it, so where the dictation ends is unclear.
 ///
-/// Carrying on typing before or after the dictation is not an edit of it.
+/// Carrying on typing before or after the dictation is not an edit of it,
+/// even when the user also fixed a word inside it.
 pub fn edit(pasted: &str, before: &str, after: &str) -> Option<Edit> {
     let pasted_words = tokens(pasted);
-    if pasted_words.is_empty() {
+    if pasted_words.is_empty() || pasted_words.len() > MOST_WORDS {
         return None;
     }
     let (old, new) = (tokens(before), tokens(after));
@@ -66,9 +99,6 @@ pub fn edit(pasted: &str, before: &str, after: &str) -> Option<Edit> {
         .rev()
         .find(|&at| old[at..at + pasted_words.len()] == pasted_words[..])?;
     let (ahead, behind) = (at, old.len() - at - pasted_words.len());
-    if old.len().max(new.len()) > MOST_WORDS {
-        return None;
-    }
 
     // The user's own text before and after the paste must be as it was.
     let same_start = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
@@ -85,27 +115,51 @@ pub fn edit(pasted: &str, before: &str, after: &str) -> Option<Edit> {
     if same_end < behind {
         return None;
     }
+    // What is now between the user's own text: the dictation, and anything
+    // typed straight before or after it. Only this is lined up, so a long
+    // box with a short dictation in it is quick.
     let now = &new[ahead..new.len() - behind];
+    if now.len() > MOST_WORDS {
+        return None;
+    }
 
-    // Words typed straight after the dictation, or straight before it, are
-    // the user carrying on, not correcting it.
-    let carried_on = now.starts_with(&pasted_words) || now.ends_with(&pasted_words);
-    let (changed, kept) = if carried_on { (0, pasted_words.clone()) } else { (word_distance(&pasted_words, now), now.to_vec()) };
+    // Words typed straight before or after the dictation are the user
+    // carrying on, not correcting it, so they cost nothing.
+    let (changed, run) = closest_run(&pasted_words, now);
     Some(Edit {
         words: pasted_words.len(),
         changed,
-        corrected: Some(kept.join(" ")),
+        corrected: Some(now[run].join(" ")),
+        unwatched: false,
     })
 }
 
 /// The edit after the user also corrected a dictation with Fix a word, which
 /// turned `before` into `after`. Fixing it means it was not right as typed.
+/// With no earlier edit, Utter never saw the user finish with it in the text
+/// box, so the edit is marked as unwatched and left out of the edit rate.
 pub fn fixed_later(edit: Option<Edit>, before: &str, after: &str, keep_text: bool) -> Edit {
     let (from, to) = (tokens(before), tokens(after));
-    let mut edit = edit.unwrap_or_else(|| Edit { words: from.len(), ..Edit::default() });
+    let mut edit = edit.unwrap_or_else(|| Edit { words: from.len(), unwatched: true, ..Edit::default() });
     edit.changed += word_distance(&from, &to);
     edit.corrected = keep_text.then(|| to.join(" "));
     edit
+}
+
+/// What the watch saw, added to what was already known: a word fixed with
+/// Fix a word before the user had finished with the text box. The counts add
+/// up. The text kept is the box's when the user changed it there, since that
+/// is what they ended with; otherwise the fixed one.
+pub fn merge(earlier: Option<Edit>, watched: Edit) -> Edit {
+    let Some(earlier) = earlier else { return watched };
+    let corrected = if watched.changed > 0 { watched.corrected } else { earlier.corrected.or(watched.corrected) };
+    Edit {
+        words: watched.words,
+        changed: earlier.changed + watched.changed,
+        corrected,
+        // Watched now, so it counts.
+        unwatched: false,
+    }
 }
 
 /// Words as they are compared for a word error rate: lower case, without
@@ -211,6 +265,32 @@ mod tests {
     }
 
     #[test]
+    fn typing_around_a_fixed_dictation_is_not_counted_or_kept() {
+        let pasted = "Ask cloud about it.";
+        let before = "Hi Sam. Ask cloud about it.";
+        // A word fixed, and a sentence typed after it.
+        assert_eq!(
+            changed(pasted, before, "Hi Sam. Ask Claude about it. Thanks Sam, see you tomorrow at the office."),
+            Some((1, "Ask Claude about it.".to_string()))
+        );
+        // Or before it.
+        assert_eq!(
+            changed(pasted, pasted, "Quick one for you. Ask Claude about it."),
+            Some((1, "Ask Claude about it.".to_string()))
+        );
+        // A word swapped at the very end is a swap, not a word taken out.
+        assert_eq!(changed(pasted, pasted, "Ask cloud about this."), Some((1, "Ask cloud about this.".to_string())));
+    }
+
+    #[test]
+    fn a_short_dictation_in_a_long_box_is_still_measured() {
+        let own = "word ".repeat(MOST_WORDS * 2);
+        let before = format!("{own}Ask cloud about it.");
+        let after = format!("{own}Ask Claude about it. Thanks!");
+        assert_eq!(changed("Ask cloud about it.", &before, &after), Some((1, "Ask Claude about it.".to_string())));
+    }
+
+    #[test]
     fn unclear_boxes_say_nothing() {
         // The paste is not there.
         assert_eq!(edit("ask Claude", "something else", "something new"), None);
@@ -231,11 +311,44 @@ mod tests {
 
     #[test]
     fn a_later_fix_counts_as_an_edit() {
-        let edit = fixed_later(None, "ask cloud now", "ask Claude now", true);
-        assert_eq!(edit, Edit { words: 3, changed: 1, corrected: Some("ask Claude now".into()) });
+        let watched = Edit { words: 3, changed: 0, corrected: None, unwatched: false };
+        let edit = fixed_later(Some(watched), "ask cloud now", "ask Claude now", true);
+        assert_eq!(edit, Edit { words: 3, changed: 1, corrected: Some("ask Claude now".into()), unwatched: false });
         let again = fixed_later(Some(edit), "ask Claude now", "ask Claude right now", false);
         assert_eq!(again.changed, 2);
         assert_eq!(again.corrected, None);
+        assert!(!again.unwatched);
+    }
+
+    #[test]
+    fn a_fix_to_a_dictation_nobody_watched_is_marked_so() {
+        let edit = fixed_later(None, "ask cloud now", "ask Claude now", true);
+        assert_eq!(edit, Edit { words: 3, changed: 1, corrected: Some("ask Claude now".into()), unwatched: true });
+        // A second fix leaves it unwatched.
+        assert!(fixed_later(Some(edit), "ask Claude now", "ask Claude right now", true).unwatched);
+        // And it is not saved as watched, but an ordinary edit says nothing.
+        let saved = serde_json::to_string(&Edit { unwatched: true, ..Edit::default() }).unwrap();
+        assert!(saved.contains("\"unwatched\":true"));
+        assert!(!serde_json::to_string(&Edit::default()).unwrap().contains("unwatched"));
+        let old: Edit = serde_json::from_str(r#"{"words":3,"changed":0,"corrected":null}"#).unwrap();
+        assert!(!old.unwatched);
+    }
+
+    #[test]
+    fn what_the_watch_saw_adds_to_an_earlier_fix() {
+        let watched = |changed: usize, corrected: &str| Edit {
+            words: 3,
+            changed,
+            corrected: Some(corrected.into()),
+            unwatched: false,
+        };
+        // Nothing known before: the watch's edit as it is.
+        assert_eq!(merge(None, watched(1, "ask Claude now")), watched(1, "ask Claude now"));
+        // Fixed in Utter first, then left alone in the box: the fix stays.
+        let fixed = fixed_later(None, "ask cloud now", "ask Claude now", true);
+        assert_eq!(merge(Some(fixed.clone()), watched(0, "ask cloud now")), watched(1, "ask Claude now"));
+        // Changed in the box too: the counts add up, and the box's text is kept.
+        assert_eq!(merge(Some(fixed), watched(2, "ask Claude right now")), watched(3, "ask Claude right now"));
     }
 
     #[test]

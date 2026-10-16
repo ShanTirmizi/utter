@@ -173,11 +173,20 @@ function Accuracy() {
   const [error, setError] = useState<string | null>(null);
   const { followed, untouched } = editRate(history);
   const kept = history.filter((d) => d.recording !== null).length;
-  const following = (settings.learnWords || settings.keepAudio) && permissions?.accessibility !== false;
+  const following =
+    (settings.learnWords || (settings.keepAudio && settings.keepHistory)) && permissions?.accessibility !== false;
+  // A recording belongs to a history entry, so it can only be switched on
+  // with history kept. Switching it off is always allowed.
+  const needsHistory = !settings.keepHistory && !settings.keepAudio;
 
+  // Switching it off deletes the recordings, so the history is read again
+  // for the count below.
   const setKeepAudio = (keepAudio: boolean) =>
     app.update({ keepAudio }).then(
-      () => setError(null),
+      () => {
+        setError(null);
+        return app.refreshHistory();
+      },
       (err) => setError(String(err)),
     );
 
@@ -212,10 +221,16 @@ function Accuracy() {
             {settings.keepHistory
               ? "Off by default. Keeps the audio of your last 50 dictations on this Mac, with what you changed, to test other models on. Never uploaded."
               : "Needs Keep history, under Try it: each recording belongs to a dictation there."}
-            {kept > 0 && ` ${kept} kept now; switching this off deletes them.`}
+            {settings.keepAudio && kept > 0 && ` ${kept} kept now; switching this off deletes them.`}
           </span>
         </div>
-        <Switch small label="Keep recordings" checked={settings.keepAudio} onChange={setKeepAudio} />
+        <Switch
+          small
+          label="Keep recordings"
+          checked={settings.keepAudio}
+          disabled={needsHistory}
+          onChange={setKeepAudio}
+        />
       </div>
       {error && (
         <p className="qp" role="alert" style={{ color: "var(--bad-fg)" }}>

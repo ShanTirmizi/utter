@@ -70,6 +70,7 @@ let settings: Settings = {
   forgotten: [],
   learnWords: true,
   screenWords: true,
+  screenContext: false,
   suggested: query.has("words")
     ? [
         { word: "Raghunathan", heard: "ragunathan", seen: 1, app: "Slack", lastSeen: Date.now() - 600_000 },
@@ -592,7 +593,12 @@ export function installMock() {
               ? {
                   ...d,
                   text: d.text.split(wrong).join(right),
-                  edit: { words: d.edit?.words ?? 0, changed: (d.edit?.changed ?? 0) + 1, corrected: null },
+                  edit: {
+                    words: d.edit?.words ?? d.text.split(/\s+/).length,
+                    changed: (d.edit?.changed ?? 0) + 1,
+                    corrected: null,
+                    unwatched: !d.edit || d.edit.unwatched,
+                  },
                 }
               : d;
           past = past.map(swap);

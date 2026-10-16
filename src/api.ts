@@ -25,6 +25,7 @@ export type Settings = {
   learnWords: boolean;
   /** Use names and terms in the window in front as hints while dictating. */
   screenWords: boolean;
+  screenContext: boolean;
   /** Names seen on screen that you then said, offered for Your words. */
   suggested: Suggestion[];
   /** Keep past dictations on this Mac. */
@@ -151,6 +152,11 @@ export type Edit = {
   changed: number;
   /** The text as you left it, kept only next to a recording. */
   corrected: string | null;
+  /**
+   * True when Utter never saw how you left it in the text box and only knows
+   * of a word you fixed later. Left out of the edit rate.
+   */
+  unwatched?: boolean;
 };
 
 export type AppContext = {

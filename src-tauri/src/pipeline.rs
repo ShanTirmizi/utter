@@ -157,8 +157,13 @@ struct Screen {
     id: u64,
     /// Names and terms in the window.
     terms: Vec<String>,
-    /// The text around where the user is typing.
+    /// The text around where the user is typing. Used on this Mac to fit
+    /// the dictation to it, and given to the cleanup model only when `shared`.
     around: selection::Around,
+    /// The user allowed that text to go to the cleanup model, and the
+    /// dictation is not for a terminal or code editor, whose text can hold
+    /// keys and other secrets.
+    shared: bool,
 }
 
 /// A hold shorter than this is a tap.
@@ -224,8 +229,15 @@ pub fn unload_model(app: &AppHandle) {
 pub fn load_history(app: &AppHandle) {
     let mut entries = history::load(app);
     // Anything left over from a crash, or from before Keep recordings was
-    // switched off, goes now.
-    if recordings::tidy(app, &mut entries) {
+    // switched off, goes now. With it off, every recording goes, even one
+    // an entry still names.
+    let saved = settings::load(app);
+    let changed = if saved.keep_audio && saved.keep_history {
+        recordings::tidy(app, &mut entries)
+    } else {
+        recordings::remove_all(app, &mut entries)
+    };
+    if changed {
         let _ = history::save(app, &entries);
     }
     let pipeline = app.state::<Pipeline>();
@@ -272,12 +284,13 @@ pub fn drop_recordings(app: &AppHandle) -> Result<(), String> {
 }
 
 /// The user has finished with the dictation that finished at `finished_at`,
-/// and `edit` is what they changed in it. The corrected text is kept only
+/// and `edit` is what they changed in it. A word they already fixed in it
+/// with Fix a word is added to it, not lost. The corrected text is kept only
 /// next to a recording, to score it by.
 fn note_edit(app: &AppHandle, finished_at: u64, edit: Edit) {
     let pipeline = app.state::<Pipeline>();
     let keep = |entry: &mut Dictation| {
-        let mut edit = edit.clone();
+        let mut edit = accuracy::merge(entry.edit.take(), edit.clone());
         if entry.recording.is_none() {
             edit.corrected = None;
         }
@@ -308,7 +321,8 @@ pub fn correct(app: &AppHandle, finished_at: u64, wrong: &str, right: &str) -> R
     let mut entries = pipeline.history.lock().unwrap();
     let mut changed = false;
     // A word that needed fixing was an edit, even if made here rather than
-    // in the app it was pasted into.
+    // in the app it was pasted into. On a dictation Utter did not follow in
+    // the app, it is marked as such and left out of the edit rate.
     let fix = |entry: &mut Dictation| {
         let before = std::mem::take(&mut entry.text);
         entry.text = crate::words::replace_word(&before, wrong, right);
@@ -458,7 +472,10 @@ pub fn preload_model(app: &AppHandle) {
 fn use_vad(app: &AppHandle) {
     if let Some(path) = models::vad(app) {
         if let Err(e) = app.state::<Pipeline>().transcriber.use_vad(&path) {
+            // A file that will not load is damaged: remove it, so the next
+            // start downloads it again rather than living without it.
             eprintln!("[utter] {e}");
+            let _ = std::fs::remove_file(&path);
         }
     }
 }
@@ -558,13 +575,23 @@ fn read_screen(app: &AppHandle, id: u64) {
     if !settings.screen_words || !permissions::accessibility() {
         return;
     }
+    let category = app.state::<Pipeline>().target.lock().unwrap().category;
+    let shared = settings.screen_context && category != context::Category::Code;
     // Apps built on web technology describe their contents only once asked.
     selection::wake_frontmost_app();
     let app = app.clone();
     std::thread::spawn(move || {
         // Give a woken app a moment to build its description.
         std::thread::sleep(Duration::from_millis(150));
-        // The text by the cursor first: it helps the most, and is quick.
+        // The names in the window, on a thread of their own: reading the
+        // text by the cursor can take half a second in a busy window, and a
+        // short dictation should not lose its name hints to it.
+        let names = {
+            let settings = settings.clone();
+            std::thread::spawn(move || {
+                crate::screen::terms(&selection::window_text(), &settings.dictionary, &settings.forgotten)
+            })
+        };
         let around = if permissions::secure_input_active() {
             selection::Around::default()
         } else {
@@ -573,12 +600,12 @@ fn read_screen(app: &AppHandle, id: u64) {
         let pipeline = app.state::<Pipeline>();
         if pipeline.recording_id.load(Ordering::SeqCst) == id {
             let mut screen = pipeline.screen.lock().unwrap();
-            *screen = Screen { id, terms: Vec::new(), around: around.clone() };
+            let terms = if screen.id == id { std::mem::take(&mut screen.terms) } else { Vec::new() };
+            *screen = Screen { id, terms, around: around.clone(), shared };
         }
-        let text = selection::window_text();
-        let found = crate::screen::terms(&text, &settings.dictionary, &settings.forgotten);
+        let found = names.join().unwrap_or_default();
         if pipeline.recording_id.load(Ordering::SeqCst) == id {
-            *pipeline.screen.lock().unwrap() = Screen { id, terms: found, around };
+            *pipeline.screen.lock().unwrap() = Screen { id, terms: found, around, shared };
         }
     });
 }
@@ -770,9 +797,12 @@ async fn tidy_piece(
 /// anything before the cursor.
 fn context_for(screen: &Screen, so_far: &[String]) -> cleanup::Context {
     let so_far = so_far.join(" ");
+    // What the user said earlier in this dictation is theirs to send; what
+    // was on screen only when they allowed it.
+    let shown = |text: &str| if screen.shared { text.to_string() } else { String::new() };
     cleanup::Context {
-        before: if so_far.trim().is_empty() { screen.around.before.clone() } else { so_far },
-        screen: screen.around.nearby.clone(),
+        before: if so_far.trim().is_empty() { shown(&screen.around.before) } else { so_far },
+        screen: shown(&screen.around.nearby),
     }
 }
 
@@ -922,16 +952,22 @@ fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
         // "recording" event can never be overtaken by this "done".
         match outcome {
             Ok(Some(mut dictation)) => {
-                if let Some(audio) = audio {
+                // Held while the settings are read again and the recording
+                // saved: switching Keep recordings off while this dictation
+                // was processed must not leave one behind, and
+                // `drop_recordings` waits for this same lock.
+                let mut entries = pipeline.history.lock().unwrap();
+                let now = settings::load(&app);
+                // A simulated dictation is a test, not something the user said.
+                let keep_entry = delivery != Delivery::ClipboardOnly && now.keep_history;
+                if let Some(audio) = audio.filter(|_| keep_entry && now.keep_audio) {
                     match recordings::save(&app, dictation.finished_at, &audio) {
                         Ok(file) => dictation.recording = Some(file),
                         Err(e) => eprintln!("[utter] could not save the recording: {e}"),
                     }
                 }
                 *pipeline.last.lock().unwrap() = Some(dictation.clone());
-                // A simulated dictation is a test, not something the user said.
-                if delivery != Delivery::ClipboardOnly && settings::load(&app).keep_history {
-                    let mut entries = pipeline.history.lock().unwrap();
+                if keep_entry {
                     history::push(&mut entries, dictation.clone());
                     // The oldest entry's recording, if it just dropped off.
                     recordings::tidy(&app, &mut entries);
@@ -939,6 +975,7 @@ fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
                         eprintln!("[utter] could not save history: {e}");
                     }
                 }
+                drop(entries);
                 emit(&app, "done", None, Some(dictation));
             }
             // "Hold the keys while you speak" is the wrong advice for
@@ -972,9 +1009,23 @@ async fn process(
         return Err("Didn't catch any speech. Check which microphone macOS is using.".into());
     }
     let transcriber = app.state::<Pipeline>().transcriber.clone();
-    use_vad(app);
-    let (judge, audio) = (transcriber.clone(), samples.clone());
-    if !tauri::async_runtime::spawn_blocking(move || heard_speech(&judge, &audio)).await.unwrap_or(true) {
+    // Speech already transcribed while the user talked was speech: running
+    // the voice model over the whole recording again would only add a wait
+    // (about a second for five minutes).
+    let heard_already = {
+        let pipeline = app.state::<Pipeline>();
+        let id = pipeline.recording_id.load(Ordering::SeqCst);
+        let early = pipeline.early.lock().unwrap();
+        early.id == id && early.texts.iter().any(|t| !t.trim().is_empty())
+    };
+    let (judge, audio, loader) = (transcriber.clone(), samples.clone(), app.clone());
+    // Loading the voice model waits for its lock, which an early piece being
+    // transcribed may hold; never on an async worker.
+    let speech = tauri::async_runtime::spawn_blocking(move || {
+        use_vad(&loader);
+        heard_already || heard_speech(&judge, &audio)
+    });
+    if !speech.await.unwrap_or(true) {
         return Err(NO_SPEECH.into());
     }
 
@@ -1129,7 +1180,13 @@ async fn process(
     }
     // Carry on from the text before the cursor: no capital in the middle of
     // a sentence, and a space if the cursor is right after a word.
-    let (space_before, text) = follow_on(&on_screen.around.before, &tidied.text);
+    // Code and terminals are left exactly as dictated: "user." then "name"
+    // is no place for a space.
+    let (space_before, text) = if target.category == context::Category::Code {
+        (false, tidied.text.clone())
+    } else {
+        follow_on(&on_screen.around.before, &tidied.text)
+    };
     tidied.text = text;
     let (inserted, delivery_note) = deliver(app, &tidied.text, delivery, true, space_before).await?;
     if delivery != Delivery::ClipboardOnly && !screen.is_empty() {
@@ -1491,19 +1548,42 @@ async fn deliver(
 fn follow_on(before: &str, text: &str) -> (bool, String) {
     let Some(last) = before.chars().last() else { return (false, text.to_string()) };
     let opens_with_mark = text.starts_with(|c: char| c.is_whitespace() || ",.;:!?)".contains(c));
-    let space = !opens_with_mark && (last.is_alphanumeric() || ".,;:!?)\"'\u{201d}\u{2019}".contains(last));
+    // A quote mark closes a quotation only when it follows a word; after a
+    // space, a bracket or the start, it opens one (git commit -m ").
+    let mut back = before.chars().rev();
+    back.next();
+    let quote_opens = matches!(last, '"' | '\'' | '\u{201c}' | '\u{2018}')
+        && back.next().is_none_or(|c| c.is_whitespace() || "([{=:".contains(c));
+    // Scripts written without spaces between words get none.
+    let unspaced = |c: char| !crate::cleanup::uses_spaces(&c.to_string());
+    let space = !opens_with_mark
+        && !quote_opens
+        && !unspaced(last)
+        && !text.chars().next().is_some_and(unspaced)
+        && (last.is_alphanumeric() || ".,;:!?)\"'\u{201d}\u{2019}".contains(last));
     let ended = before.trim_end_matches([' ', '\t']);
     let mid_sentence = ended.chars().last().is_some_and(|c| c.is_alphanumeric() || c == ',' || c == ';');
     let first: String = text.chars().take_while(|c| c.is_alphabetic()).collect();
     let mut chars = first.chars();
     let capitalised = chars.next().is_some_and(char::is_uppercase) && chars.all(char::is_lowercase);
     let lower = first.to_lowercase();
-    // A sentence that runs on lower-cases an ordinary first word only.
-    if mid_sentence && capitalised && first != "I" && crate::learn::everyday(std::slice::from_ref(&lower)).contains(&lower) {
+    // A sentence that runs on lower-cases only a word that is never a name.
+    // An ordinary-looking word may still be one (Mark, Will, Grace, Rust).
+    if mid_sentence && capitalised && RUN_ON_WORDS.contains(&lower.as_str()) {
         return (space, format!("{lower}{}", &text[first.len()..]));
     }
     (space, text.to_string())
 }
+
+/// Words that may open a dictation continuing a sentence, and are lower case
+/// there: words that are never names.
+const RUN_ON_WORDS: &[&str] = &[
+    "also", "and", "but", "or", "so", "then", "the", "a", "an", "that", "this", "these", "those", "which",
+    "who", "because", "since", "if", "when", "while", "although", "though", "unless", "until", "as", "to",
+    "of", "in", "on", "at", "for", "with", "from", "by", "about", "it", "its", "we", "they", "you", "he",
+    "she", "there", "here", "maybe", "probably", "just", "even", "plus", "otherwise", "instead", "too",
+    "not", "is", "are", "was", "were", "be", "would", "could", "should", "will", "can", "do", "does",
+];
 
 /// Put the most recent dictation on the clipboard. Called from the tray menu,
 /// whose handler already runs on the main thread.
@@ -1632,6 +1712,15 @@ mod tests {
         // Nothing before, or an opening bracket: nothing changes.
         assert_eq!(follow_on("", "Hello."), (false, "Hello.".into()));
         assert_eq!(follow_on("call(", "User id"), (false, "User id".into()));
+        // A word that may be a name keeps its capital.
+        assert_eq!(follow_on("I asked", "Mark about it."), (true, "Mark about it.".into()));
+        assert_eq!(follow_on("written in", "Rust."), (true, "Rust.".into()));
+        // An opening quote takes no space; a closing one does.
+        assert_eq!(follow_on("git commit -m \"", "Fix the bug"), (false, "Fix the bug".into()));
+        assert_eq!(follow_on("print(\"", "Hello"), (false, "Hello".into()));
+        assert_eq!(follow_on("she said \"no\"", "Then left."), (true, "Then left.".into()));
+        // No spaces between Chinese or Japanese.
+        assert_eq!(follow_on("明天", "开会。"), (false, "开会。".into()));
     }
 
     #[test]

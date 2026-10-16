@@ -276,14 +276,58 @@ const WATCH_FOR: Duration = Duration::from_secs(60);
 /// The user is taken to have finished editing after this long without a change.
 const SETTLED: Duration = Duration::from_secs(4);
 
+/// Why the watch of a text box ended.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Ended {
+    /// A minute passed.
+    TimeUp,
+    /// Another dictation began.
+    Overtaken,
+    /// The user moved to another box.
+    Moved,
+    /// The box stopped saying what it holds.
+    Silent,
+    /// The text went: the message was sent, or the user deleted it. The two
+    /// look the same from outside.
+    Emptied,
+    /// The user stopped editing.
+    Settled,
+}
+
+impl Ended {
+    fn reason(self) -> &'static str {
+        match self {
+            Ended::TimeUp => "a minute passed",
+            Ended::Overtaken => "another dictation began",
+            Ended::Moved => "the user moved to another box",
+            Ended::Silent => "the box stopped answering",
+            Ended::Emptied => "the text was sent or cleared",
+            Ended::Settled => "the user stopped editing",
+        }
+    }
+}
+
+/// What the user changed in the dictation, from the box just after the paste
+/// (`before`) and the last reading of it while watched (`last`). `None` when
+/// that cannot be told. A box that emptied with nothing changed in it first
+/// may have been sent as it was or deleted for being wrong, so it says
+/// nothing either way: it is not counted as left as typed.
+fn measure(pasted: &str, before: &str, last: &str, ended: Ended) -> Option<Edit> {
+    if ended == Ended::Emptied && squeeze(last) == squeeze(before) {
+        return None;
+    }
+    accuracy::edit(pasted, before, last)
+}
+
 /// Watch the text box that `pasted` just went into, and learn from what the
 /// user changes in it. `still_current` says whether this dictation is still
 /// the latest one; a new one ends the watch, since its own paste would look
 /// like an edit. `edited` is told what the user changed, when that can be
 /// told.
 ///
-/// The box is watched while learning is on, or while recordings are kept to
-/// measure accuracy; with both off, it is left alone.
+/// The box is watched while learning is on, or while recordings are kept
+/// (which needs history kept too) to measure accuracy; otherwise it is left
+/// alone.
 pub fn watch(
     app: AppHandle,
     pasted: String,
@@ -291,7 +335,8 @@ pub fn watch(
     edited: impl FnOnce(Edit) + Send + 'static,
 ) {
     let settings = settings::load(&app);
-    if !(settings.learn_words || settings.keep_audio) || !crate::permissions::accessibility() {
+    let measuring = settings.keep_audio && settings.keep_history;
+    if !(settings.learn_words || measuring) || !crate::permissions::accessibility() {
         return;
     }
     std::thread::spawn(move || {
@@ -312,42 +357,37 @@ pub fn watch(
         let began = Instant::now();
         let mut last = before.clone();
         let mut changed_at = Instant::now();
-        let mut reason = "a minute passed";
-        loop {
+        let ended = loop {
             std::thread::sleep(EVERY);
             if !still_current() {
-                reason = "another dictation began";
-                break;
+                break Ended::Overtaken;
             }
             if began.elapsed() > WATCH_FOR {
-                break;
+                break Ended::TimeUp;
             }
             if !crate::selection::Field::focused().is_some_and(|now| now.same_as(&field)) {
-                reason = "the user moved to another box";
-                break;
+                break Ended::Moved;
             }
             let Some(now) = field.value() else {
-                reason = "the box stopped answering";
-                break;
+                break Ended::Silent;
             };
-            // Emptied, or the text is gone: the message was sent. The last
+            // Emptied, or the text is gone: sent, or deleted. The last
             // reading from before that holds the edits.
             if squeeze(&now).len() * 2 < squeeze(&pasted).len() && now.len() < last.len() {
-                reason = "the text was sent or cleared";
-                break;
+                break Ended::Emptied;
             }
             if now != last {
                 last = now;
                 changed_at = Instant::now();
             } else if last != before && changed_at.elapsed() > SETTLED {
-                reason = "the user stopped editing";
-                break;
+                break Ended::Settled;
             }
-        }
+        };
         let found = corrections(&pasted, &before, &last);
-        let edit = accuracy::edit(&pasted, &before, &last);
+        let edit = measure(&pasted, &before, &last, ended);
         log(&format!(
-            "watch ended ({reason}): {} change(s) to consider, {}",
+            "watch ended ({}): {} change(s) to consider, {}",
+            ended.reason(),
             found.len(),
             match &edit {
                 Some(edit) => format!("{} of {} word(s) edited", edit.changed, edit.words),
@@ -403,6 +443,22 @@ mod tests {
         assert!(fixes(pasted, before, "Hi Sam, ask about it").is_empty());
         // The paste is not there at all.
         assert!(fixes(pasted, "something else", "something new").is_empty());
+    }
+
+    #[test]
+    fn a_box_emptied_with_nothing_changed_says_nothing() {
+        let pasted = "Ask cloud about it.";
+        let before = "Hi Sam. Ask cloud about it.";
+        // Sent as it was, or deleted for being wrong: no telling which.
+        assert_eq!(measure(pasted, before, before, Ended::Emptied), None);
+        // Line breaks the app changed are not a change seen.
+        assert_eq!(measure(pasted, before, "Hi Sam.\nAsk cloud about it.", Ended::Emptied), None);
+        // Edited first, then emptied: the edits seen still count.
+        let edited = measure(pasted, before, "Hi Sam. Ask Claude about it.", Ended::Emptied).unwrap();
+        assert_eq!(edited.changed, 1);
+        // Left alone until the user moved on: left as typed.
+        assert_eq!(measure(pasted, before, before, Ended::Moved).unwrap().changed, 0);
+        assert_eq!(measure(pasted, before, before, Ended::TimeUp).unwrap().changed, 0);
     }
 
     #[test]

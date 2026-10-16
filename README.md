@@ -316,11 +316,12 @@ entries; a handful of the ones you actually say works best.
 - **Names on screen.** When you start dictating, Utter reads the names in the
   window in front (people in a Slack thread, functions in your editor) and
   uses them as hints for that one dictation, so they are spelled the way the
-  screen spells them. Cleanup is also shown a short excerpt of the text
-  around the cursor (the conversation above a chat box, say), so a misheard
-  word can be put right from it, and what is just before the cursor, so a
-  dictation that continues a sentence starts in lower case with a space.
-  None of the window's text is ever kept. A name you then say
+  screen spells them. A dictation that continues a sentence starts in lower
+  case with a space, from what is just before the cursor. With **Send nearby
+  text to cleanup** also on (off unless you turn it on), cleanup is shown a
+  short excerpt of the text around the cursor (the conversation above a chat
+  box, say), so a misheard word can be put right from it; never from a
+  terminal or code editor. None of the window's text is ever kept. A name you then say
   is offered under **Suggested from your screen**; nothing is added without
   you. Switch it off on the Words tab.
 - **Add a Word…** in the menu bar opens the list ready to type into.
@@ -373,10 +374,12 @@ reason given under "Signing, and why it matters".
   on your Mac.
 - **Text:** only when cleanup is set up. Then the transcript, the name of the
   app (or, in a browser, the site), your word list and any names read from
-  the window in front are sent to the provider you chose. With **Use what's
-  on screen** on, so is a short excerpt of the text around the cursor (about
-  1,500 characters near the box you are typing in, and what is before the
-  cursor), to correct misheard words; it is never saved. When you
+  the window in front are sent to the provider you chose. With **Send nearby
+  text to cleanup** on (it is off unless you turn it on), so is a short
+  excerpt of the text around the cursor (about 1,500 characters near the box
+  you are typing in, and what is before the cursor), to correct misheard
+  words. It is never sent from a terminal or code editor, anything that
+  looks like a key or token is left out, and it is never saved. When you
   edit selected text, that text is sent too. With Ollama, all of it stays on
   your Mac.
 - **History:** never. It is a file on your Mac, as are the edit counts.

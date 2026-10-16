@@ -1,7 +1,8 @@
 //! Replay kept recordings through speech models and cleanup settings, and
 //! score each combination against what the user meant to say. Recordings are
-//! kept only with **Keep recordings** switched on in the app (under History
-//! on Try it), and this reads them where the app keeps them.
+//! kept only with **Keep recordings** switched on in the app (under Accuracy
+//! in About, with Keep history on), and this reads them where the app keeps
+//! them.
 //!
 //!   cargo run --release --example replay
 //!   cargo run --release --example replay -- --model base.en --model large-v3-turbo-q5_0 --cleanup none --cleanup saved

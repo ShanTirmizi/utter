@@ -45,10 +45,11 @@ function edited(d: Dictation): string | null {
 
 /**
  * Of the dictations Utter could follow after pasting, how many you left as
- * they were. Fewer edits is the measure of accuracy that matters.
+ * they were. Fewer edits is the measure of accuracy that matters. A word
+ * fixed later on a dictation Utter did not follow does not count.
  */
 export function editRate(history: Dictation[]): { followed: number; untouched: number } {
-  const followed = history.filter((d) => d.edit !== null);
+  const followed = history.filter((d) => d.edit !== null && !d.edit.unwatched);
   return { followed: followed.length, untouched: followed.filter((d) => d.edit!.changed === 0).length };
 }
 

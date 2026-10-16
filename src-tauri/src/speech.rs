@@ -144,8 +144,17 @@ const DOUBTFUL_LOGPROB: f32 = -1.0;
 /// Noise came out at -1.5 to -1.9; accented speech can reach -1.2.
 const HOPELESS_LOGPROB: f32 = -1.5;
 
-/// Should this segment be kept?
-pub fn keep_segment(heard: &Heard) -> bool {
+/// Should this segment be kept? `speech` is what the voice model found in
+/// the audio it came from.
+///
+/// Trimming the audio to its speech raises the no-speech estimate of quiet
+/// or whispered speech (0.25 to 0.63 for a whispered "Yes."), so once the
+/// voice model has heard a clear stretch of speech, only Whisper's own
+/// published rule, which also needs the words to be doubtful, drops one.
+pub fn keep_segment(heard: &Heard, speech: Option<&Speech>) -> bool {
+    if speech.is_some_and(|s| s.ms >= CLEAR_SPEECH_MS) {
+        return !(heard.no_speech >= LIKELY_NO_SPEECH && heard.avg_logprob < DOUBTFUL_LOGPROB);
+    }
     if heard.no_speech >= SURE_NO_SPEECH || heard.avg_logprob < HOPELESS_LOGPROB {
         return false;
     }
@@ -156,11 +165,12 @@ pub fn keep_segment(heard: &Heard) -> bool {
 /// for being a known invention: a deliberate "Thank you." lasts longer
 /// than the blip of noise that produces an invented one.
 const CLEAR_SPEECH_MS: u32 = 700;
-/// ... and with less, the text is still kept when the model was this sure
-/// of it and this sure that someone spoke. A quiet "Thank you." measured
-/// -0.14 and 0.19 (571 ms of speech); one invented from a gust, -0.11 and
-/// 0.84. So the no-speech estimate is what tells them apart.
-const CONFIDENT_LOGPROB: f32 = -0.4;
+/// ... and with less, a short everyday phrase ("Thanks.", "Bye!") is still
+/// kept when the model was this sure that someone spoke. A quiet "Thank
+/// you." measured 0.19 (571 ms of speech), a clear "Thanks." 0.05 and
+/// "Bye!" 0.03; one invented from a gust, 0.84. The no-speech estimate is
+/// what tells them apart: how sure the model was of the words is not (the
+/// invented one measured -0.11, the clear "Bye!" -0.61).
 const CONFIDENT_NO_SPEECH: f32 = 0.4;
 /// A lone word other than those is dropped, when there was little speech,
 /// if the model leaned this far towards no speech or doubted it this much.
@@ -168,13 +178,9 @@ const CONFIDENT_NO_SPEECH: f32 = 0.4;
 const LONE_WORD_NO_SPEECH: f32 = 0.5;
 const LONE_WORD_LOGPROB: f32 = -1.0;
 
-/// What Whisper writes for noise, after `plain`.
-const INVENTED: &[&str] = &[
-    "",
-    "you",
-    "thank you",
-    "thank you very much",
-    "thanks",
+/// What Whisper writes for noise that nobody dictates: the endings of the
+/// videos it learnt from. Dropped from a short clip however sure it was.
+const VIDEO_ENDINGS: &[&str] = &[
     "thanks for watching",
     "thank you for watching",
     "thank you so much for watching",
@@ -184,6 +190,15 @@ const INVENTED: &[&str] = &[
     "subscribe",
     "like and subscribe",
     "see you next time",
+];
+
+/// What Whisper writes for noise that people also say, after `plain`.
+const INVENTED: &[&str] = &[
+    "",
+    "you",
+    "thank you",
+    "thank you very much",
+    "thanks",
     "bye",
     "bye bye",
     "the end",
@@ -202,22 +217,32 @@ const INVENTED: &[&str] = &[
 /// segments the text came from.
 pub fn is_invented(text: &str, speech: Option<&Speech>, heard: &[Heard]) -> bool {
     let plain = plain(text);
+    let ending = VIDEO_ENDINGS.contains(&plain.as_str());
     let known = INVENTED.contains(&plain.as_str());
-    let lone_word = !plain.is_empty() && !plain.contains(' ');
-    if !known && !lone_word {
+    // One word, in a script written with spaces: a Chinese or Japanese
+    // sentence has none, and is not one word.
+    let lone_word = !plain.is_empty() && !plain.contains(' ') && plain.chars().any(|c| c.is_ascii_alphabetic());
+    if !ending && !known && !lone_word {
         return false;
     }
     if speech.is_some_and(|s| s.ms >= CLEAR_SPEECH_MS) {
         return false;
     }
-    let confident = !heard.is_empty()
-        && heard.iter().all(|h| h.avg_logprob >= CONFIDENT_LOGPROB && h.no_speech <= CONFIDENT_NO_SPEECH);
+    if ending {
+        return true;
+    }
     if known {
         // A lone "." or "..." from a short clip goes however sure the model was.
-        return plain.is_empty() || !confident;
+        let sure_someone_spoke = !heard.is_empty() && heard.iter().all(|h| h.no_speech <= CONFIDENT_NO_SPEECH);
+        return plain.is_empty() || !sure_someone_spoke;
     }
-    // Any other lone word: dropped only when the model was guessing.
-    heard.iter().any(|h| h.avg_logprob < LONE_WORD_LOGPROB || h.no_speech >= LONE_WORD_NO_SPEECH)
+    // Any other lone word: dropped only when the model was guessing. With no
+    // voice model to say how much speech there was, only the no-speech
+    // estimate counts: a real word said clearly can still be one it doubts.
+    match speech {
+        Some(_) => heard.iter().any(|h| h.avg_logprob < LONE_WORD_LOGPROB || h.no_speech >= LONE_WORD_NO_SPEECH),
+        None => heard.iter().any(|h| h.no_speech >= LONE_WORD_NO_SPEECH),
+    }
 }
 
 /// Lowercase words separated by single spaces, punctuation gone: "Thank
@@ -244,18 +269,18 @@ mod tests {
 
     #[test]
     fn segments_the_model_doubts_are_dropped() {
-        assert!(keep_segment(&heard("Send it today.", 0.02, -0.2)));
+        assert!(keep_segment(&heard("Send it today.", 0.02, -0.2), None));
         // Quiet or accented speech: unsure words, but clearly speech.
         // Quiet speech in noise, as measured: the worst of each.
-        assert!(keep_segment(&heard("Can we move the meeting?", 0.46, -0.41)));
-        assert!(keep_segment(&heard("Send a report to Preah by Friday.", 0.21, -0.69)));
-        assert!(keep_segment(&heard("Ask Priya about the Q3 roadmap.", 0.1, -1.2)));
+        assert!(keep_segment(&heard("Can we move the meeting?", 0.46, -0.41), None));
+        assert!(keep_segment(&heard("Send a report to Preah by Friday.", 0.21, -0.69), None));
+        assert!(keep_segment(&heard("Ask Priya about the Q3 roadmap.", 0.1, -1.2), None));
         // Noise, as measured.
-        assert!(!keep_segment(&heard(" you", 0.84, -0.11)));
-        assert!(!keep_segment(&heard(" Shh.", 0.77, -0.56)));
-        assert!(!keep_segment(&heard(" .", 0.80, -1.63)));
-        assert!(!keep_segment(&heard("Lord", 0.65, -1.1)));
-        assert!(!keep_segment(&heard("Civil", 0.1, -1.7)));
+        assert!(!keep_segment(&heard(" you", 0.84, -0.11), None));
+        assert!(!keep_segment(&heard(" Shh.", 0.77, -0.56), None));
+        assert!(!keep_segment(&heard(" .", 0.80, -1.63), None));
+        assert!(!keep_segment(&heard("Lord", 0.65, -1.1), None));
+        assert!(!keep_segment(&heard("Civil", 0.1, -1.7), None));
     }
 
     #[test]
@@ -266,6 +291,27 @@ mod tests {
         assert!(is_invented("Thanks for watching!", None, &[heard(" Thanks for watching!", 0.1, -0.5)]));
         assert!(is_invented(".", Some(&blip), &[heard(" .", 0.05, -0.1)]));
         assert!(is_invented("...", None, &[]));
+    }
+
+    #[test]
+    fn a_clear_thanks_or_bye_from_a_short_clip_is_kept() {
+        // Measured: "Thanks." in 541 ms of speech, and "Bye!".
+        let short = speech_ms(541);
+        assert!(!is_invented("Thanks.", Some(&short), &[heard(" Thanks.", 0.05, -0.405)]));
+        assert!(!is_invented("Bye!", Some(&short), &[heard(" Bye!", 0.03, -0.61)]));
+        // A gust that came out as "Thank you." is still dropped.
+        assert!(is_invented("Thank you.", Some(&speech_ms(300)), &[heard(" Thank you.", 0.84, -0.11)]));
+        // So is a lone CJK sentence never taken for one word.
+        assert!(!is_invented("明天开会。", Some(&speech_ms(400)), &[heard("明天开会。", 0.55, -1.2)]));
+    }
+
+    #[test]
+    fn whispered_speech_the_voice_model_heard_is_kept() {
+        // Trimmed to its speech, a whispered sentence measured 0.71 and -0.8.
+        let heard_clearly = speech_ms(1_779);
+        assert!(keep_segment(&heard(" You sent me the file before lunch.", 0.71, -0.8), Some(&heard_clearly)));
+        // Doubtful words and a likely silence still go.
+        assert!(!keep_segment(&heard(" Lord", 0.65, -1.1), Some(&heard_clearly)));
     }
 
     #[test]

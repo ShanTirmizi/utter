@@ -159,20 +159,35 @@ while let line = readLine() {
             reply(["error": "No speech model is loaded."])
             continue
         }
-        do {
-            let terms = request["terms"] as? [String] ?? []
-            if var current = boosting {
+        // The user's words are a bonus here too: if boosting them fails, the
+        // transcription still comes back, with no candidates.
+        let terms = request["terms"] as? [String] ?? []
+        var chosen = boosting
+        if var current = chosen {
+            do {
                 try await current.prepare(terms)
                 boosting = current
+                chosen = current
+            } catch {
+                chosen = nil
+                FileHandle.standardError.write(Data("[parakeet] word boosting failed: \(error)\n".utf8))
             }
-            let current = boosting
-            let spotting = Task { try await current?.spot(samples) }
+        }
+        let current = chosen
+        let spotting = Task { try await current?.spot(samples) }
+        do {
             var state = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
             let result = try await asr.transcribe(samples, decoderState: &state)
-            let spot = try await spotting.value
+            var spot: CtcKeywordSpotter.SpotKeywordsResult?
+            do {
+                spot = try await spotting.value
+            } catch {
+                FileHandle.standardError.write(Data("[parakeet] word spotting failed: \(error)\n".utf8))
+            }
             let candidates = current?.candidates(result, spot: spot) ?? []
             reply(["text": result.text, "candidates": candidates, "ms": milliseconds(since: started)])
         } catch {
+            spotting.cancel()
             reply(["error": "Transcription failed: \(error.localizedDescription)"])
         }
     } else {

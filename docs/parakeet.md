@@ -62,17 +62,30 @@ pipeline.rs ──► Transcriber (transcribe.rs)
   is skipped, short clips are padded as for Whisper, and `collapse_repeats` and
   `tidy` still run. Utter's "transcribe while speaking" works unchanged,
   because it calls the same `transcribe_with`.
-- **Where the helper is found.** `UTTER_PARAKEET`, then next to Utter's
-  executable (where Tauri's `externalBin` puts it), then, in debug builds,
-  `src-tauri/parakeet/.build/release/`. Parakeet is offered in settings only on
-  macOS 14+ with the helper present.
-- **Download.** 41 files from two Hugging Face repositories at pinned
+- **Where the helper is found.** Next to Utter's executable (where Tauri's
+  `externalBin` puts it). Debug builds also look at `UTTER_PARAKEET` first and
+  at `src-tauri/parakeet/.build/release/` last; a release build ignores
+  `UTTER_PARAKEET`, so nothing that can set Utter's environment can swap in
+  another program. Parakeet is offered in settings only on macOS 14+ with the
+  helper present, and a Parakeet model chosen earlier does not count as
+  downloaded on a Mac without them, so dictation asks for a model instead.
+- **A helper that crashes or hangs.** Replies are read on their own thread and
+  waited for with a limit: 5 minutes for a load (the first one prepares the
+  model), 30 s plus the length of the audio for a transcription. A helper that
+  exits, hangs past the limit or answers with something unreadable is killed,
+  reaped and let go, and the next dictation starts a fresh one. One that
+  crashed is also started again, once, for the dictation it crashed on.
+- **Download.** 35 files from two Hugging Face repositories at pinned
   revisions: the four Parakeet Core ML bundles (483 MB), and the CTC model and
   tokenizer for boosting (102 MB). They download into
   `models/parakeet-tdt-0.6b-v3.part/`, which is renamed when complete, so a
   model is never half-present. Progress is one running total across the files,
-  on the existing `model-download` event, and the stop button works. The
-  download then loads the model once (see the first-load issue below).
+  on the existing `model-download` event, and the stop button works. The 18
+  `.bin` files are checked against the SHA-256 Hugging Face publishes for them
+  at those revisions; the rest are small text files with no published hash. The
+  download then loads the model once (see the first-load issue below). Until
+  that ends the model does not count as downloaded, and if the load fails the
+  model folder is removed and the download reports the error.
 
 ### The user's words
 
@@ -95,8 +108,12 @@ Parakeet wrote. Three changes were needed to make this usable:
    Parakeet transcribes. That takes the extra cost of boosting from about 260 ms
    down to about 120 ms.
 
-A term heard right but written in the wrong case ("anthropic") is then
-corrected, as Whisper does through its prompt.
+A term heard right but written all in lower case ("anthropic") is then given
+its capitals, as Whisper does through its prompt. Only that: a capital is never
+taken away ("Evals are green" keeps its "E" with "evals" in the list), and a
+term that is also an everyday word ("Notion") is not forced onto "the notion
+that". If boosting fails in the helper, the transcription still comes back,
+without replacements, and the failure is logged.
 
 ## Results
 
@@ -190,7 +207,9 @@ Worth trying next:
 swift build -c release --package-path src-tauri/parakeet
 src-tauri/examples/dictations/make.sh /tmp/dictations
 cd src-tauri && cargo build --release --example transcribe
-UTTER_PARAKEET=parakeet/.build/release/utter-parakeet ./target/release/examples/transcribe \
+# A release build finds the helper only beside its own executable.
+ln -sf "$PWD/parakeet/.build/release/utter-parakeet" target/release/examples/
+./target/release/examples/transcribe \
   --compare /tmp/dictations --show \
   --terms "Anthropic,Claude,QA,evals,prod,Groq,HyperFrames,Priya,Parakeet,Whisper,Marcus" \
   path/to/ggml-base.en.bin path/to/ggml-large-v3-turbo-q5_0.bin path/to/parakeet-tdt-0.6b-v3
