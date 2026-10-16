@@ -2333,7 +2333,7 @@ mod live_rewrite {
                                 system = system.replace(rewrite_destination(category(name)), old[name].as_str().unwrap());
                             }
                         }
-                        let mut user = user_message(said, &task);
+                        let mut user = user_message(said, &task, &Context::default());
                         if prompt == "old" {
                             user = user.replace(" Start with its first word: say nothing about it or about what you did.", "");
                         }
@@ -2360,8 +2360,6 @@ mod live_rewrite {
         std::fs::write(&out, lines.lock().unwrap().join("\n") + "\n").unwrap();
         eprintln!("\nwrote {out}");
     }
-}
-
 }
 
 /// Replays past dictations through the tidy prompt, for comparing prompts
