@@ -27,7 +27,7 @@ pub fn load(app: &AppHandle) -> Vec<Dictation> {
     path(app).map(|file| load_from(&file)).unwrap_or_default()
 }
 
-fn load_from(file: &Path) -> Vec<Dictation> {
+pub(crate) fn load_from(file: &Path) -> Vec<Dictation> {
     fs::read_to_string(file)
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())

@@ -889,6 +889,14 @@ pub fn already_clean(transcript: &str) -> bool {
     !NEEDS_WORK.iter().any(|phrase| spaced.contains(&format!(" {phrase} ")))
 }
 
+/// Can a tidy dictation into an app of `category` skip the model and go in
+/// as the speech model wrote it? Only when it is `already_clean` and has none
+/// of the user's words possibly misheard in it. Code editors always go to
+/// the model, which spells identifiers and commands exactly.
+pub fn goes_as_is(transcript: &str, category: Category, terms: &[Word]) -> bool {
+    category != Category::Code && already_clean(transcript) && suspects(transcript, terms).is_empty()
+}
+
 /// Ask the provider which models the key can use, for the model picker.
 pub async fn list_models(endpoint: &Endpoint) -> Result<Vec<String>, String> {
     let request = reqwest::Client::new()

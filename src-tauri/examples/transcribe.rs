@@ -2,9 +2,11 @@
 //! checking a model or comparing models on the same recording.
 //!
 //!   cargo run --example transcribe -- path/to/ggml-base.en.bin recording.wav
+//!
+//! To score models on many recordings at once, see `replay.rs`.
 
 use std::{path::Path, time::Instant};
-use utter_lib::{audio, transcribe::Transcriber};
+use utter_lib::{audio, replay, transcribe::Transcriber};
 
 fn main() -> Result<(), String> {
     whisper_rs::install_logging_hooks();
@@ -13,25 +15,7 @@ fn main() -> Result<(), String> {
         return Err("usage: transcribe <model.bin> <audio.wav>".into());
     };
 
-    let mut reader = hound::WavReader::open(&wav).map_err(|e| e.to_string())?;
-    let spec = reader.spec();
-    let interleaved: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().filter_map(Result::ok).collect(),
-        hound::SampleFormat::Int => {
-            let scale = (1_i64 << (spec.bits_per_sample - 1)) as f32;
-            reader
-                .samples::<i32>()
-                .filter_map(Result::ok)
-                .map(|s| s as f32 / scale)
-                .collect()
-        }
-    };
-    let channels = spec.channels as usize;
-    let mono: Vec<f32> = interleaved
-        .chunks(channels)
-        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
-        .collect();
-    let samples = audio::resample(&mono, spec.sample_rate, audio::TARGET_RATE);
+    let samples = replay::read_wav(Path::new(&wav))?;
 
     let language = if model.contains(".en") { "en" } else { "auto" };
     let transcriber = Transcriber::default();

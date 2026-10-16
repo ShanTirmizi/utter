@@ -393,7 +393,8 @@ mishearings the user removed are on the forgotten list and are skipped.
 
 A learned word is announced in the pill (unless a dictation is showing), in
 the window, and as **Undo Learning** in the menu bar. The text of the box is
-never stored or logged; the log records only that a watch ended and why.
+never logged; the log records only that a watch ended, why, and how many
+words were edited. What is stored is described under "Measuring accuracy".
 
 ### Names on screen
 
@@ -425,6 +426,38 @@ written to a temporary file and renamed, with owner-only permissions. The 200
 most recent are kept. It can be switched off, cleared, or pruned one entry at a
 time. Nothing reads it except the window. It is plain JSON rather than a
 database because it is small, bounded and the user should be able to open it.
+
+### Measuring accuracy
+
+What matters is whether the user had to touch what Utter typed, so that is
+what is measured. The watch that learns words (above) also runs
+`accuracy::edit` when it ends: the pasted words are found in the box as it
+was just after the paste, the user's own text around them must be unchanged
+(otherwise the result is "unclear" and nothing is recorded), and the words
+between are compared with what was pasted. Words typed straight after or
+before the dictation are carrying on, not correcting. The word-level edit
+distance is stored on the dictation as `edit.changed`; a Fix on Try it adds
+to it. The edit rate is the share of followed dictations with none.
+
+The watch runs while learning is on or recordings are kept. With both off,
+Utter does not read the box and nothing is counted.
+
+**Keep recordings** (off by default) writes each dictation's audio as 16-bit,
+16 kHz mono WAV to `recordings/<finished_at>.wav`, owner-only, in a folder
+that is owner-only too. The history entry names its file. After every change
+to the history, `recordings::tidy` keeps the newest 50 that an entry names
+and deletes every other file of that form, so a recording never outlives its
+entry; the corrected text (`edit.corrected`) is kept only beside a recording
+and goes with it. Switching the setting off deletes them all.
+
+`examples/replay.rs` reads the history and recordings directly, transcribes
+each recording with every `--model`, tidies with every `--cleanup` the way
+`pipeline::improve` does (through the same `cleanup::goes_as_is`, prompt and
+`paragraphs`), and scores the result against a hand label, the corrected
+text, or the accepted text, in that order. It reports a normalised word error
+rate and the raw word edits, which is what the app counts. It transcribes
+each recording whole, where the app works on pieces while the user speaks, so
+its times are an upper bound.
 
 ## The interface
 
