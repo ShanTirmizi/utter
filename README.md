@@ -67,7 +67,7 @@ Everything it does:
 - **Your words.** A personal dictionary for the names and jargon that speech
   recognition gets wrong.
 - **History.** Your recent dictations, kept on your Mac only, to search and
-  copy again.
+  copy again, with how many of them you had to change.
 
 Inspired by voice dictation tools. MIT licensed.
 
@@ -163,10 +163,11 @@ and Gatekeeper checks downloads for Apple's notarisation.
 
 Utter opens with a four-step welcome that takes about a minute:
 
-1. **Hello.** Pressing "Get started" also starts downloading the Base speech
-   model (148 MB), so it is usually ready by step 3.
+1. **Hello.** Pressing "Get started" also starts downloading the Small speech
+   model (488 MB), so it is usually ready by step 3.
 2. **Permissions.** Allow the microphone; Accessibility is optional (see below).
-3. **Speech model.** Keep Base, or pick a larger one. Large understands
+3. **Speech model.** Keep Small, or pick another. Base is fastest but
+   mishears names and jargon more often. Large is the most accurate and understands
    languages other than English; under **Speech model** you can tell it which
    one you speak, or leave it to detect.
 4. **Try it.** Hold `⌃ ⌥ Space`, say a sentence, and let go.
@@ -307,14 +308,20 @@ entries; a handful of the ones you actually say works best.
   ("cloud" to Claude) and Utter adds it, with the mishearing, and says so in
   the pill. **Undo Learning** in the menu bar, or Undo on the Words tab, takes
   it back for good. Utter reads only the text box it pasted into, for at most
-  a minute after the paste, and keeps nothing but the word. Typo fixes,
+  a minute after the paste, and keeps nothing but the word and a count of the
+  words you changed (see History). Typo fixes,
   rewording, deletions and everyday words are ignored. Apps that do not expose
   their text (Google Docs, terminals) cannot be learned from; use Fix instead.
   Switch it off on the Words tab.
 - **Names on screen.** When you start dictating, Utter reads the names in the
   window in front (people in a Slack thread, functions in your editor) and
   uses them as hints for that one dictation, so they are spelled the way the
-  screen spells them. The window's text is never kept. A name you then say
+  screen spells them. A dictation that continues a sentence starts in lower
+  case with a space, from what is just before the cursor. With **Send nearby
+  text to cleanup** also on (off unless you turn it on), cleanup is shown a
+  short excerpt of the text around the cursor (the conversation above a chat
+  box, say), so a misheard word can be put right from it; never from a
+  terminal or code editor. None of the window's text is ever kept. A name you then say
   is offered under **Suggested from your screen**; nothing is added without
   you. Switch it off on the Words tab.
 - **Add a Word…** in the menu bar opens the list ready to type into.
@@ -331,6 +338,19 @@ them, copy one again, forget one, or clear them all.
   folder), readable only by your user account. Never sent anywhere.
 - The most recent 200 are kept.
 - Switch **Keep history** off and nothing new is saved.
+- **Edits.** A dictation you changed after Utter pasted it says how many words
+  you changed, and **About** shows the share you left as typed: the number
+  that says how well Utter is doing for you. Utter can tell only while it
+  follows the text box after a paste (with **Learn from my corrections** or
+  **Keep recordings** on, and Accessibility allowed); fixing a word on
+  **Try it** counts too. Only the count is kept.
+- **Keep recordings** (in **About**, off by default) also keeps the audio of
+  your last 50 dictations, as 16 kHz WAV files in a `recordings` folder next
+  to `history.json`, readable only by your user account, with the text as you
+  corrected it. They are for trying other speech models and prompts on what
+  you really said (see "Measuring accuracy" under Development). A recording
+  is deleted with its dictation, when it is older than the last 50, or all at
+  once when you switch the setting off. They are never uploaded.
 
 ## Permissions
 
@@ -350,14 +370,23 @@ reason given under "Signing, and why it matters".
 
 ## What leaves your Mac
 
-- **Audio:** never.
+- **Audio:** never. Recordings kept with **Keep recordings** stay in a folder
+  on your Mac.
 - **Text:** only when cleanup is set up. Then the transcript, the name of the
   app (or, in a browser, the site), your word list and any names read from
-  the window in front are sent to the provider you chose. When you
+  the window in front are sent to the provider you chose. With **Send nearby
+  text to cleanup** on (it is off unless you turn it on), so is a short
+  excerpt of the text around the cursor (about 1,500 characters near the box
+  you are typing in, and what is before the cursor), to correct misheard
+  words. It is never sent from a terminal or code editor, anything that
+  looks like a key or token is left out, and it is never saved. When you
   edit selected text, that text is sent too. With Ollama, all of it stays on
   your Mac.
-- **History:** never. It is a file on your Mac.
-- **Speech models:** downloaded once from Hugging Face, on request.
+- **History:** never. It is a file on your Mac, as are the edit counts.
+- **Speech models:** downloaded once from Hugging Face, on request. The
+  first one brings a small (under 1 MB) voice activity model that tells
+  speech from noise; if you had a speech model before it existed, it is
+  fetched once, from the same place, the next time Utter starts.
 - **Update check:** only when you press **Check for updates** in About, or
   once a day if you switch on **Check automatically** (off by default). It is
   one request to GitHub for the latest release and sends nothing about you.
@@ -426,7 +455,34 @@ pnpm tauri dev                 # run the app with live reload
 pnpm dev                       # the UI only, in a browser, with a pretend backend
 cd src-tauri && cargo test     # unit tests
 cargo run --example transcribe -- model.bin audio.wav   # transcribe a file
+cargo run --release --example replay                    # score models on your recordings
 ```
+
+### Measuring accuracy
+
+With **Keep recordings** on, every dictation leaves a WAV file and, once you
+have finished with the pasted text, what you made of it. The replay example
+runs those recordings through any speech model and any cleanup model, and
+scores each combination:
+
+```bash
+cd src-tauri
+cargo run --release --example replay -- --model base.en --model large-v3-turbo-q5_0 --cleanup none --cleanup saved
+```
+
+Each recording is compared with, in order: a reference you wrote by hand, the
+text as you corrected it, or the text as pasted if you left it alone (which
+favours the settings that wrote it). For hand-written references, put a
+`labels.tsv` next to the recordings: one line per file, the file name, a tab,
+and exactly what you said. `--dir` takes any folder of WAV files instead, so a
+fixed test set works too. `--cleanup` is `none`, `saved` (the provider and
+model set in the app) or `provider/model`; the key comes from `UTTER_API_KEY`
+or the app's Keychain entry. `--each` prints every recording.
+
+For each combination it prints the word error rate (case and punctuation
+ignored), the words you would still have to change per dictation (exactly as
+typed), the share that would need no change, and the time taken. Only the
+cleanup model you pick is sent anything, as in the app.
 
 To test the whole pipeline without speaking, a debug build can take recordings
 from disk and process them as if dictated. Results are printed and left on the
@@ -451,15 +507,17 @@ The code is laid out as one file per stage of the pipeline, in
 | `lib.rs` | App setup, the commands the window calls, windows and appearance |
 | `hotkey.rs` | Register the two push-to-talk hotkeys |
 | `fnkey.rs`, `globe.rs` | The fn key on its own, and switching off macOS's globe-key action while it is used |
-| `audio.rs` | Record the microphone, convert to 16 kHz mono |
+| `audio.rs` | Record the microphone, convert to 16 kHz mono, filter out rumble |
 | `transcribe.rs`, `models.rs` | Run whisper.cpp, download models |
+| `speech.rs` | Tell speech from silence and noise, so none of it becomes text |
 | `context.rs` | Work out which app is focused and what kind it is |
 | `cleanup.rs` | The tidy and rewrite prompts, the two API formats, reply checks |
 | `providers.rs` | The list of cleanup providers |
 | `selection.rs` | Read the text selected in the focused app |
 | `insert.rs` | Clipboard save, paste, restore |
 | `pipeline.rs` | Runs the stages in order |
-| `history.rs` | Past dictations, in a file on this Mac |
+| `history.rs`, `recordings.rs` | Past dictations, in a file on this Mac, and their recordings when kept |
+| `accuracy.rs`, `replay.rs` | What the user changed after a paste, scoring, and what the replay example needs |
 | `words.rs`, `learn.rs`, `screen.rs` | Your words and their mishearings, learning from corrections, names on screen |
 | `tray.rs`, `updates.rs` | The menu bar icon and menu, the update check |
 | `secrets.rs`, `settings.rs` | Keychain and preferences |

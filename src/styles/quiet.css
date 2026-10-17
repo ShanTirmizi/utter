@@ -112,6 +112,7 @@ button,input,textarea{font:inherit;color:inherit}
 .qtog::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .25s var(--spring)}
 .qtog[aria-checked="true"]{background:var(--acc)}
 .qtog[aria-checked="true"]::after{transform:translateX(18px);background:var(--bg)}
+.qtog:disabled{opacity:.45}
 .qpick{appearance:none;border:0;background:none;padding:0;display:flex;align-items:center;gap:10px;font:600 40px/1 var(--qfd);letter-spacing:-.04em;color:var(--ink2);margin-top:8px;cursor:default}
 .qpick svg{width:18px;height:18px;color:var(--light)}
 .qmono{font:500 20px/1.2 var(--qmono);letter-spacing:-.02em;color:var(--ink2);margin-top:10px}

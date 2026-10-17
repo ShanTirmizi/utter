@@ -282,10 +282,26 @@ export default function WordsSection() {
         </div>
         <div className="qsw">
           <div className="tx">
-            <b>Use names on screen</b>
-            <span>Reads names in the app you’re dictating into so it spells them right. Nothing leaves this Mac.</span>
+            <b>Use what’s on screen</b>
+            <span>Reads the app you’re dictating into, so names on screen are spelled right. Only the names go to your cleanup model, and nothing is saved.</span>
           </div>
-          <Switch label="Use names on screen" checked={settings.screenWords} onChange={(screenWords) => run(update({ screenWords }))} />
+          <Switch label="Use what’s on screen" checked={settings.screenWords} onChange={(screenWords) => run(update({ screenWords }))} />
+        </div>
+        <div className="qsw">
+          <div className="tx">
+            <b>Send nearby text to cleanup</b>
+            <span>
+              {settings.screenWords
+                ? "Also gives your cleanup model the text around the cursor, so it can fix misheard words from what you’re writing about. With a hosted provider that text leaves your Mac. Never from a terminal or code editor, and never saved."
+                : "Needs Use what’s on screen."}
+            </span>
+          </div>
+          <Switch
+            label="Send nearby text to cleanup"
+            checked={settings.screenWords && settings.screenContext}
+            disabled={!settings.screenWords}
+            onChange={(screenContext) => run(update({ screenContext }))}
+          />
         </div>
       </div>
 

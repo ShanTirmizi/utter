@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { checkForUpdates } from "../api";
 import { useApp } from "../state";
 import { IconOut, Logo, Notice, Segmented, Switch, when } from "../ui";
+import { editRate } from "./TrySection";
 
 const REPO = "https://github.com/ShanTirmizi/utter";
 
@@ -58,6 +59,8 @@ export default function AboutSection() {
           />
         </div>
       </div>
+
+      <Accuracy />
 
       <div className="qcard">
         <div className="qlab">
@@ -156,5 +159,84 @@ export default function AboutSection() {
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * How often a dictation went in right: the share you left as typed. Utter
+ * can only tell while it follows the text box after pasting, which it does
+ * while learning is on or recordings are kept.
+ */
+function Accuracy() {
+  const app = useApp();
+  const { settings, history, permissions } = app;
+  const [error, setError] = useState<string | null>(null);
+  const { followed, untouched } = editRate(history);
+  const kept = history.filter((d) => d.recording !== null).length;
+  const following =
+    (settings.learnWords || (settings.keepAudio && settings.keepHistory)) && permissions?.accessibility !== false;
+  // A recording belongs to a history entry, so it can only be switched on
+  // with history kept. Switching it off is always allowed.
+  const needsHistory = !settings.keepHistory && !settings.keepAudio;
+
+  // Switching it off deletes the recordings, so the history is read again
+  // for the count below.
+  const setKeepAudio = (keepAudio: boolean) =>
+    app.update({ keepAudio }).then(
+      () => {
+        setError(null);
+        return app.refreshHistory();
+      },
+      (err) => setError(String(err)),
+    );
+
+  return (
+    <div className="qcard">
+      <div className="qlab">
+        Accuracy{followed > 0 && <span className="r">Last {followed} dictations</span>}
+      </div>
+      {followed > 0 ? (
+        <>
+          <div className="qbig sm">
+            {Math.round((untouched / followed) * 100)}
+            <small>% left as typed</small>
+          </div>
+          <p className="qp">
+            You changed {followed - untouched} of your last {followed} dictations after Utter pasted them.
+          </p>
+        </>
+      ) : (
+        <div className="qbig sm lt">Nothing counted yet</div>
+      )}
+      {!following && (
+        <p className="qp">
+          Utter counts your edits only while it follows the text box after pasting: with Learn from my corrections or Keep
+          recordings on, and Accessibility allowed.
+        </p>
+      )}
+      <div className="qsw" style={{ borderTop: "1px solid var(--hair)", marginTop: 14, paddingBottom: 0 }}>
+        <div className="tx">
+          <b>Keep recordings</b>
+          <span>
+            {settings.keepHistory
+              ? "Off by default. Keeps the audio of your last 50 dictations on this Mac, with what you changed, to test other models on. Never uploaded."
+              : "Needs Keep history, under Try it: each recording belongs to a dictation there."}
+            {settings.keepAudio && kept > 0 && ` ${kept} kept now; switching this off deletes them.`}
+          </span>
+        </div>
+        <Switch
+          small
+          label="Keep recordings"
+          checked={settings.keepAudio}
+          disabled={needsHistory}
+          onChange={setKeepAudio}
+        />
+      </div>
+      {error && (
+        <p className="qp" role="alert" style={{ color: "var(--bad-fg)" }}>
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

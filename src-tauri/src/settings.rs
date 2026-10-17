@@ -37,10 +37,18 @@ pub struct Settings {
     pub learn_words: bool,
     /// Use names and terms in the window in front as hints while dictating.
     pub screen_words: bool,
+    /// Also give the cleanup model the text around the cursor, so it can put
+    /// misheard words right from what the user is writing about. Off unless
+    /// the user turns it on: with a hosted provider, that text leaves the Mac.
+    pub screen_context: bool,
     /// Names seen on screen that the user then said, offered for the list.
     pub suggested: Vec<crate::screen::Suggestion>,
     /// Keep past dictations on this Mac so they can be found and copied again.
     pub keep_history: bool,
+    /// Also keep the audio of the most recent dictations, next to the
+    /// history, to replay through other models. Off unless the user turns it
+    /// on: it is a recording of their voice.
+    pub keep_audio: bool,
     /// A quick tap of a hotkey starts a recording that runs until the next
     /// tap, instead of having to hold the keys down.
     pub hands_free: bool,
@@ -80,11 +88,17 @@ impl Default for Settings {
             forgotten: Vec::new(),
             learn_words: true,
             screen_words: true,
+            screen_context: false,
             suggested: Vec::new(),
             keep_history: true,
+            keep_audio: false,
             hands_free: true,
             quiet_globe: true,
-            model: "base.en".into(),
+            // Base mishears names and jargon far more often, and cleanup
+            // cannot always put that right. Small costs about a second per
+            // stretch of speech on an M1 Pro; Large Turbo, the most accurate,
+            // five or more, which is too slow to start everyone on.
+            model: "small.en".into(),
             language: String::new(),
             removed: Vec::new(),
             check_updates: false,
@@ -128,8 +142,12 @@ mod tests {
         assert_eq!(parsed.hotkey, "Alt+KeyD");
         assert_eq!(parsed.model, Settings::default().model);
         assert!(parsed.cleanup_enabled);
+        // New users start on Small, more accurate than Base; Base stays on offer.
+        assert_eq!(Settings::default().model, "small.en");
         // Settings saved before providers existed keep working with Claude.
         assert_eq!(parsed.provider, "anthropic");
+        // Nobody's voice is kept unless they asked for it.
+        assert!(!parsed.keep_audio);
     }
 
     #[test]

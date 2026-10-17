@@ -269,11 +269,13 @@ export function Switch({
   onChange,
   label,
   small = false,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   small?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -281,6 +283,7 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
     />
   );

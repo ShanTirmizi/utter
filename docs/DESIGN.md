@@ -50,7 +50,7 @@ cloud speech-to-text API.
 | Setup | One model download (148 to 574 MB) | Create an account and key |
 | Latency, short dictation | About 0.3 s for 10 s of speech with the Base model on an M1 Pro (measured) | Upload plus processing; not measured here, typically around a second |
 | Latency, long dictation | Grows with length and model size | Roughly flat |
-| Accuracy | Good with Base, better with Small or Large v3 Turbo | Best, especially for names and accents |
+| Accuracy | Good with Base, better with Small (the default) or Large v3 Turbo. On an M1 Pro, 8 s of speech took about 0.75 s with Base, 1.5 s with Small and 6 s with Large v3 Turbo (measured, under load) | Best, especially for names and accents |
 | First use after launch | Model takes a moment to load (done in the background at startup) | None |
 
 Local wins on the goals that matter here: one key at most, free, private. The
@@ -183,6 +183,117 @@ repeating a phrase. Utter instead cuts a long recording at the quietest moment
 it can find between 12 and 27 seconds, which in speech is a pause, and
 transcribes each piece as its own short dictation. On a 95-second test
 monologue this recovered 97.7% of the words.
+
+### Silence, wind and noise
+
+Whisper learned from subtitled video, so given audio with nobody talking it
+writes what subtitles say then: "you", "Thank you.", ".", a stray word. In one
+user's history 7 of 78 dictations were exactly that, all from clips of 0.7 to
+3 seconds. Four checks now stand between noise and the cursor, in order:
+
+1. **High-pass filter** (`audio::high_pass`): 4th-order Butterworth at 100 Hz.
+   Wind on the microphone, traffic and desk thumps are mostly below it; 50 Hz
+   comes out 24 dB quieter, 25 Hz 48 dB, and above 150 Hz less than 0.2 dB is
+   lost. Ordinary voices keep 99% of their level. A deep test voice (pitch
+   84-107 Hz) loses 1.3 dB of its fundamental but none of the harmonics that
+   carry the words; Base wrote exactly the same text for all four test clips
+   with the filter as without, and did better with it on the deep voice spoken
+   quietly over room noise.
+2. **Voice activity** (`speech::Vad`): Silero VAD v6.2.0 (885 KB, from
+   ggml-org on Hugging Face, fetched with the first speech model or on the
+   next start for anyone who already has one). A recording with less than
+   250 ms of speech in it is not transcribed; in one that is, only the
+   stretches of speech (padded 200 ms each side, pauses under 300 ms kept)
+   reach the speech model. Frame threshold 0.5, Silero's own default: it
+   judges the shape of the sound rather than its loudness, and found 1.8 s of
+   speech in a 2 s sentence at -42 dBFS while finding 0 ms in silence, room
+   noise, a fan, loud hiss and four kinds of wind gusts. whisper.cpp can run
+   the same model itself, but only from `whisper_full`; whisper-rs calls
+   `whisper_full_with_state`, which ignores the setting, so Utter runs it.
+   Until the model is here, the old loudness check stands in.
+3. **Per-segment confidence** (`speech::keep_segment`). whisper.cpp's own
+   no-speech estimate is read one token too late when timestamps are off,
+   and is always about 0.00002, so Utter asks the model itself: one decoder
+   step after "start of transcript", the chance the next token is "no
+   speech", as Whisper was published. Given noise with nothing to stop it,
+   Whisper wrote "you", "Shh." or "." at 0.77 to 0.92; speech, however quiet
+   or windy, never went above 0.46, and its mean log-probability never below
+   -0.69. A segment is dropped at 0.7 or above whatever its words (leaning
+   towards keeping words, since losing a dictation costs more than a rare
+   stray word), at 0.6 with a log-probability under -1.0 (Whisper's own
+   rule), or under -1.5 log-probability alone (noise came out at -1.5 to
+   -1.9; accented speech can reach -1.2).
+4. **Known inventions** (`speech::is_invented`). With under 700 ms of speech,
+   a transcript that is only "you", "Thank you.", "Thanks for watching!",
+   "Bye", "." and the like is dropped unless the model was sure (no-speech at
+   most 0.4, log-probability at least -0.4: a quiet "Thank you." measured
+   0.19 and -0.14). Any other lone word is dropped if no-speech reached 0.5
+   or log-probability fell under -1.0; a quiet "Yes." measured 0.40 and
+   -0.61. With 700 ms or more nothing is second-guessed.
+
+A recording turned away by any of these shows "Didn't hear any speech." in the
+pill, as a note rather than an error, and types nothing. A recording with no
+sound at all (peak under 0.003) still gets the microphone advice.
+
+The figures come from `src-tauri/tests/noise.rs`: speech rendered with macOS
+voices (`tests/fixtures/render.sh`) at normal, -34 and -42 dBFS, over room
+noise, a fan and gusts, against silence, hiss, gusts with and without
+broadband hiss, a breath and typing. They were measured with Base; the larger
+models were not measured. `cargo test --test noise -- --ignored --nocapture`
+runs the real models over all of it and prints the figures.
+
+### Speaking over a fan
+
+A fan does not make the speech model invent words so much as mishear real
+ones. `src-tauri/examples/fan_wer.rs` measures it: ten jargon-heavy sentences
+("Rebase the feature branch onto main and squash the WIP commits.") in two
+macOS voices, over a synthetic fan (pink hiss, a brown rumble, 60 Hz hum with
+two harmonics and a 140 Hz blade tone), at 20, 10 and 5 dB below the speech's
+active level, each mix three times with a different stretch of fan noise.
+About 10 dB is a desk fan a metre or two away from a laptop microphone. Word
+error rate, punctuation and case ignored, about 220 words clean and 660 per
+noisy cell:
+
+| Model | Front-end | Clean | 20 dB | 10 dB | 5 dB |
+| --- | --- | --- | --- | --- | --- |
+| Base (English) | Raw | 19.4% | 20.9% | 27.2% | 37.2% |
+| | High-pass | 19.8% | 19.8% | 26.1% | 37.7% |
+| | High-pass + voice activity (shipped) | 18.0% | 18.6% | 24.9% | 38.4% |
+| | RNNoise + shipped | 18.9% | 17.1% | 27.0% | 41.0% |
+| Large v3 Turbo | Raw | 6.8% | 8.1% | 9.0% | 14.7% |
+| | High-pass | 6.3% | 8.1% | 10.4% | 15.8% |
+| | High-pass + voice activity (shipped) | 5.9% | 7.7% | 10.4% | 14.9% |
+| | RNNoise + shipped | 5.9% | 7.4% | 14.7% | 17.0% |
+
+Mix by mix against the shipped front-end, the differences between Raw,
+High-pass and shipped are within chance (Large at 10 dB: Raw better on 12
+mixes, worse on 9). What the numbers do say:
+
+- **The model is the lever.** Large v3 Turbo makes a third to a half as many
+  errors as Base at every noise level, and over a fan at 10 dB it is still
+  better than Base in silence. For dictating over a fan, use Large.
+- **The high-pass and voice activity checks cost nothing in accuracy.** They
+  are there for silence and wind (above); over a fan they neither help nor
+  hurt measurably.
+- **RNNoise hurts where it is needed.** The neural noise suppressor used in
+  many call apps helps a little at 20 dB but makes things worse at 10 dB
+  (Base: better on 16 mixes, worse on 24; Large: 5 and 20) and at 5 dB. A
+  suppressor reshapes the speech along with the noise, and Whisper, which
+  learned from unprocessed audio, hears the difference. It is kept only in
+  the measurement, as a development dependency.
+
+macOS voice processing (the noise suppression FaceTime uses, through
+AVAudioEngine) could not be measured the same way: AVAudioEngine refuses it in
+offline rendering (error -10863), and the only virtual audio device here
+passes no sound unless its own app is running. Measuring it would mean playing
+the mixes aloud through the speakers and recording them with it on and off.
+Given what RNNoise did, and its known costs, it was left out without that
+measurement: it ducks every other app's sound while the microphone is open,
+which a hold-to-talk tool would do dozens of times a day; it reshapes the
+voice with gain control and suppression tuned for calls, which speech models
+were not trained on; and it would mean a second capture path beside cpal.
+
+Since no front-end clearly helps, there is no "Noisy room" setting.
 
 ### Working while the user talks
 
@@ -393,7 +504,8 @@ mishearings the user removed are on the forgotten list and are skipped.
 
 A learned word is announced in the pill (unless a dictation is showing), in
 the window, and as **Undo Learning** in the menu bar. The text of the box is
-never stored or logged; the log records only that a watch ended and why.
+never logged; the log records only that a watch ended, why, and how many
+words were edited. What is stored is described under "Measuring accuracy".
 
 ### Names on screen
 
@@ -412,6 +524,28 @@ screen "in case they say one" and never to add one that was not said. They
 also count as suspects, so a dictation with something that sounds like one,
 or an identifier said as its words ("fetch user profile"), goes to the model.
 
+In the same thread, before the names, `selection::around_cursor` reads the
+text box in focus: its value up to the cursor (`AXSelectedTextRange`, counted
+in UTF-16 units), and then the text of ever larger ancestors of the box, in
+reading order, until there is enough (500 ms and 600 elements at most). With
+`screen_context` on (Send nearby text to cleanup, off by default) and a
+destination that is not Code, up to 1,500 characters of that, four fifths
+from before the box, go to cleanup as `<screen>`, and the last 600
+characters before the cursor as `<before>`, both marked read-only and used
+only to resolve mishearings and to continue a sentence. `cleanup::as_material`
+turns angle brackets in it into look-alikes, so text on screen cannot close
+the tags, and leaves out anything shaped like a key or token. The names are
+read on a thread of their own alongside, so a slow window does not delay
+them. `pipeline::follow_on` uses the text before the cursor, on this Mac
+whatever that setting, to add a leading space and lower-case a word that is
+never a name (`RUN_ON_WORDS`) when the dictation carries on a sentence. It
+adds no space after an opening quote or between Chinese or Japanese, and
+does nothing in Code. None of it is stored, and it is skipped for password fields and
+while secure input is on. Screen names are only listed for cleanup when the
+transcript has one, or a word whose whole sound key (Soundex without the cut
+after three consonant groups) matches, so "whisper" never becomes
+"Whisperflow".
+
 After the dictation, a screen term that made it into the text is counted in
 `settings.suggested`. It is offered in the window once the speech model had
 misheard it (the screen put it right) or after a second use; never added
@@ -425,6 +559,38 @@ written to a temporary file and renamed, with owner-only permissions. The 200
 most recent are kept. It can be switched off, cleared, or pruned one entry at a
 time. Nothing reads it except the window. It is plain JSON rather than a
 database because it is small, bounded and the user should be able to open it.
+
+### Measuring accuracy
+
+What matters is whether the user had to touch what Utter typed, so that is
+what is measured. The watch that learns words (above) also runs
+`accuracy::edit` when it ends: the pasted words are found in the box as it
+was just after the paste, the user's own text around them must be unchanged
+(otherwise the result is "unclear" and nothing is recorded), and the words
+between are compared with what was pasted. Words typed straight after or
+before the dictation are carrying on, not correcting. The word-level edit
+distance is stored on the dictation as `edit.changed`; a Fix on Try it adds
+to it. The edit rate is the share of followed dictations with none.
+
+The watch runs while learning is on or recordings are kept. With both off,
+Utter does not read the box and nothing is counted.
+
+**Keep recordings** (off by default) writes each dictation's audio as 16-bit,
+16 kHz mono WAV to `recordings/<finished_at>.wav`, owner-only, in a folder
+that is owner-only too. The history entry names its file. After every change
+to the history, `recordings::tidy` keeps the newest 50 that an entry names
+and deletes every other file of that form, so a recording never outlives its
+entry; the corrected text (`edit.corrected`) is kept only beside a recording
+and goes with it. Switching the setting off deletes them all.
+
+`examples/replay.rs` reads the history and recordings directly, transcribes
+each recording with every `--model`, tidies with every `--cleanup` the way
+`pipeline::improve` does (through the same `cleanup::goes_as_is`, prompt and
+`paragraphs`), and scores the result against a hand label, the corrected
+text, or the accepted text, in that order. It reports a normalised word error
+rate and the raw word edits, which is what the app counts. It transcribes
+each recording whole, where the app works on pieces while the user speaks, so
+its times are an upper bound.
 
 ## The interface
 

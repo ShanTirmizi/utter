@@ -34,7 +34,23 @@ function meta(d: Dictation): string {
               ? "tidied"
               : `${d.app.category} style`
             : "as heard";
-  return [d.app.name || null, what, when(d.finishedAt)].filter(Boolean).join(" · ");
+  return [d.app.name || null, what, edited(d), when(d.finishedAt)].filter(Boolean).join(" · ");
+}
+
+/** "you changed 2 words", once you have finished with it and did. */
+function edited(d: Dictation): string | null {
+  if (!d.edit || d.edit.changed === 0) return null;
+  return `you changed ${d.edit.changed} ${d.edit.changed === 1 ? "word" : "words"}`;
+}
+
+/**
+ * Of the dictations Utter could follow after pasting, how many you left as
+ * they were. Fewer edits is the measure of accuracy that matters. A word
+ * fixed later on a dictation Utter did not follow does not count.
+ */
+export function editRate(history: Dictation[]): { followed: number; untouched: number } {
+  const followed = history.filter((d) => d.edit !== null && !d.edit.unwatched);
+  return { followed: followed.length, untouched: followed.filter((d) => d.edit!.changed === 0).length };
 }
 
 function cleanupFailed(d: Dictation): boolean {
@@ -722,6 +738,7 @@ function History({ history, onFix }: { history: Dictation[]; onFix: (d: Dictatio
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { copied, copy } = useCopy();
+  const rate = editRate(history);
 
   // The newest one is shown in full above.
   const earlier = history.filter((d) => d.finishedAt !== dictation?.finishedAt);
@@ -827,7 +844,10 @@ function History({ history, onFix }: { history: Dictation[]; onFix: (d: Dictatio
           </div>
         ) : (
           <div className="qfoot">
-            <span>Kept on this Mac only, up to 200.</span>
+            <span>
+              Kept on this Mac only, up to 200.
+              {rate.followed > 0 && ` You left ${rate.untouched} of ${rate.followed} as typed.`}
+            </span>
             <span className="sp" />
             <button className="qbtn sm ghost" onClick={() => setConfirming(true)}>
               Clear history
