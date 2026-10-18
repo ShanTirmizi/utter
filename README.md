@@ -237,7 +237,7 @@ dictation hotkey and Utter rewrites what you said before inserting it.
   menu-bar icon can copy the last dictation again.
 
 Pick the style under **Cleanup**, and press **Test on a sample** to see what it
-does to a sentence. The rewrite hotkey itself is under **Hotkey**; turn it off
+does to a sentence. The rewrite hotkey itself is under **Hotkeys**; turn it off
 there to switch the feature off.
 
 ## Edit selected text
@@ -265,12 +265,12 @@ tap does nothing but remind you how to start.
 - If you walk away, it stops by itself after 30 seconds without a sound, or
   after five minutes at most. What you said is then copied to the clipboard
   rather than typed, so it cannot land in the wrong place.
-- Switch it off under **Hotkey** if you never want it. A double tap is then
+- Switch it off under **Hotkeys** if you never want it. A double tap is then
   ignored.
 
 ## The fn key
 
-Under **Hotkey**, click **Use the fn key** to dictate with fn (the globe key)
+Under **Hotkeys**, click **Use the fn key** to dictate with fn (the globe key)
 on its own, like this:
 
 - **Hold fn** and speak; let go to insert.
