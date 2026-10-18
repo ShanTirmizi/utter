@@ -20,7 +20,7 @@
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:image" content="https://utter.shantirmizi.com/og-v2.png" />
-    <meta property="og:image:alt" content="Utter: just talk, Utter types it. Free, private voice dictation for Mac, with its chrome app icon." />
+    <meta property="og:image:alt" content="Utter: just talk, Utter types it. Free, private voice dictation for Mac, with its metallic app icon." />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="canonical" href="https://utter.shantirmizi.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -147,7 +147,7 @@
                     <span class="av" aria-hidden="true" style="background: linear-gradient(140deg, #c49a7c, #8a5a3c)">P</span>
                     <div>
                       <b>Priya</b>
-                      <p>Build 0.5 passed on CI, nice work everyone.</p>
+                      <p>Build 0.7 passed on CI, nice work everyone.</p>
                     </div>
                   </div>
                   <div class="chatline">
@@ -250,7 +250,7 @@
                     </span>
                   </div>
                   <div class="cl"><span class="ln" aria-hidden="true">9</span><span>&nbsp;&nbsp;&nbsp;&nbsp;runChecks()</span></div>
-                  <div class="cl"><span class="ln" aria-hidden="true">10</span><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">try</span> bumpVersion(to: <span style="color:#fc6a5d">"0.5.0"</span>)</span></div>
+                  <div class="cl"><span class="ln" aria-hidden="true">10</span><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">try</span> bumpVersion(to: <span style="color:#fc6a5d">"0.7.0"</span>)</span></div>
                   <div class="cl"><span class="ln" aria-hidden="true">11</span><span>}</span></div>
                 </div>
               </div>
@@ -383,7 +383,7 @@
             <div class="card rv d1">
               <div class="lab">Audio uploaded</div>
               <div class="big">None</div>
-              <p class="p">Speech becomes text on your Mac, with whisper.cpp on the GPU. Nothing is recorded or kept.</p>
+              <p class="p">Speech becomes text on your Mac, with an open speech model. Audio is never uploaded, and isn't kept unless you ask.</p>
             </div>
             <div class="card rv d2">
               <div class="lab">Price</div>
@@ -424,7 +424,7 @@
                 I think we should push the release to Thursday and tell the design team.
               </div>
               <div class="chips" aria-label="Tidy adapts to">
-                <span class="chip on">chat</span><span class="chip">email</span><span class="chip">code</span><span class="chip">notes</span><span class="chip">prompt</span>
+                <span class="chip on">chat</span><span class="chip">email</span><span class="chip">code</span><span class="chip">notes</span><span class="chip">assistant</span>
               </div>
             </article>
             <article class="card rv d1">
@@ -513,7 +513,7 @@
                   </div>
                 </div>
                 <div class="ex" data-ex="prompt" data-app="Claude">
-                  <div class="ex-meta"><span class="tag sm">prompt</span> Clear and direct, every detail kept</div>
+                  <div class="ex-meta"><span class="tag sm">assistant</span> Clear and direct, every detail kept</div>
                   <div class="ex-body">
                     <p>Can we move the call to tomorrow afternoon?</p>
                     <p>Please send the deck before then.</p>
@@ -628,7 +628,7 @@
               </div>
               <div class="btext">
                 <h3>History</h3>
-                <p>Everything you said, kept on your Mac only. Search it, copy it again, or switch it off.</p>
+                <p>Your recent dictations, kept on your Mac only. Search them, copy one again, or switch it off.</p>
               </div>
             </article>
 
@@ -717,14 +717,14 @@
           <div class="head rv">
             <p class="kicker">Privacy</p>
             <h2 class="h2" id="privacy-h">Your voice stays on your Mac.</h2>
-            <p class="sub">Speech is turned into text on your Mac by an open model running on the GPU. Here is everything that ever leaves it.</p>
+            <p class="sub">Speech is turned into text on your Mac by an open speech model. Here is everything that ever leaves it.</p>
           </div>
           <dl class="leaves rv">
-            <div><dt>Audio</dt><dd class="v never">Never.</dd><dd>Transcribed on your Mac and then thrown away.</dd></div>
-            <div><dt>Text</dt><dd class="v if">Only if you set it up.</dd><dd>With cleanup by a provider, the transcript goes to that provider with your key. With a local model, nothing leaves at all.</dd></div>
+            <div><dt>Audio</dt><dd class="v never">Never.</dd><dd>Transcribed on your Mac, then thrown away. Unless you turn on Keep recordings, which stay on your Mac too.</dd></div>
+            <div><dt>Text</dt><dd class="v if">Only if you set it up.</dd><dd>With cleanup by a provider, the transcript goes to that provider with your key, along with the app's name, your word list and names on screen it may contain. Text near your cursor goes only if you switch that on. With a local model, nothing leaves at all.</dd></div>
             <div><dt>History</dt><dd class="v never">Never.</dd><dd>One file on your Mac, readable only by you. Clear it or switch it off.</dd></div>
             <div><dt>Your keys</dt><dd class="v never">Kept in the Keychain.</dd><dd>Sent only to the provider they belong to, and never shown again once saved.</dd></div>
-            <div><dt>Anything else</dt><dd class="v never">Nothing.</dd><dd>No account, no analytics, no telemetry. Update checks are off unless you turn them on.</dd></div>
+            <div><dt>Anything else</dt><dd class="v never">Nothing.</dd><dd>No account, no analytics, no telemetry. The speech model is downloaded once; update checks are off unless you turn them on.</dd></div>
           </dl>
         </div>
       </section>
@@ -749,10 +749,10 @@
             <div class="card rv d1">
               <div class="lab">Provider<span class="r">Pick any</span></div>
               <div class="tiles">
-                <div class="tile"><svg class="lg" aria-hidden="true" fill="currentColor"><use href="#lg-anthropic" /></svg><b>Anthropic</b><span>Claude models</span></div>
+                <div class="tile on"><svg class="lg" aria-hidden="true" fill="currentColor"><use href="#lg-anthropic" /></svg><b>Anthropic</b><span>Claude models</span></div>
                 <div class="tile"><svg class="lg" aria-hidden="true" fill="currentColor"><use href="#lg-openai" /></svg><b>OpenAI</b><span>GPT models</span></div>
                 <div class="tile"><svg class="lg" aria-hidden="true" fill="currentColor"><use href="#lg-gemini" /></svg><b>Google Gemini</b><span>Gemini models</span></div>
-                <div class="tile on"><svg class="lg" aria-hidden="true" fill="currentColor"><use href="#lg-groq" /></svg><b>Groq</b><span>Fastest replies</span></div>
+                <div class="tile"><svg class="lg" aria-hidden="true" fill="currentColor"><use href="#lg-groq" /></svg><b>Groq</b><span>Fastest replies</span></div>
                 <div class="tile"><svg class="lg" aria-hidden="true" fill="currentColor"><use href="#lg-openrouter" /></svg><b>OpenRouter</b><span>Many models, one key</span></div>
                 <div class="tile"><svg class="lg" aria-hidden="true" fill="currentColor"><use href="#lg-ollama" /></svg><b>Ollama</b><span>This Mac, no key</span></div>
               </div>
@@ -817,7 +817,7 @@
             <li class="card rv d2">
               <div class="n">3</div>
               <h3>Hold and talk</h3>
-              <p>The speech model downloads while you go. Then hold the key in any app and say something.</p>
+              <p>The speech model (about 500 MB) downloads while you go. Then hold the key in any app and say something.</p>
             </li>
           </ol>
           <div class="card build rv" id="brew">
@@ -826,17 +826,17 @@
               <p class="p">One line installs it, and <code>brew upgrade</code> keeps it current.</p>
             </div>
             <div class="term">
-              <div class="tbar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Terminal<button class="copy" type="button" data-copy-from="brewcmd">Copy</button></div>
+              <div class="tbar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Terminal<button class="copy" type="button" data-copy-from="brewcmd" aria-label="Copy the Homebrew command">Copy</button></div>
               <pre><code id="brewcmd"><span class="pr" aria-hidden="true">$ </span>brew install --cask shantirmizi/tap/utter</code></pre>
             </div>
           </div>
           <div class="card build rv" id="build">
             <div>
               <div class="lab">Or build it yourself</div>
-              <p class="p">The <a class="link" href="https://github.com/ShanTirmizi/utter#build-it-yourself">README</a> lists the tools you need: Rust, Node and pnpm.</p>
+              <p class="p">The <a class="link" href="https://github.com/ShanTirmizi/utter#build-it-yourself">README</a> lists the tools you need: Xcode's command line tools, Rust, Node, pnpm and CMake.</p>
             </div>
             <div class="term">
-              <div class="tbar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Terminal<button class="copy" type="button" data-copy-from="buildcmd">Copy</button></div>
+              <div class="tbar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Terminal<button class="copy" type="button" data-copy-from="buildcmd" aria-label="Copy the build commands">Copy</button></div>
               <pre><code id="buildcmd"><span class="pr" aria-hidden="true">$ </span>git clone https://github.com/ShanTirmizi/utter.git
 <span class="pr" aria-hidden="true">$ </span>cd utter && pnpm install
 <span class="pr" aria-hidden="true">$ </span>pnpm tauri build</code></pre>

@@ -17,8 +17,8 @@ body:
     id: version
     attributes:
       label: Utter version
-      description: Shown in the release you downloaded, or in Finder under Get Info.
-      placeholder: "0.3.0"
+      description: Shown beside About at the foot of the sidebar, or in Finder under Get Info.
+      placeholder: "0.6.0"
     validations:
       required: true
   - type: input

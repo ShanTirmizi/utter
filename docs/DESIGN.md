@@ -12,17 +12,10 @@ what it does.
 
 ## Pipeline
 
-```mermaid
-flowchart LR
-    A["Hold hotkey"] --> B["Record"]
-    B --> C["Release hotkey"]
-    C --> D["Transcribe<br/>on device"]
-    D --> E{"Cleanup on<br/>and key saved?"}
-    E -- yes --> F["Clean up<br/>chosen provider"]
-    E -- no --> G["Insert"]
-    F --> G
-    F -. "any error" .-> G
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/how-it-works-dark.png" />
+  <img src="images/how-it-works-light.png" alt="How a dictation flows: hold fn, record, let go, transcribe with Whisper on your Mac; then, if cleanup is set up, your AI tidies it in the style of the app; then Utter pastes where you're typing. Without cleanup, or on any error, your words go in as heard." width="420" />
+</picture>
 
 One module owns each box, and `pipeline.rs` runs them in order. The state of
 the app (idle, recording, processing) lives only there, so a key press is
@@ -34,7 +27,8 @@ Three things need native code: a global hotkey, the focused app, and pasting.
 Everything else is ordinary UI. Tauri fits that split well. The Rust side
 handles the native work in one process, with no separate helper to launch and
 supervise, and the settings window is a small React app. The release build of
-the app is about 7 MB, plus the speech model you choose.
+the app is about 7.5 MB (a download under 4 MB), plus the speech model you
+choose.
 
 ## Transcription: local, not cloud
 
@@ -58,9 +52,9 @@ cost is accuracy on difficult audio, which the larger models and the cleanup
 step both help with. A cloud option could be added later as a second
 `transcribe` implementation without touching the other stages.
 
-Text is produced once, after release. Streaming partial results while the key
-is held would feel livelier but adds a lot of machinery for little gain at
-these speeds.
+Nothing is typed until the key comes up. Transcription does start while the
+key is held (see "Working while the user talks"), but showing partial text
+as it arrives would add a lot of machinery for little gain at these speeds.
 
 ## Cleanup: optional and never in the way
 
@@ -120,8 +114,11 @@ never the address or the title, which can contain an email subject or a
 person's name. The page is only trusted if the browser is still in front when
 the answer arrives.
 
-Only the app's (or site's) name and kind are sent with the transcript. Utter
-does not read the text already in the field or the window's contents.
+With the transcript go the app's (or site's) name and kind, the user's word
+list, names read from the window in front that the transcript seems to
+contain, and, only with "Send nearby text to cleanup" switched on, the text
+around the cursor. See "Names on screen" and "Learning from corrections" for
+what is read and when.
 
 ### Layout and dashes
 
@@ -302,16 +299,19 @@ grew with its length: a 95-second dictation took 2.7 s to transcribe and 17 s
 to tidy with a 4B model on an M1 Pro. Now, every 1.5 s while recording, the
 audio so far is checked for a clear pause (450 ms, at least 6 s of speech
 before it, at least 1 s behind the live edge). Everything up to that pause is
-transcribed and, for the dictation hotkey, tidied in the background. When the
-key comes up, only the rest is. The pieces of text are rejoined into running
+transcribed in the background, and in the Quick way also tidied. When the key
+comes up, only the rest is. The pieces of text are rejoined into running
 prose (the model's own paragraph breaks inside a few seconds of speech are
-dropped; lists are kept) and laid out in paragraphs once. In testing the
-95-second dictation was typed 0.3 s after release, with the same words as
+dropped; lists are kept) and laid out in paragraphs once. In testing (with
+pieces tidied as they went, as Quick does now) the 95-second dictation was
+typed 0.3 s after release, with the same words as
 transcribing it whole (99.7% identical).
 
 The rewrite hotkey still sends the whole dictation to the model at the end,
-because rewriting needs all of it. A short dictation the speech model wrote
-cleanly skips the model altogether (`cleanup::already_clean`). A local model
+because rewriting needs all of it. In the Quick way, a short dictation the
+speech model wrote cleanly skips the model altogether (`cleanup::already_clean`,
+`goes_as_is`); Accurate, the default, always tidies the whole dictation once
+the key comes up. A local model
 is asked to stay loaded for an hour.
 
 `UTTER_SIMULATE_LIVE=1` replays a simulated recording as if it were arriving
@@ -359,7 +359,7 @@ everything through unchanged. It is consulted only for fn going down and up
 and for "another key went down while fn is held", in which case fn is part of
 a shortcut and the recording is dropped without a note. Which key that was is
 never read. If the tap cannot be made (Accessibility not yet allowed), it is
-retried every two seconds, and the Hotkey tab says why fn is not working.
+retried every two seconds, and the Hotkeys page says why fn is not working.
 **Input Monitoring is never requested.**
 
 macOS's own globe-key action ("Press 🌐 key to": emoji picker, input source,
@@ -372,15 +372,15 @@ another hotkey, or on request. It uses the same calls Keyboard settings does
 (`TISGetFnUsageType` / `TISUpdateFnUsageType`, looked up at run time), which
 apply at once, and writes the original value to a file first so a crashed
 run's next launch can still restore it. A value the user changed in the
-meantime is left alone, and so is a saved "off" from the Hotkey tab.
+meantime is left alone, and so is a saved "off" from the Hotkeys page.
 
 What the tap does (installed or not, fn down and up, fn dropped from a
 shortcut) is written to `~/Library/Logs/Utter/fn-key.log`; nothing else about
 the keyboard is.
 Shortcuts that use fn keep working, because the keys pressed with fn carry the
-fn flag themselves. As a backstop the Hotkey tab reads the setting and, if it
-is not "Do Nothing", links to Keyboard settings. Utter never changes the
-setting itself.
+fn flag themselves. When this is switched off, the Hotkeys page reads the
+setting and, if it is not "Do Nothing", says what macOS will do and links to
+Keyboard settings.
 
 | Permission | Used for | Asked when |
 | --- | --- | --- |
@@ -603,11 +603,11 @@ at a glance: is Utter ready, and if not, what is the one thing to do?
 The look is "Quiet" in light and "Graphite" in dark, from a design handoff.
 Tokens are custom properties on `.q-light` and `.q-dark` in
 `src/styles/quiet.css`; the root element carries one or the other, following
-the system appearance. `app.css` holds what the real windows add (scrolling,
+the system appearance unless General sets Light or Dark. `app.css` holds what the real windows add (scrolling,
 the folded sidebar, menus, the pill window).
 
 - **One big value per card.** Each card leads with the thing it measures:
-  Ready, 0.91 s, Base, Allowed. Everything else supports it.
+  Ready, 0.91 s, Small, Allowed. Everything else supports it.
 - **Colour means status.** Mint is good, peach needs you, red only when
   dictation can't happen (no microphone, a broken hotkey). Nothing else is
   coloured, so a coloured thing always matters. At most one filled button per
@@ -675,7 +675,6 @@ A local build is never quarantined, so it opens without Gatekeeper asking.
 ## Not in this version
 
 - Starting a new dictation while the previous one is still being processed.
-- Learning from corrections, or remembering anything about the user beyond the
-  word list they write themselves.
-- A signed, notarised build with automatic updates.
+- Automatic updates. Releases are signed and notarised, and Utter can check
+  GitHub for a newer one, but installing it is up to you (or Homebrew).
 - Windows and Linux.
