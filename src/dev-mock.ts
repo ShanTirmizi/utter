@@ -23,6 +23,7 @@
 //   ?update=new|current  what the update check finds
 //   ?failed           the last dictation's cleanup failed
 //   ?edit             the last dictation edited a selection
+//   ?audio            Keep recordings is on
 //   ?selected         the rewrite hotkey edits a pretend selection
 //   ?fn               the fn key is the dictation hotkey
 //   ?fnconflict       and macOS also shows emoji when it is pressed
@@ -52,6 +53,7 @@ const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
 let settings: Settings = {
   hotkey: query.has("fn") ? "Fn" : "Control+Alt+Space",
   cleanupEnabled: query.get("cleanup") !== "off",
+  way: "accurate",
   provider: "anthropic",
   cleanupModel: "",
   baseUrl: "",
@@ -69,6 +71,7 @@ let settings: Settings = {
   forgotten: [],
   learnWords: true,
   screenWords: true,
+  screenContext: false,
   suggested: query.has("words")
     ? [
         { word: "Raghunathan", heard: "ragunathan", seen: 1, app: "Slack", lastSeen: Date.now() - 600_000 },
@@ -77,6 +80,7 @@ let settings: Settings = {
       ]
     : [],
   keepHistory: true,
+  keepAudio: query.has("audio"),
   handsFree: true,
   quietGlobe: !query.has("fnconflict"),
   model: query.has("large") ? "large-v3-turbo-q5_0" : "base.en",
@@ -117,9 +121,9 @@ const permissions: PermissionStatus = {
 };
 
 const models: ModelStatus[] = [
-  { name: "base.en", label: "Base (English)", note: "Fastest. Good for clear speech.", sizeMb: 148, downloaded: query.get("model") !== "missing" && !query.has("welcome") },
-  { name: "small.en", label: "Small (English)", note: "More accurate, a little slower.", sizeMb: 488, downloaded: query.has("small") },
-  { name: "large-v3-turbo-q5_0", label: "Large v3 Turbo (multilingual)", note: "Most accurate. Any language.", sizeMb: 574, downloaded: query.has("large") },
+  { name: "base.en", label: "Base (English)", note: "Fastest, but mishears more. Good for clear speech.", sizeMb: 148, downloaded: query.get("model") !== "missing" && !query.has("welcome") },
+  { name: "small.en", label: "Small (English)", note: "Recommended. Hears names and jargon far better than Base.", sizeMb: 488, downloaded: query.has("small") },
+  { name: "large-v3-turbo-q5_0", label: "Large v3 Turbo (multilingual)", note: "Most accurate, any language. Several times slower.", sizeMb: 574, downloaded: query.has("large") },
 ];
 
 const slack: AppContext = { name: "Slack", bundleId: "com.tinyspeck.slackmacgap", category: "chat" };
@@ -158,6 +162,8 @@ let last: Dictation | null = query.has("empty") || query.has("welcome")
       spokenMs: 4100,
       totalMs: 910,
       finishedAt: Date.now() - 4 * 60_000,
+      edit: { words: 19, changed: 0, corrected: null },
+      recording: query.has("audio") ? "1.wav" : null,
     };
 if (last && query.has("failed")) {
   last = { ...last, cleaned: false, text: last.raw, note: "Cleanup skipped: Groq didn’t accept the key.", cleanupMs: 380, totalMs: 720 };
@@ -185,6 +191,7 @@ let past: Dictation[] = last
         raw: "okay so the uh can you ask cloud to summarise the standup notes",
         text: "Can you ask cloud to summarise the standup notes?",
         finishedAt: Date.now() - 26 * 3_600_000,
+        edit: { words: 9, changed: 1, corrected: null },
       },
     ]
   : [];
@@ -327,10 +334,24 @@ async function finish() {
     spokenMs,
     totalMs: transcribeMs + (cleanupMs ?? 0) + 30,
     finishedAt: Date.now(),
+    edit: null,
+    recording: settings.keepAudio && settings.keepHistory ? `${Date.now()}.wav` : null,
   };
   if (inserted) paste(`${last.text} `);
   if (settings.keepHistory) past = [last, ...past].slice(0, 200);
   pipeline({ phase: "done", dictation: last }, mode);
+  if (inserted) followEdits(last);
+}
+
+/** Stand in for watching the text box: a few seconds on, you left it alone. */
+function followEdits(done: Dictation) {
+  setTimeout(() => {
+    const edit = { words: done.text.split(/\s+/).length, changed: 0, corrected: null };
+    const mark = (d: Dictation) => (d.finishedAt === done.finishedAt ? { ...d, edit } : d);
+    past = past.map(mark);
+    if (last) last = mark(last);
+    send("edited", done.finishedAt);
+  }, 4000);
 }
 
 /** The rewrite hotkey with text selected: the words spoken say how to change it. */
@@ -353,6 +374,8 @@ async function edit(spokenMs: number) {
     spokenMs,
     totalMs: 1110,
     finishedAt: Date.now(),
+    edit: null,
+    recording: null,
   };
   last = done;
   if (settings.keepHistory) past = [done, ...past].slice(0, 200);
@@ -467,6 +490,11 @@ export function installMock() {
           if (next.baseUrl && !/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)/.test(next.baseUrl)) {
             throw "The base URL must use https, or http on localhost.";
           }
+          // Switching Keep recordings off deletes them.
+          if (!next.keepAudio) {
+            past = past.map((d) => ({ ...d, recording: null }));
+            if (last) last = { ...last, recording: null };
+          }
           settings = {
             ...next,
             dictionary: next.dictionary
@@ -561,8 +589,19 @@ export function installMock() {
         }
         case "fix_word": {
           const { finishedAt, wrong, right, remember } = payload as { finishedAt: number; wrong: string; right: string; remember: boolean };
-          const swap = (d: Dictation) =>
-            d.finishedAt === finishedAt ? { ...d, text: d.text.split(wrong).join(right) } : d;
+          const swap = (d: Dictation): Dictation =>
+            d.finishedAt === finishedAt
+              ? {
+                  ...d,
+                  text: d.text.split(wrong).join(right),
+                  edit: {
+                    words: d.edit?.words ?? d.text.split(/\s+/).length,
+                    changed: (d.edit?.changed ?? 0) + 1,
+                    corrected: null,
+                    unwatched: !d.edit || d.edit.unwatched,
+                  },
+                }
+              : d;
           past = past.map(swap);
           if (last) last = swap(last);
           if (!remember) return settings;

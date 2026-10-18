@@ -314,7 +314,19 @@ fn plain_words(text: &str) -> Vec<String> {
 /// A rough key for how an English word sounds (Soundex): the first letter,
 /// then digits for the consonant groups that follow. "Claude", "cloud" and
 /// "clawed" share one.
+#[cfg(test)]
 fn sound_key(word: &str) -> String {
+    sound_code(word, Some(4))
+}
+
+/// The sound key of the whole word, without Soundex's cut after three
+/// consonant groups. Cut, "whisper" and "Whisperflow" sound the same; whole,
+/// they do not, because one goes on for two more syllables.
+fn full_sound_key(word: &str) -> String {
+    sound_code(word, None)
+}
+
+fn sound_code(word: &str, most: Option<usize>) -> String {
     let code = |c: char| match c {
         'b' | 'f' | 'p' | 'v' => '1',
         'c' | 'g' | 'j' | 'k' | 'q' | 's' | 'x' | 'z' => '2',
@@ -338,12 +350,14 @@ fn sound_key(word: &str) -> String {
             key.push(digit);
         }
         last = digit;
-        if key.len() == 4 {
+        if Some(key.len()) == most {
             break;
         }
     }
-    while key.len() < 4 {
-        key.push('0');
+    if let Some(most) = most {
+        while key.len() < most {
+            key.push('0');
+        }
     }
     key
 }
@@ -370,15 +384,19 @@ fn likeness(a: &str, b: &str) -> f32 {
 }
 
 /// Do these two sound alike enough that one may have been misheard as the
-/// other? Both the sound and most of the spelling must match: "cloud" and
-/// "Claude" do; "cold" and "Claude" do not.
+/// other? Both the sound of the whole word and most of the spelling must
+/// match: "cloud" and "Claude" do; "cold" and "Claude" do not, and nor do
+/// "whisper" and "Whisperflow", which only begins the same way. A word cut
+/// short or made plural by a letter or two still counts: "raghunath" for
+/// Raghunathan, "terraforms" for Terraform.
 pub fn sounds_alike(heard: &str, word: &str) -> bool {
     let (heard, word) = (heard.to_lowercase(), word.to_lowercase());
-    heard != word
-        && heard.chars().count() >= 3
-        && word.chars().count() >= 4
-        && sound_key(&heard) == sound_key(&word)
-        && likeness(&heard, &word) >= 0.5
+    if heard == word || heard.chars().count() < 3 || word.chars().count() < 4 || likeness(&heard, &word) < 0.5 {
+        return false;
+    }
+    let (a, b) = (full_sound_key(&heard), full_sound_key(&word));
+    let near_in_length = heard.chars().count().abs_diff(word.chars().count()) <= 2;
+    a == b || (near_in_length && a.len() >= 3 && b.len() >= 3 && (a.starts_with(b.as_str()) || b.starts_with(a.as_str())))
 }
 
 /// The words an identifier is spoken as: fetchUserProfile is "fetch user
@@ -541,6 +559,21 @@ mod tests {
         assert!(heard("Ask Claude about the cloud bill.").is_empty());
         assert!(heard("It is cold and I could go.").is_empty());
         assert!(heard("Nothing to see here.").is_empty());
+    }
+
+    #[test]
+    fn a_word_is_not_suspected_of_being_a_longer_name_it_only_begins() {
+        let screen = plain(&["Whisperflow", "Raghunathan"]);
+        let heard = |text: &str| -> Vec<String> { suspects(text, &screen).into_iter().map(|s| s.word).collect() };
+        assert!(heard("Just a question on the whisper part.").is_empty());
+        assert!(!sounds_alike("whisper", "Whisperflow"));
+        assert!(!sounds_alike("cloud", "Cloudflare"));
+        // A real sound-alike still is one.
+        assert_eq!(heard("Tell ragunathan the build passed."), ["Raghunathan"]);
+        assert!(sounds_alike("whisperflo", "Whisperflow"));
+        // Cut short or made plural by a letter or two.
+        assert!(sounds_alike("raghunath", "Raghunathan"));
+        assert!(sounds_alike("terraforms", "Terraform"));
     }
 
     #[test]

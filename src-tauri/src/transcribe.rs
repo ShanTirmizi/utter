@@ -1,25 +1,65 @@
-//! Speech-to-text, entirely on this Mac, using whisper.cpp. No audio leaves
-//! the machine and no API key is involved.
+//! Speech-to-text, entirely on this Mac, using whisper.cpp or Parakeet. No
+//! audio leaves the machine and no API key is involved.
 
-use std::{path::Path, sync::Mutex};
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use std::{
+    path::{Path, PathBuf},
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperSegment, WhisperState};
 
-use crate::audio::{self, TARGET_RATE};
+use crate::{
+    audio::{self, TARGET_RATE},
+    models::{self, Engine as Kind},
+    parakeet::Parakeet,
+    speech::{self, Heard, Speech, Vad},
+};
 
 /// The model rejects very short clips, so shorter recordings are padded with
 /// silence up to this length.
 const MIN_SAMPLES: usize = (TARGET_RATE as usize * 11) / 10;
 
+/// A speech-to-text engine with its model loaded.
+trait Engine: Send {
+    /// Mono 16 kHz audio, already high-passed, to text. `language` is a code
+    /// such as "en", or "auto"; `terms` are the user's words and the names on
+    /// screen; `before` is what was already heard of the same dictation; `vad`
+    /// is the voice activity model, when there is one.
+    fn transcribe(
+        &mut self,
+        samples: &[f32],
+        language: &str,
+        terms: &[String],
+        before: &str,
+        vad: Option<&mut Vad>,
+    ) -> Result<String, String>;
+
+    /// Whether the engine can still be used. Whisper runs inside Utter and
+    /// always can; Parakeet's helper may have crashed or hung, and is then
+    /// let go so that the next dictation starts a fresh one.
+    fn alive(&mut self) -> bool {
+        true
+    }
+}
+
 /// A loaded model, remembered so that only the first dictation pays the
 /// load time.
 struct Loaded {
     name: String,
-    context: WhisperContext,
+    engine: Box<dyn Engine>,
 }
 
 #[derive(Default)]
 pub struct Transcriber {
     loaded: Mutex<Option<Loaded>>,
+    /// The voice activity model, once it has been downloaded, and the file
+    /// it came from.
+    vad: Mutex<Option<(PathBuf, Vad)>>,
+    /// Set to hear the recording as it came, without `audio::high_pass`.
+    /// Only for measuring what the filter does.
+    unfiltered: AtomicBool,
 }
 
 impl Transcriber {
@@ -29,17 +69,52 @@ impl Transcriber {
     }
 
     fn load(loaded: &mut Option<Loaded>, name: &str, path: &Path) -> Result<(), String> {
-        if loaded.as_ref().is_some_and(|l| l.name == name) {
+        if loaded.as_mut().is_some_and(|l| l.name == name && l.engine.alive()) {
             return Ok(());
         }
-        let path = path.to_str().ok_or("Model path is not valid UTF-8.")?;
-        let context = WhisperContext::new_with_params(path, WhisperContextParameters::default())
-            .map_err(|e| format!("Could not load the speech model: {e}"))?;
-        *loaded = Some(Loaded {
-            name: name.to_string(),
-            context,
-        });
+        // Only one model at a time: let go of the old one first.
+        *loaded = None;
+        // A model outside the catalog (the command-line example) is told
+        // apart by its shape: Whisper's is one file, Parakeet's a folder.
+        let kind = models::find(name)
+            .map(|m| m.engine)
+            .unwrap_or(if path.is_dir() { Kind::Parakeet } else { Kind::Whisper });
+        let engine: Box<dyn Engine> = match kind {
+            Kind::Whisper => Box::new(Whisper::load(path)?),
+            Kind::Parakeet => Box::new(Parakeet::start(path)?),
+        };
+        *loaded = Some(Loaded { name: name.to_string(), engine });
         Ok(())
+    }
+
+    /// Use the voice activity model at `path` from now on (see `speech`).
+    /// Without one, every stretch of a recording goes to the speech model.
+    pub fn use_vad(&self, path: &Path) -> Result<(), String> {
+        let mut vad = self.vad.lock().unwrap();
+        if vad.as_ref().is_some_and(|(loaded, _)| loaded == path) {
+            return Ok(());
+        }
+        *vad = Some((path.to_path_buf(), Vad::open(path)?));
+        Ok(())
+    }
+
+    /// Stop using the voice activity model. For measuring what it does.
+    pub fn forget_vad(&self) {
+        *self.vad.lock().unwrap() = None;
+    }
+
+    /// Whether to filter out rumble before listening (the default). For
+    /// measuring what the filter does.
+    pub fn set_high_pass(&self, on: bool) {
+        self.unfiltered.store(!on, Ordering::Relaxed);
+    }
+
+    /// Where the voice activity model hears speech in mono 16 kHz audio
+    /// (high-passed, see `audio::high_pass`). `None` when there is no voice
+    /// model, or it failed, so the caller falls back to a loudness check.
+    pub fn speech(&self, samples: &[f32]) -> Option<Speech> {
+        let mut vad = self.vad.lock().unwrap();
+        detect(vad.as_mut().map(|(_, v)| v), samples)
     }
 
     /// Let go of the model, and the GPU memory it holds. Called on the way
@@ -56,16 +131,21 @@ impl Transcriber {
         }
     }
 
-    /// Turn mono 16 kHz audio into text. `language` is a code such as "en",
-    /// or "auto" to detect it.
-    pub fn transcribe(&self, samples: &[f32], language: &str) -> Result<String, String> {
-        let loaded = self.loaded.lock().unwrap();
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, &[])
+    /// Turn mono 16 kHz audio into text with the model already loaded.
+    /// `language` is a code such as "en", or "auto" to detect it; `terms` are
+    /// names and words to listen for.
+    pub fn transcribe(&self, samples: &[f32], language: &str, terms: &[String]) -> Result<String, String> {
+        let mut loaded = self.loaded.lock().unwrap();
+        self.run(&mut loaded, samples, language, terms, "")
     }
 
     /// Make sure `name` is the loaded model, then transcribe with it. Both
     /// happen under one lock, so a model change in settings part-way through
     /// cannot swap the model out from under a dictation.
+    ///
+    /// `before` is what was already transcribed of the same dictation, when
+    /// this audio continues it. The model is shown its end, so a sentence cut
+    /// at a pause carries on in lower case instead of starting afresh.
     pub fn transcribe_with(
         &self,
         name: &str,
@@ -73,16 +153,70 @@ impl Transcriber {
         samples: &[f32],
         language: &str,
         terms: &[String],
+        before: &str,
     ) -> Result<String, String> {
         let mut loaded = self.loaded.lock().unwrap();
         Self::load(&mut loaded, name, path)?;
-        Self::run(loaded.as_ref().ok_or("No speech model is loaded.")?, samples, language, terms)
+        self.run(&mut loaded, samples, language, terms, before)
     }
 
-    fn run(loaded: &Loaded, samples: &[f32], language: &str, terms: &[String]) -> Result<String, String> {
-        let hint = glossary(terms);
+    fn run(
+        &self,
+        loaded: &mut Option<Loaded>,
+        samples: &[f32],
+        language: &str,
+        terms: &[String],
+        before: &str,
+    ) -> Result<String, String> {
+        let engine = &mut loaded.as_mut().ok_or("No speech model is loaded.")?.engine;
+        // Wind and rumble out first: the voice model and the speech model
+        // would both try to make sense of them.
+        let filtered;
+        let samples = if self.unfiltered.load(Ordering::Relaxed) {
+            samples
+        } else {
+            filtered = audio::high_pass(samples);
+            &filtered
+        };
+        let mut vad = self.vad.lock().unwrap();
+        let vad = vad.as_mut().map(|(_, v)| v);
+        let result = engine.transcribe(samples, language, terms, before, vad);
+        // An engine that has stopped working is let go, so the next
+        // dictation loads the model afresh instead of failing the same way.
+        if result.is_err() && !engine.alive() {
+            *loaded = None;
+        }
+        result
+    }
+}
 
-        let mut state = loaded
+/// whisper.cpp, on the GPU through Metal.
+struct Whisper {
+    context: WhisperContext,
+}
+
+impl Whisper {
+    fn load(path: &Path) -> Result<Self, String> {
+        let path = path.to_str().ok_or("Model path is not valid UTF-8.")?;
+        let context = WhisperContext::new_with_params(path, WhisperContextParameters::default())
+            .map_err(|e| format!("Could not load the speech model: {e}"))?;
+        Ok(Self { context })
+    }
+}
+
+impl Engine for Whisper {
+    fn transcribe(
+        &mut self,
+        samples: &[f32],
+        language: &str,
+        terms: &[String],
+        before: &str,
+        mut vad: Option<&mut Vad>,
+    ) -> Result<String, String> {
+        let hint = glossary(terms);
+        let end_of_text = self.context.token_eot();
+
+        let mut state = self
             .context
             .create_state()
             .map_err(|e| format!("Could not start transcription: {e}"))?;
@@ -97,39 +231,256 @@ impl Transcriber {
             if audio::peak(piece) < PIECE_SILENCE_PEAK {
                 continue;
             }
-            let mut audio = piece.to_vec();
-            if audio.len() < MIN_SAMPLES {
-                audio.resize(MIN_SAMPLES, 0.0);
+            // Only the stretches with speech in them reach the model: it
+            // invents words for the rest. (whisper.cpp can do this itself,
+            // but only in the call that does not take a state of its own.)
+            let speech = detect(vad.as_deref_mut(), piece);
+            if speech.as_ref().is_some_and(|s| s.ms < speech::MIN_SPEECH_MS) {
+                continue;
             }
+            // Trimmed to its speech first. Trimming can make whispered or
+            // very quiet speech look like silence to the model, so if all of
+            // it is then thrown away although the voice model heard speech,
+            // the piece is heard once more as it was recorded.
+            // The same when what came back is far too little for the speech
+            // heard (one word for four seconds of whispering): the longer of
+            // the two is kept.
+            let tries: &[bool] = if speech.is_some() { &[true, false] } else { &[false] };
+            let mut best: Option<String> = None;
+            for &trimmed in tries {
+                let mut audio = match &speech {
+                    Some(speech) if trimmed => speech.keep(piece),
+                    _ => piece.to_vec(),
+                };
+                if audio.len() < MIN_SAMPLES {
+                    audio.resize(MIN_SAMPLES, 0.0);
+                }
 
-            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-            params.set_language(Some(language));
-            params.set_n_threads(threads());
-            // Each piece stands alone; do not let one bleed into the next.
-            params.set_no_context(true);
-            if !hint.is_empty() {
-                // Text the model is told came just before. Having "seen" the
-                // user's names and terms, it is more likely to hear them.
-                params.set_initial_prompt(&hint);
+                let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+                params.set_language(Some(language));
+                params.set_n_threads(threads());
+                // The model's own memory of the last piece is not used: it is
+                // what lets a stuck model repeat itself. What came before is
+                // given in the prompt instead, where it can be kept short.
+                params.set_no_context(true);
+                let said_so_far = format!("{before} {}", pieces.join(" "));
+                let prompt = prompt(&hint, &said_so_far);
+                if !prompt.is_empty() {
+                    // Text the model is told came just before. Having "seen" the
+                    // user's names and terms, it is more likely to hear them, and
+                    // having seen the end of what was said, it carries it on.
+                    params.set_initial_prompt(&prompt);
+                }
+                params.set_no_timestamps(true);
+                params.set_suppress_blank(true);
+                params.set_suppress_nst(true);
+                params.set_print_special(false);
+                params.set_print_progress(false);
+                params.set_print_realtime(false);
+                params.set_print_timestamps(false);
+
+                state
+                    .full(params, &audio)
+                    .map_err(|e| format!("Transcription failed: {e}"))?;
+                let no_speech = no_speech(&mut state, &self.context);
+                let all: Vec<Heard> = state.as_iter().map(|segment| heard(&segment, end_of_text, no_speech)).collect();
+                #[cfg(debug_assertions)]
+                eprintln!("[transcribe] speech {:?} ms, heard {all:?}", speech.as_ref().map(|s| s.ms));
+                let kept: Vec<Heard> = all.into_iter().filter(|h| speech::keep_segment(h, speech.as_ref())).collect();
+                let text: String = kept.iter().map(|h| h.text.as_str()).collect();
+                let text = tidy(&text);
+                if !text.is_empty()
+                    && !is_prompt_echo(&text, terms)
+                    && !is_echo_of(&text, &prompt)
+                    && !speech::is_invented(&text, speech.as_ref(), &kept)
+                {
+                    let words = text.split_whitespace().count();
+                    let enough = speech.as_ref().is_none_or(|s| words as u32 * MS_PER_WORD_AT_MOST >= s.ms);
+                    if best.as_ref().is_none_or(|b| words > b.split_whitespace().count()) {
+                        best = Some(text);
+                    }
+                    if enough {
+                        break;
+                    }
+                }
             }
-            params.set_no_timestamps(true);
-            params.set_suppress_blank(true);
-            params.set_suppress_nst(true);
-            params.set_print_special(false);
-            params.set_print_progress(false);
-            params.set_print_realtime(false);
-            params.set_print_timestamps(false);
-
-            state
-                .full(params, &audio)
-                .map_err(|e| format!("Transcription failed: {e}"))?;
-            let text: String = state.as_iter().map(|segment| segment.to_string()).collect();
-            let text = tidy(&text);
-            if !text.is_empty() && !is_prompt_echo(&text, terms) {
+            if let Some(text) = best {
                 pieces.push(text);
             }
         }
         Ok(collapse_repeats(&pieces.join(" ")))
+    }
+}
+
+/// Even slow speech has a word in this long: less than that from a piece
+/// means some of it was lost.
+const MS_PER_WORD_AT_MOST: u32 = 1_500;
+
+/// Most of the user's words given to Parakeet for one dictation. Past about a
+/// hundred FluidAudio becomes stricter about matches, and every term costs a
+/// pass over the audio's word-spotting scores.
+const PARAKEET_TERMS: usize = 100;
+
+impl Engine for Parakeet {
+    fn transcribe(
+        &mut self,
+        samples: &[f32],
+        _language: &str,
+        terms: &[String],
+        _before: &str,
+        vad: Option<&mut Vad>,
+    ) -> Result<String, String> {
+        // Parakeet works out the language itself, and walks through long
+        // audio in overlapping windows of its own, so the recording goes over
+        // whole. Silence would only come back as a stray word.
+        if audio::peak(samples) < PIECE_SILENCE_PEAK {
+            return Ok(String::new());
+        }
+        // As for Whisper, only the stretches with speech in them.
+        let speech = detect(vad, samples);
+        if speech.as_ref().is_some_and(|s| s.ms < speech::MIN_SPEECH_MS) {
+            return Ok(String::new());
+        }
+        let mut audio = match &speech {
+            Some(speech) => speech.keep(samples),
+            None => samples.to_vec(),
+        };
+        if audio.len() < MIN_SAMPLES {
+            audio.resize(MIN_SAMPLES, 0.0);
+        }
+        let terms = &terms[..terms.len().min(PARAKEET_TERMS)];
+        let text = Parakeet::transcribe(self, &audio, terms)?;
+        Ok(collapse_repeats(&tidy(&capitalise_terms(&text, terms))))
+    }
+
+    fn alive(&mut self) -> bool {
+        Parakeet::alive(self)
+    }
+}
+
+/// Whisper takes its capitals from the glossary it is shown; Parakeet is
+/// shown nothing, so a term it heard right but wrote in lower case is given
+/// its capitals here: "github" becomes "GitHub". Only that. A word already
+/// written with a capital is left as it is, so "Evals are green" keeps its
+/// capital even with "evals" in the list, and a term that is also an
+/// everyday word ("Notion", "Swift") is not forced onto "the notion that".
+fn capitalise_terms(text: &str, terms: &[String]) -> String {
+    let wanted: Vec<&String> = terms.iter().filter(|t| t.chars().any(char::is_uppercase)).collect();
+    let lower: Vec<String> = wanted.iter().map(|t| t.trim().to_lowercase()).collect();
+    let everyday = crate::learn::everyday(&lower);
+    let mut text = text.to_string();
+    for (term, plain) in wanted.iter().zip(&lower) {
+        if plain.is_empty() || everyday.contains(plain) {
+            continue;
+        }
+        text = replace_lower_case(&text, plain, term.trim());
+    }
+    text
+}
+
+/// Replace `plain`, an all lower-case word or run of words, with `term`
+/// wherever it appears in `text` exactly so, as a whole word.
+fn replace_lower_case(text: &str, plain: &str, term: &str) -> String {
+    let is_word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    let mut out = String::with_capacity(text.len());
+    let mut from = 0;
+    while let Some(at) = text[from..].find(plain) {
+        let start = from + at;
+        let end = start + plain.len();
+        out.push_str(&text[from..start]);
+        let whole = !is_word(text[..start].chars().next_back()) && !is_word(text[end..].chars().next());
+        out.push_str(if whole { term } else { plain });
+        from = end;
+    }
+    out.push_str(&text[from..]);
+    out
+}
+
+/// How much of what was already said the speech model is shown. Enough for
+/// the sentence under way and the one before; more only slows it down.
+const BEFORE_CHARS: usize = 200;
+
+/// The prompt for one piece of audio: the glossary, then the end of what was
+/// said before it, cut at a word.
+fn prompt(glossary: &str, said_so_far: &str) -> String {
+    let said = said_so_far.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut tail = said.as_str();
+    if tail.len() > BEFORE_CHARS {
+        let mut cut = tail.len() - BEFORE_CHARS;
+        while !tail.is_char_boundary(cut) {
+            cut += 1;
+        }
+        tail = &tail[cut..];
+        // Start at a whole word.
+        if let Some(space) = tail.find(' ') {
+            tail = &tail[space + 1..];
+        }
+    }
+    match (glossary.is_empty(), tail.is_empty()) {
+        (_, true) => glossary.to_string(),
+        (true, false) => tail.to_string(),
+        (false, false) => format!("{glossary} {tail}"),
+    }
+}
+
+/// Did the model just say back the end of its prompt? On a stretch with
+/// little speech it can. Four or more words found word for word in the
+/// prompt are taken as that, not as speech; a short "no, no" is a person.
+fn is_echo_of(text: &str, prompt: &str) -> bool {
+    let plain = |text: &str| -> Vec<String> {
+        text.split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let heard = plain(text);
+    let shown = plain(prompt);
+    heard.len() >= 4 && shown.windows(heard.len()).any(|run| run == heard.as_slice())
+}
+
+/// Run the voice model if there is one. A failure is logged and treated as
+/// having no voice model, so dictation still works.
+fn detect(vad: Option<&mut Vad>, samples: &[f32]) -> Option<Speech> {
+    match vad?.detect(samples) {
+        Ok(speech) => Some(speech),
+        Err(e) => {
+            eprintln!("[utter] {e}");
+            None
+        }
+    }
+}
+
+/// How likely the model thinks it is that nobody spoke in the audio it just
+/// read: the chance that the first thing it would write after "start of
+/// transcript" is "no speech", as Whisper was published. (whisper.cpp keeps
+/// its own figure, but with timestamps off it reads it one token too late,
+/// where it is always about zero.) Costs one step of the decoder.
+fn no_speech(state: &mut WhisperState, context: &WhisperContext) -> f32 {
+    if state.decode(&[context.token_sot()], 0, threads() as usize).is_err() {
+        return 0.0;
+    }
+    let Ok(logits) = state.get_logits() else { return 0.0 };
+    let Some(&target) = logits.get(context.token_nosp() as usize) else { return 0.0 };
+    let top = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let total: f32 = logits.iter().map(|l| (l - top).exp()).sum();
+    (target - top).exp() / total
+}
+
+/// A segment's text and how sure the model was of it. Its confidence is
+/// the mean log-probability of its text tokens; the special tokens (end of
+/// text, timestamps and the like, numbered from `end_of_text` up) say
+/// nothing about the words.
+fn heard(segment: &WhisperSegment, end_of_text: i32, no_speech: f32) -> Heard {
+    let logprobs: Vec<f32> = (0..segment.n_tokens())
+        .filter_map(|i| segment.get_token(i))
+        .map(|token| token.token_data())
+        .filter(|data| data.id < end_of_text)
+        .map(|data| data.plog)
+        .collect();
+    Heard {
+        text: segment.to_str_lossy().map(|t| t.into_owned()).unwrap_or_default(),
+        no_speech,
+        avg_logprob: if logprobs.is_empty() { 0.0 } else { logprobs.iter().sum::<f32>() / logprobs.len() as f32 },
     }
 }
 
@@ -361,6 +712,29 @@ mod tests {
     }
 
     #[test]
+    fn each_piece_is_shown_the_end_of_what_came_before() {
+        assert_eq!(prompt("", ""), "");
+        assert_eq!(prompt("Glossary: Priya.", ""), "Glossary: Priya.");
+        assert_eq!(prompt("Glossary: Priya.", "  so what I want  you to do is "), "Glossary: Priya. so what I want you to do is");
+        // Only the end of a long dictation, starting at a whole word.
+        let long = format!("{}the last few words", "earlier words ".repeat(40));
+        let shown = prompt("", &long);
+        assert!(shown.len() <= BEFORE_CHARS, "{shown}");
+        assert!(shown.ends_with("the last few words"), "{shown}");
+        assert!(long.contains(&format!(" {shown}")), "cut mid-word: {shown}");
+        assert!(prompt("", &"é".repeat(300)).chars().all(|c| c == 'é'));
+    }
+
+    #[test]
+    fn the_end_of_the_prompt_said_back_is_not_speech() {
+        let shown = "Glossary: Priya. and then we deploy it to staging on Friday";
+        assert!(is_echo_of("We deploy it to staging.", shown));
+        // A few words that happen to repeat, or new speech, are kept.
+        assert!(!is_echo_of("On Friday.", shown));
+        assert!(!is_echo_of("And then we test it on Monday.", shown));
+    }
+
+    #[test]
     fn strips_bracketed_annotations() {
         assert_eq!(tidy(" [BLANK_AUDIO] "), "");
         assert_eq!(tidy("Hello [MUSIC] there."), "Hello there.");
@@ -432,6 +806,31 @@ mod tests {
         assert_eq!(glossary(&["Priya".into(), "Kubernetes".into()]), "Glossary: Priya, Kubernetes.");
         let many: Vec<String> = (0..300).map(|i| format!("longterm{i}")).collect();
         assert!(glossary(&many).len() <= 620);
+    }
+
+    #[test]
+    fn a_term_written_in_lower_case_gets_its_capitals() {
+        let terms = ["GitHub".to_string(), "HyperFrames".to_string(), "Hyper Frames".to_string()];
+        assert_eq!(capitalise_terms("push it to github, then hyper frames.", &terms), "push it to GitHub, then Hyper Frames.");
+        // Only as a whole word.
+        assert_eq!(capitalise_terms("githubber", &terms), "githubber");
+    }
+
+    #[test]
+    fn a_capital_is_never_taken_away() {
+        let terms = ["evals".to_string(), "iOS".to_string()];
+        assert_eq!(capitalise_terms("Evals are green on IOS.", &terms), "Evals are green on IOS.");
+        assert_eq!(capitalise_terms("evals are green on ios.", &terms), "evals are green on iOS.");
+    }
+
+    #[test]
+    fn a_term_that_is_an_everyday_word_is_left_alone() {
+        // Needs the system word list, which every Mac has.
+        if !Path::new("/usr/share/dict/words").exists() {
+            return;
+        }
+        let terms = ["Notion".to_string(), "Claude".to_string()];
+        assert_eq!(capitalise_terms("the notion that claude helps", &terms), "the notion that Claude helps");
     }
 
     #[test]

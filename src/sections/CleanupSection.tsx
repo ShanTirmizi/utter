@@ -16,7 +16,7 @@ import { hotkeyLabel } from "../hotkey";
 import { ProviderMark } from "../providerMarks";
 import { cleanupGap } from "../readiness";
 import { shortName, useApp } from "../state";
-import { IconDown, IconOut, IconTick, Notice, seconds, Switch, type Tone } from "../ui";
+import { IconDown, IconOut, IconTick, Notice, seconds, Segmented, Switch, type Tone } from "../ui";
 
 type Result = { tone: Tone; title: string; body: string } | null;
 
@@ -199,6 +199,22 @@ export default function CleanupSection() {
         </div>
         <Switch label="Cleanup" checked={settings.cleanupEnabled} onChange={(cleanupEnabled) => update({ cleanupEnabled }).catch(() => undefined)} />
       </div>
+
+      {settings.cleanupEnabled && (
+        <div className="qcard">
+          <div className="qsw" style={{ padding: 0 }}>
+            <div className="tx">
+              <b>How to tidy</b>
+              <span>
+                {settings.way === "quick"
+                  ? "Quick tidies as you talk, so only the last bit waits. A pause mid-sentence can end a sentence early."
+                  : "Accurate tidies the whole dictation once you let go, so pauses never split a sentence. A little slower on long dictations."}
+              </span>
+            </div>
+            <WaySwitch />
+          </div>
+        </div>
+      )}
 
       {!settings.cleanupEnabled && (
         <div className="qcard">
@@ -668,5 +684,21 @@ function RewriteStyleCard() {
         </Notice>
       )}
     </div>
+  );
+}
+
+/** Accurate or quick tidying, here and beside the timings on Try it. */
+export function WaySwitch() {
+  const { settings, update } = useApp();
+  return (
+    <Segmented
+      label="How to tidy"
+      value={settings.way}
+      onChange={(way) => update({ way }).catch(() => undefined)}
+      options={[
+        { id: "accurate", label: "Accurate" },
+        { id: "quick", label: "Quick" },
+      ]}
+    />
   );
 }

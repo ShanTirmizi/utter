@@ -435,8 +435,61 @@ pub fn peak(samples: &[f32]) -> f32 {
     samples.iter().fold(0.0_f32, |max, s| max.max(s.abs()))
 }
 
+/// Where the high-pass filter starts cutting. A voice's lowest useful
+/// sound sits above this (even a deep voice's pitch is around 85-180 Hz,
+/// and the words are in the harmonics well above it), while wind on the
+/// microphone, traffic rumble, desk thumps and air-conditioning hum are
+/// mostly below it.
+pub const HIGH_PASS_HZ: f32 = 100.0;
+
+/// Remove the rumble under a voice: a 4th-order Butterworth high-pass at
+/// `HIGH_PASS_HZ` for 16 kHz audio. It falls 24 dB per octave, so wind at
+/// 50 Hz comes out 24 dB quieter and at 25 Hz 48 dB quieter, while
+/// everything above 150 Hz loses less than 0.2 dB. Speech models and the
+/// voice detector both hear wind as something to explain; with this they
+/// mostly do not hear it at all.
+pub fn high_pass(samples: &[f32]) -> Vec<f32> {
+    // Two biquad sections with the Q values of a 4th-order Butterworth.
+    let mut stages = [Biquad::high_pass(HIGH_PASS_HZ, 0.541_196_1), Biquad::high_pass(HIGH_PASS_HZ, 1.306_563)];
+    samples
+        .iter()
+        .map(|&s| stages.iter_mut().fold(s as f64, |x, stage| stage.next(x)) as f32)
+        .collect()
+}
+
+/// One second-order filter section (the "Audio EQ Cookbook" high-pass),
+/// computed in f64 so the low cutoff stays stable.
+struct Biquad {
+    b: [f64; 3],
+    a: [f64; 2],
+    x: [f64; 2],
+    y: [f64; 2],
+}
+
+impl Biquad {
+    fn high_pass(cutoff: f32, q: f64) -> Self {
+        let w0 = 2.0 * std::f64::consts::PI * cutoff as f64 / TARGET_RATE as f64;
+        let (sin, cos) = w0.sin_cos();
+        let alpha = sin / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        Self {
+            b: [(1.0 + cos) / 2.0 / a0, -(1.0 + cos) / a0, (1.0 + cos) / 2.0 / a0],
+            a: [-2.0 * cos / a0, (1.0 - alpha) / a0],
+            x: [0.0; 2],
+            y: [0.0; 2],
+        }
+    }
+
+    fn next(&mut self, x: f64) -> f64 {
+        let y = self.b[0] * x + self.b[1] * self.x[0] + self.b[2] * self.x[1] - self.a[0] * self.y[0] - self.a[1] * self.y[1];
+        self.x = [x, self.x[0]];
+        self.y = [y, self.y[0]];
+        y
+    }
+}
+
 /// Below this peak level a recording is silence (a muted or missing mic).
-const SILENCE_PEAK: f32 = 0.003;
+pub const SILENCE_PEAK: f32 = 0.003;
 /// Speech must be at least this many times louder than the background.
 const SPEECH_TO_BACKGROUND: f32 = 2.5;
 

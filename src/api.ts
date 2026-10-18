@@ -5,6 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 export type Settings = {
   hotkey: string;
   cleanupEnabled: boolean;
+  /** Tidy the whole dictation at once ("accurate") or piece by piece while you talk ("quick"). */
+  way: Way;
   /** Which service runs cleanup; an id from `providers()`. */
   provider: string;
   /** Empty means the provider's default model, if it has one. */
@@ -25,10 +27,13 @@ export type Settings = {
   learnWords: boolean;
   /** Use names and terms in the window in front as hints while dictating. */
   screenWords: boolean;
+  screenContext: boolean;
   /** Names seen on screen that you then said, offered for Your words. */
   suggested: Suggestion[];
   /** Keep past dictations on this Mac. */
   keepHistory: boolean;
+  /** Also keep the audio of the last 50, on this Mac, to replay through other models. Off by default. */
+  keepAudio: boolean;
   /** A quick tap starts a recording that runs until the next tap. */
   handsFree: boolean;
   /** While fn dictates, switch macOS's own globe-key action off, and back afterwards. */
@@ -106,6 +111,8 @@ export const testRewrite = () => invoke<string>("test_rewrite");
 export const listCleanupModels = () => invoke<string[]>("list_cleanup_models");
 
 // Progress reports from the dictation pipeline, sent on the "pipeline" event.
+export type Way = "accurate" | "quick";
+
 export type Dictation = {
   /** Exactly what the speech model heard. */
   raw: string;
@@ -132,6 +139,30 @@ export type Dictation = {
   totalMs: number;
   /** When it finished, in milliseconds since 1970. */
   finishedAt: number;
+  /** How it was tidied; null when it was not, or from before there was a choice. */
+  way?: Way | null;
+  /**
+   * What you changed in it after it was pasted, once you were done. Null
+   * until then, and for good when Utter couldn't follow the text box.
+   */
+  edit: Edit | null;
+  /** Its recording's file name, when Keep recordings is on. */
+  recording: string | null;
+};
+
+/** What you did to a pasted dictation afterwards. */
+export type Edit = {
+  /** Words Utter pasted. */
+  words: number;
+  /** Words you changed, added or took out in it; 0 if you left it alone. */
+  changed: number;
+  /** The text as you left it, kept only next to a recording. */
+  corrected: string | null;
+  /**
+   * True when Utter never saw how you left it in the text box and only knows
+   * of a word you fixed later. Left out of the edit rate.
+   */
+  unwatched?: boolean;
 };
 
 export type AppContext = {
