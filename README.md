@@ -369,8 +369,7 @@ Most of the wait after you let go used to be the language model. Utter now:
 
 - **Works while you talk.** At each clear pause, the speech so far is
   transcribed and, for the dictation hotkey, tidied. When you let go, only
-  the last stretch is left: a 95-second dictation is typed about 0.3 s after
-  release in testing on an M1 Pro, against 17 s before.
+  the last stretch is left.
 - **Skips the model when there is nothing to fix.** A short dictation the
   speech model already wrote cleanly (no ums, repeats or "no wait") goes in
   as it is.
