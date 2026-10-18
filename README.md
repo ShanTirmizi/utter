@@ -9,11 +9,11 @@ brew install --cask shantirmizi/tap/utter
 ```
 
 Or [download the DMG](https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg)
-(beta, Apple Silicon, macOS 12+) · [Website](https://utter-beta.vercel.app) ·
+(beta, Apple Silicon, macOS 12+) · [Website](https://utter.shantirmizi.com) ·
 [Report a problem](https://github.com/ShanTirmizi/utter/issues/new/choose)
 
 <p align="center">
-  <a href="https://utter-beta.vercel.app/#film"><img src="docs/images/film-poster.jpg" alt="Watch the Utter launch film (44 seconds)" width="720" /></a>
+  <a href="https://utter.shantirmizi.com/#film"><img src="docs/images/film-poster.jpg" alt="Watch the Utter launch film (44 seconds)" width="720" /></a>
 </p>
 
 <p align="center">
@@ -112,7 +112,7 @@ brew install --cask shantirmizi/tap/utter
 
 ### Download
 
-Get the app from **<https://utter-beta.vercel.app>**, or straight from the
+Get the app from **<https://utter.shantirmizi.com>**, or straight from the
 [latest release](https://github.com/ShanTirmizi/utter/releases). It is a beta
 for Apple Silicon Macs (M1 or later) on macOS 12 or later.
 
