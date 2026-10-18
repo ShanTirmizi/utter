@@ -158,17 +158,22 @@ and Gatekeeper checks downloads for Apple's notarisation.
 
 ## First run
 
-Utter opens with a four-step welcome that takes about a minute:
+Utter opens with a five-step welcome that takes about a minute:
 
 1. **Hello.** Pressing "Get started" also starts downloading the Small speech
-   model (488 MB), so it is usually ready by step 3.
+   model (488 MB), so it is usually ready by the time you try it.
 2. **Permissions.** Allow the microphone, and Accessibility, which lets Utter
    type for you and hear the fn key (see below).
 3. **Speech model.** Keep Small, or pick another. Base is fastest but
    mishears names and jargon more often. Large is the most accurate and understands
    languages other than English; under **Speech** you can tell it which
    one you speak, or leave it to detect.
-4. **Try it.** Hold `fn`, say a sentence, and let go. If you skipped
+4. **Tidy it up?** Choose how dictations are tidied: **Claude Haiku**
+   (recommended: paste an Anthropic key, which goes straight into the
+   Keychain), **on this Mac with Ollama** (nothing leaves your Mac), or
+   **Not now** (words go in as heard). Other providers are under **AI
+   provider** any time.
+5. **Try it.** Hold `fn`, say a sentence, and let go. If you skipped
    Accessibility, this step offers `⌃ ⌥ Space` instead, which works without it.
 
 After that, the window has a sidebar: Home, History and Words, then a

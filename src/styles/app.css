@@ -134,6 +134,8 @@ textarea.qarea:focus{box-shadow:inset 0 0 0 1.5px var(--ink2),0 0 0 4px var(--fo
 .ob-pm .qbig{margin-top:4px;font-size:26px;letter-spacing:-.03em;white-space:nowrap}
 .ob-vis{width:318px;flex:none;margin:14px 0 14px 14px;border-radius:22px;background:var(--card);box-shadow:0 0 0 .5px var(--hair);position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
 .ob-body{flex:1;min-width:0;padding:52px 34px 24px 32px;display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+/* Cards keep their height and the step scrolls, rather than squashing a list of choices out of sight. */
+.ob-body>*{flex-shrink:0}
 .ob-step{font:600 12.5px/1 var(--qf);color:var(--mid);margin-bottom:14px}
 .ob-foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding-top:14px}
 .ob-foot .dl{min-width:0;overflow:hidden;text-overflow:ellipsis}
