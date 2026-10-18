@@ -29,6 +29,9 @@ button{cursor:default}
    clips when the window is short. */
 .qside{overflow-y:auto;scrollbar-width:none}
 .qside::-webkit-scrollbar{display:none}
+/* Rows keep their height when the open tree overflows; otherwise every row
+   above it squashes and Home, History and Words shift on each toggle. */
+.qside>*{flex-shrink:0}
 .qbrand{margin-bottom:20px}
 .qtree .qnav{height:34px}
 .qtree .qnav::before{top:3px}
