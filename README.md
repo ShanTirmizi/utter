@@ -34,12 +34,12 @@ Why another dictation app:
   OpenRouter or a local model through Ollama, with your own key. Or skip it.
 
 <p align="center">
-  <img src="docs/images/try-it.png" alt="Try it: the practice box, the last dictation with its changes marked, and how long it took" width="400" />
-  <img src="docs/images/words.png" alt="Your words: names with what Utter hears instead, and suggestions from the screen" width="400" />
+  <img src="docs/images/home.png" alt="Home: the practice box and the last dictation with its changes marked" width="400" />
+  <img src="docs/images/words.png" alt="Words: names with what Utter hears instead, and suggestions from the screen" width="400" />
 </p>
 <p align="center">
-  <img src="docs/images/hotkey.png" alt="Hotkey, with the fn key chosen" width="400" />
-  <img src="docs/images/cleanup.png" alt="Cleanup, with the providers to choose from" width="400" />
+  <img src="docs/images/hotkeys.png" alt="Hotkeys, with the fn key chosen for dictating and a second key for rewriting" width="400" />
+  <img src="docs/images/provider.png" alt="AI provider, with the providers to choose from" width="400" />
 </p>
 <p align="center">
   <img src="docs/images/pill-listening.png" alt="The status pill while listening" width="260" />
