@@ -13,7 +13,7 @@ Or [download the DMG](https://github.com/ShanTirmizi/utter/releases/latest/downl
 [Report a problem](https://github.com/ShanTirmizi/utter/issues/new/choose)
 
 <p align="center">
-  <a href="https://utter-beta.vercel.app/#film"><img src="docs/images/film-poster.jpg" alt="Watch the Utter launch film (45 seconds)" width="720" /></a>
+  <a href="https://utter-beta.vercel.app/#film"><img src="docs/images/film-poster.jpg" alt="Watch the Utter launch film (44 seconds)" width="720" /></a>
 </p>
 
 <p align="center">
@@ -562,6 +562,6 @@ see [CONTRIBUTING.md](CONTRIBUTING.md); for security problems,
 
 The app and the download page use the system font; no typefaces are bundled.
 The launch film's footage, music, sound effects and voice were generated with
-ElevenLabs; every product moment in it is the real app.
+ElevenLabs; its app scenes are drawn from the real interfaces of Utter, Slack, Mail and Claude.
 The provider marks come from [@lobehub/icons-static-svg](https://github.com/lobehub/lobe-icons)
 (MIT) and are shown in one colour; they are trademarks of their owners.
