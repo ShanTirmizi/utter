@@ -37,7 +37,7 @@
   var tip = frame.querySelector(".fp-tip");
 
   video.controls = false;
-  var length = 45; // until the file says otherwise
+  var length = 44; // until the file says otherwise
   var IDLE_MS = 2200; // pointer still this long while playing: the bar fades
   var SKIP_S = 5;
 
