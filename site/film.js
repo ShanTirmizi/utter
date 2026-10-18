@@ -39,6 +39,7 @@
   video.controls = false;
   var length = 44; // until the file says otherwise
   var IDLE_MS = 2200; // pointer still this long while playing: the bar fades
+  var IDLE_TOUCH_MS = 3500; // longer on a touch screen, with no hover to bring it back
   var SKIP_S = 5;
 
   function clock(seconds) {
@@ -200,9 +201,32 @@
   each(frame.querySelectorAll("[data-fp=toggle]"), function (button) {
     button.addEventListener("click", toggle);
   });
-  // A click on the picture itself plays or pauses; a double click goes full screen.
-  video.addEventListener("click", toggle);
-  video.addEventListener("dblclick", toggleFull);
+  // With a mouse, a click on the picture plays or pauses and a double click goes
+  // full screen. On a touch screen a tap on the picture shows the controls, or
+  // hides them if they are showing, as in other players; the bar's own button
+  // pauses. A double tap does nothing there: on an iPhone it would drop the
+  // page into the system player.
+  var touch = false; // the latest press on the player was a finger
+  var hiddenAtPress = false; // and the bar was hidden when it came down
+  frame.addEventListener(
+    "pointerdown",
+    function (e) {
+      touch = e.pointerType === "touch";
+      hiddenAtPress = frame.hasAttribute("data-idle");
+    },
+    true,
+  );
+  video.addEventListener("click", function () {
+    if (touch && !video.paused) {
+      if (hiddenAtPress) wake();
+      else frame.setAttribute("data-idle", "");
+      return;
+    }
+    toggle();
+  });
+  video.addEventListener("dblclick", function () {
+    if (!touch) toggleFull();
+  });
 
   frame.addEventListener("keydown", function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -237,16 +261,20 @@
   }
   function nap() {
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(function () {
-      if (!video.paused && !scrubbing && !keyboardFocusInside()) frame.setAttribute("data-idle", "");
-    }, IDLE_MS);
+    idleTimer = setTimeout(
+      function () {
+        if (!video.paused && !scrubbing && !keyboardFocusInside()) frame.setAttribute("data-idle", "");
+      },
+      touch ? IDLE_TOUCH_MS : IDLE_MS,
+    );
   }
   frame.addEventListener("pointermove", wake);
   frame.addEventListener("pointerdown", wake);
   frame.addEventListener("focusin", wake);
   frame.addEventListener("focusout", nap);
-  frame.addEventListener("pointerleave", function () {
-    if (!video.paused) frame.setAttribute("data-idle", "");
+  // A finger "leaves" the moment it lifts; only a mouse leaving means look away.
+  frame.addEventListener("pointerleave", function (e) {
+    if (e.pointerType !== "touch" && !video.paused) frame.setAttribute("data-idle", "");
   });
 
   // A film with sound should not keep talking from somewhere off screen.
