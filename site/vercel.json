@@ -1,6 +1,30 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
+  "redirects": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "utter-beta.vercel.app"
+        }
+      ],
+      "destination": "https://utter.shantirmizi.com/",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "utter-beta.vercel.app"
+        }
+      ],
+      "destination": "https://utter.shantirmizi.com/:path*",
+      "permanent": true
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
