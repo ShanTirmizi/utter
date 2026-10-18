@@ -26,8 +26,8 @@ Why another dictation app:
 - **Tiny and native.** A few megabytes, written in Rust and Tauri. No
   Electron.
 - **Your speech never leaves your Mac.** Transcription runs on the GPU with
-  whisper.cpp, and starts while you are still talking, so long dictations go
-  in a moment after you let go.
+  whisper.cpp, and starts while you are still talking, so even a long
+  dictation is transcribed a moment after you let go.
 - **Writes for where you are.** It knows the app, and in a browser the site:
   Gmail gets an email, Slack a casual message, Claude or ChatGPT a clear prompt.
 - **Your model, or none.** Tidy with Groq, Anthropic, OpenAI, Gemini,
@@ -43,7 +43,7 @@ Why another dictation app:
 </p>
 <p align="center">
   <img src="docs/images/pill-listening.png" alt="The status pill while listening" width="260" />
-  <img src="docs/images/pill-tidying.png" alt="The status pill while tidying for Mail" width="260" />
+  <img src="docs/images/pill-tidying.png" alt="The status pill while tidying an email" width="260" />
 </p>
 
 Everything it does:
@@ -73,17 +73,10 @@ Inspired by voice dictation tools. MIT licensed.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A["Hold hotkey"] --> B["Record<br/>microphone, 16 kHz"]
-    B --> C["Release hotkey"]
-    C --> D["Transcribe<br/>whisper.cpp, on device"]
-    D --> E{"Cleanup on<br/>and key saved?"}
-    E -- yes --> F["Clean up<br/>your chosen model, styled for the app"]
-    E -- no --> G["Insert<br/>paste into the focused app"]
-    F --> G
-    F -. "any error" .-> G
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.png" />
+  <img src="docs/images/how-it-works-light.png" alt="How a dictation flows: hold fn, record, let go, transcribe with Whisper on your Mac; then, if cleanup is set up, your AI tidies it in the style of the app; then Utter pastes where you're typing. Without cleanup, or on any error, your words go in as heard." width="420" />
+</picture>
 
 1. **Hotkey.** The fn key on its own (or a key combination such as
    `⌃ ⌥ Space`) to dictate, `⌃ ⌥ R` to dictate and rewrite. Change either in
@@ -92,8 +85,8 @@ flowchart LR
    instead of a hold starts a hands-free recording that runs until the next tap.
 3. **Transcribe.** A Whisper model runs on your Mac, using the GPU through
    Metal. It starts while you are still talking: each finished stretch of
-   speech is transcribed (and tidied) at the next pause, so when you let go
-   only the last few seconds are left.
+   speech is transcribed at the next pause (and, in the **Quick** way, tidied
+   too), so when you let go only the last few seconds are left.
 4. **Clean up (optional).** The transcript goes to the model you chose, with a
    prompt that removes filler words, fixes punctuation, splits a long dictation
    into short paragraphs, and matches the app you are typing in. **Accurate**
@@ -190,13 +183,13 @@ and record from a microphone other than the system default.
 Closing the window keeps Utter running in the menu bar. The menu bar icon
 moves while Utter listens or works and shows a dot when it needs you. Its menu
 starts with the same status, then Open Utter, Copy Last Dictation, Fix Last
-Word…, Add a Word…, Undo Learning, About Utter, Check for Updates… and Quit.
+Word…, Add a Word…, Undo Learning, About Utter, Check for Updates… and Quit Utter.
 
 ## Set up cleanup (optional)
 
-1. Under **Cleanup**, pick a provider.
-2. Paste an API key for it and press Save. The "Get a key" link opens the
-   provider's key page.
+1. Under **AI provider**, pick a provider.
+2. Paste an API key for it and press Save. The **Get a … key** link (for
+   example "Get an Anthropic key") opens the provider's key page.
 3. Choose a model. Click the model field to pick from what your key can use
    (**List models** refreshes the list), or type a name. Pick a small, fast
    one: cleanup is light editing, and you wait for it.
@@ -214,8 +207,8 @@ are not written to any file, not logged, and never shown again in the app. A
 key is sent only to the provider it belongs to. With a small model, a typical
 dictation costs a fraction of a cent.
 
-To dictate without cleanup, switch off **Clean up dictations** or simply do not
-add a key.
+To dictate without cleanup, switch **Cleanup** off on the Cleanup page, or
+simply do not add a key.
 
 ## Rewrite (optional)
 
@@ -234,7 +227,7 @@ dictation hotkey and Utter rewrites what you said before inserting it.
   message stays casual, a prompt for Claude or ChatGPT gets its details as a
   list. No em dashes, anywhere.
 - **What it needs.** A cleanup model, set up as above. It works even when
-  "Clean up dictations" is switched off, since pressing the rewrite hotkey is
+  **Cleanup** is switched off, since pressing the rewrite hotkey is
   an explicit request.
 - **If it goes wrong.** You get your raw words and a note saying why. The
   menu-bar icon can copy the last dictation again.
@@ -292,7 +285,7 @@ macOS has its own action for the globe key ("Press 🌐 key to" in Keyboard
 settings), such as opening the emoji picker, and it runs before any app sees
 the key. So, by default, while Utter is using fn it sets that option to Do
 Nothing, and puts your own choice back when you quit, pick another hotkey, or
-click **Give it back now** on the Hotkey tab (which turns this off; **Turn it
+click **Give it back now** under **Hotkeys** (which turns this off; **Turn it
 off while Utter runs** turns it on again). Your original choice is saved first, so it comes back even after a
 crash, at the next launch. Or change it yourself in Keyboard settings.
 
@@ -306,9 +299,10 @@ entries; a handful of the ones you actually say works best.
 - **Heard as.** Tell a word what Utter writes by mistake: Claude, heard as
   "cloud". Cleanup then puts that right when the sentence is about your word
   ("ask cloud to summarise this") and leaves it alone when it is not ("the
-  cloud bill went up"). A dictation that may hold one of your words misheard,
+  cloud bill went up"). In the **Quick** way, a dictation that may hold one of your words misheard,
   taught or simply sounding alike, always goes to the cleanup model, even
-  when it is short and already looks clean. This needs cleanup set up; raw
+  when it is short and already looks clean (in **Accurate**, the default,
+  every dictation does). This needs cleanup set up; raw
   text only gets the speech model's hint.
 - **Fix a word.** On **Home** or **History**, press **Fix** on a dictation and click the
   word that came out wrong. It is corrected there, and the right spelling and
@@ -409,11 +403,13 @@ The **Privacy** page in Utter sums this up for your own settings.
 Most of the wait after you let go used to be the language model. Utter now:
 
 - **Works while you talk.** At each clear pause, the speech so far is
-  transcribed and, for the dictation hotkey, tidied. When you let go, only
-  the last stretch is left.
-- **Skips the model when there is nothing to fix.** A short dictation the
-  speech model already wrote cleanly (no ums, repeats or "no wait") goes in
-  as it is.
+  transcribed. When you let go, only the last stretch is left. With **Quick**
+  under Cleanup, each stretch is tidied as you go too; **Accurate**, the
+  default, tidies the whole dictation once you let go, so the model sees every
+  sentence whole.
+- **Skips the model when there is nothing to fix (Quick only).** A short
+  dictation the speech model already wrote cleanly (no ums, repeats or "no
+  wait") goes in as it is.
 - **Keeps a local model loaded.** Ollama unloads a model after five minutes
   idle, and loading a 4B model back takes seconds. Utter asks it to keep the
   model for an hour.
@@ -520,6 +516,8 @@ The code is laid out as one file per stage of the pipeline, in
 | `fnkey.rs`, `globe.rs` | The fn key on its own, and switching off macOS's globe-key action while it is used |
 | `audio.rs` | Record the microphone, convert to 16 kHz mono, filter out rumble |
 | `transcribe.rs`, `models.rs` | Run whisper.cpp, download models |
+| `parakeet.rs` | The Parakeet engine, through a small Swift helper (in the code, not yet bundled in releases) |
+| `tech.rs` | Well-known tech names and how speech models mishear them |
 | `speech.rs` | Tell speech from silence and noise, so none of it becomes text |
 | `context.rs` | Work out which app is focused and what kind it is |
 | `cleanup.rs` | The tidy and rewrite prompts, the two API formats, reply checks |
@@ -533,6 +531,7 @@ The code is laid out as one file per stage of the pipeline, in
 | `tray.rs`, `updates.rs` | The menu bar icon and menu, the update check |
 | `secrets.rs`, `settings.rs` | Keychain and preferences |
 | `permissions.rs` | Check and request macOS permissions |
+| `login.rs` | Open at login |
 
 The download page lives in `site/` (plain HTML, CSS and a little JavaScript)
 and is deployed to Vercel.
@@ -541,6 +540,7 @@ The interface is React and hand-written CSS, in `src`:
 
 | File | Job |
 | --- | --- |
+| `main.tsx` | Starts the window, or the pill, and sets light or dark |
 | `api.ts` | Typed wrappers around the Rust commands and events |
 | `state.tsx`, `readiness.ts` | What the window knows, and whether Utter is ready |
 | `App.tsx` | The sidebar, status card, and the first-run switch |
@@ -548,6 +548,7 @@ The interface is React and hand-written CSS, in `src`:
 | `sections/` | One file per section |
 | `Pill.tsx` | The status pill |
 | `ui.tsx` | Icons, keycaps, switches and other small parts |
+| `hotkey.ts`, `diff.ts`, `providerMarks.tsx` | Hotkey labels, the word diff in Changes, provider logos |
 | `styles/` | `quiet.css` (tokens for light and dark, and components) and `app.css` |
 | `dev-mock.ts` | The pretend backend for `pnpm dev` |
 

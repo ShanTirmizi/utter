@@ -1,6 +1,7 @@
 # Parakeet as a second speech engine
 
-A prototype, on its own branch. It adds NVIDIA's Parakeet TDT 0.6B v3 next to
+In the 0.6.0 code, but not yet bundled in releases (the Swift helper isn't
+built by the release script), so release users don't see it. It adds NVIDIA's Parakeet TDT 0.6B v3 next to
 whisper.cpp. The model runs on the Neural Engine through
 [FluidAudio](https://github.com/FluidInference/FluidAudio) 0.17.7, and the
 user's dictionary and on-screen names feed FluidAudio's CTC vocabulary boosting.
@@ -152,8 +153,9 @@ What the numbers say:
   FluidAudio skips terms shorter than three letters, so "QA" is never boosted.
 - **Synthetic audio.** `say` voices are clean and evenly paced. Real
   dictation has hesitations, restarts and a laptop microphone, and the ranking
-  could change. No real recordings were available: Utter keeps text history,
-  not audio.
+  could change. No real recordings were available when this was measured.
+  Utter can now keep recordings (Privacy › Keep recordings), and
+  `cargo run --example replay` replays them through any model.
 
 ## Costs and caveats
 
