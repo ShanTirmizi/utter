@@ -3041,12 +3041,6 @@ html:not(.js) .js-only {
     display: none;
   }
 }
-.film-note {
-  margin: 16px auto 0;
-  text-align: center;
-  font-size: 14px;
-  color: var(--mid);
-}
 
 /* ------------------------------------------------------------------ inside the app */
 .shots {
