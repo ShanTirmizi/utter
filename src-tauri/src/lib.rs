@@ -24,6 +24,7 @@ mod secrets;
 mod selection;
 mod settings;
 pub mod speech;
+mod tech;
 pub mod transcribe;
 mod tray;
 mod updates;

@@ -627,6 +627,9 @@ fn screen_for(app: &AppHandle, id: u64) -> Screen {
 fn speech_terms(settings: &Settings, screen: &[String]) -> Vec<String> {
     let mut terms = crate::words::spellings(&settings.dictionary);
     terms.extend(screen.iter().take(12).cloned());
+    // Then the tech names Utter knows, as far as the prompt has room.
+    let known: std::collections::HashSet<String> = terms.iter().map(|t| t.to_lowercase()).collect();
+    terms.extend(crate::tech::hints().into_iter().filter(|h| !known.contains(&h.to_lowercase())));
     terms
 }
 
@@ -789,7 +792,10 @@ async fn tidy_piece(
     if text.trim().is_empty() {
         return Some(String::new());
     }
-    if cleanup::goes_as_is(text, target.category, terms) {
+    let fixed = if target.category == context::Category::Code { text.to_string() } else { crate::tech::fix_spoken(text) };
+    let text = fixed.as_str();
+    // Only the quick way tidies pieces while the user talks.
+    if cleanup::goes_as_is(text, target.category, terms, Way::Quick) {
         return Some(text.to_string());
     }
     cleanup::run_with(text, target, endpoint, &Task::Tidy, terms, around).await.ok()
@@ -900,6 +906,7 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
                     let target = pipeline.target.lock().unwrap().clone();
                     let mut terms = settings.dictionary.clone();
                     terms.extend(crate::screen::as_words(&screen.terms));
+                    crate::tech::add_to(&mut terms);
                     let around = context_for(&screen, &tidied_so_far);
                     Some(tidy_piece(&text, &target, endpoint, &terms, &around).await)
                 }
@@ -1044,6 +1051,7 @@ async fn process(
     let screen = on_screen.terms.clone();
     let terms = speech_terms(&settings, &screen);
     settings.dictionary.extend(crate::screen::as_words(&screen));
+    crate::tech::add_to(&mut settings.dictionary);
 
     // In a browser, which site is open decides the writing style: Gmail is
     // email, claude.ai is a prompt. Ask now, while the speech is transcribed.
@@ -1397,6 +1405,11 @@ async fn improve(
     mode: Mode,
     around: &cleanup::Context,
 ) -> Tidied {
+    // Spoken tech names with only one meaning ("type script") are written
+    // right first, cleanup or not; never in code, where commands are typed
+    // exactly as said.
+    let fixed = if target.category == context::Category::Code { raw.to_string() } else { crate::tech::fix_spoken(raw) };
+    let raw = fixed.as_str();
     let untouched = |note: Option<String>, ms: Option<u64>| Tidied {
         text: raw.to_string(),
         cleaned: false,
@@ -1407,11 +1420,12 @@ async fn improve(
     // explicit request, so it always tries.
     let (task, what) = match mode {
         Mode::Tidy if !settings.cleanup_enabled => return untouched(None, None),
-        // Nothing for a model to do: the speech model's text goes straight
-        // in, a second or more sooner. Code editors still go to the model,
-        // which spells identifiers and commands exactly, and so does anything
-        // that may have one of the user's words misheard in it.
-        Mode::Tidy if cleanup::goes_as_is(raw, target.category, &settings.dictionary) => {
+        // The quick way only: nothing for a model to do, so the speech
+        // model's text goes straight in, a second or so sooner. Code editors
+        // still go to the model, which spells identifiers and commands
+        // exactly, and so does anything that may have one of the user's
+        // words misheard in it.
+        Mode::Tidy if cleanup::goes_as_is(raw, target.category, &settings.dictionary, settings.way) => {
             return untouched(None, None);
         }
         Mode::Tidy => (Task::Tidy, "Cleanup"),
