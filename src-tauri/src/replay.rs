@@ -200,8 +200,27 @@ impl Setup {
     /// The user's words, as hints for the speech model. Names read from the
     /// screen helped at the time too, but were never saved.
     pub fn hints(&self) -> Vec<String> {
-        words::spellings(&self.settings.dictionary)
+        // As the app gives them, less the names on screen: the user's words,
+        // then the tech names Utter knows.
+        let mut hints = words::spellings(&self.settings.dictionary);
+        if without_tech() {
+            return hints;
+        }
+        let known: std::collections::HashSet<String> = hints.iter().map(|h| h.to_lowercase()).collect();
+        hints.extend(crate::tech::hints().into_iter().filter(|h| !known.contains(&h.to_lowercase())));
+        hints
     }
+
+    /// Choose the accurate or the quick way, whatever the saved settings say.
+    pub fn set_way(&mut self, way: crate::settings::Way) {
+        self.settings.way = way;
+    }
+}
+
+/// With `UTTER_REPLAY_NO_TECH` set, the tech names Utter knows are left out
+/// everywhere, to measure what they add.
+fn without_tech() -> bool {
+    std::env::var_os("UTTER_REPLAY_NO_TECH").is_some()
 }
 
 /// The tidy step, as one of the configurations being compared.
@@ -264,11 +283,17 @@ impl Cleaner {
     /// a time while the user is still talking, and this tidies it whole.
     pub fn tidy(&self, raw: &str, recording: &Recording, setup: &Setup) -> Tidied {
         let category = recording.category;
-        let terms = &setup.settings.dictionary;
+        let mut terms = setup.settings.dictionary.clone();
+        if !without_tech() {
+            crate::tech::add_to(&mut terms);
+        }
+        let terms = &terms;
+        let fixed = if category == Category::Code || without_tech() { raw.to_string() } else { crate::tech::fix_spoken(raw) };
+        let raw = fixed.as_str();
         let as_heard = |model_ms, failed| Tidied { text: raw.to_string(), model_ms, failed };
         let mut tidied = match &self.endpoint {
             None => as_heard(None, false),
-            Some(_) if cleanup::goes_as_is(raw, category, terms) => as_heard(None, false),
+            Some(_) if cleanup::goes_as_is(raw, category, terms, setup.settings.way) => as_heard(None, false),
             Some(endpoint) => {
             let target = AppContext { category, ..AppContext::unknown() };
             let started = Instant::now();

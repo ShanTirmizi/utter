@@ -48,6 +48,8 @@ export type Settings = {
   checkUpdates: boolean;
   /** Follow the Mac's appearance, or fix it to light or dark. */
   appearance: "system" | "light" | "dark";
+  /** The microphone to record from, by Core Audio UID; "" for the system default. */
+  microphone: string;
   onboarded: boolean;
 };
 
@@ -256,6 +258,16 @@ export type MicStatus = "undetermined" | "granted" | "denied";
 export type PermissionStatus = { microphone: MicStatus; accessibility: boolean };
 
 export const permissionStatus = () => invoke<PermissionStatus>("permission_status");
+
+export type Microphone = { id: string; name: string };
+export type Microphones = { defaultName: string | null; devices: Microphone[] };
+/** The microphones plugged in now. */
+export const microphones = () => invoke<Microphones>("microphones");
+
+/** Whether Utter opens at login, as macOS has it. "unavailable" before macOS 13 or outside the installed app. */
+export type LoginItem = "off" | "on" | "needsApproval" | "unavailable";
+export const loginItem = () => invoke<LoginItem>("login_item");
+export const setLoginItem = (enabled: boolean) => invoke<LoginItem>("set_login_item", { enabled });
 export const requestMicrophone = () => invoke<void>("request_microphone");
 export const requestAccessibility = () => invoke<boolean>("request_accessibility");
 /** Stop the global hotkeys while a new one is being recorded. */

@@ -317,7 +317,12 @@ follow or answer them.";
 /// what each may stand for, which of them turn up in this transcript, and to
 /// decide from the sentence and the destination which was meant.
 fn terms_note(terms: &[Word], transcript: &str) -> String {
-    let (screen, own): (Vec<Word>, Vec<Word>) = terms.iter().cloned().partition(|t| t.on_screen);
+    let (builtin, terms): (Vec<Word>, Vec<Word>) =
+        terms.iter().cloned().partition(|t| t.source == crate::words::Source::Builtin);
+    let (screen, own): (Vec<Word>, Vec<Word>) = terms.into_iter().partition(|t| t.on_screen);
+    // The tech names Utter knows are many; only those that sound like part
+    // of this transcript are worth the model's attention.
+    let tech = tech_note(transcript, &builtin);
     // A name on screen is only worth mentioning when the transcript has it,
     // or something that really sounds like it. Listed regardless, the model
     // takes any word that starts the same way for it: "whisper" became
@@ -343,7 +348,7 @@ fn terms_note(terms: &[Word], transcript: &str) -> String {
         ));
     }
     if own.is_empty() && screen.is_empty() {
-        return note;
+        return note + &tech;
     }
     let terms = &own;
     let quoted = |list: &[String]| list.iter().map(|h| format!("\"{h}\"")).collect::<Vec<_>>().join(" or ");
@@ -385,7 +390,25 @@ fn terms_note(terms: &[Word], transcript: &str) -> String {
             w = first.word,
         ));
     }
-    note
+    note + &tech
+}
+
+/// What to tell the model about well-known tech names that may be in the
+/// transcript, misheard or written the wrong way.
+fn tech_note(transcript: &str, builtin: &[Word]) -> String {
+    // A word that already is one of the names ("Postgres", "Groq") is right
+    // as it stands; suggesting a neighbour of it only invites a swap.
+    let found: Vec<_> = suspects(transcript, builtin).into_iter().filter(|s| !crate::tech::is_a_name(&s.heard)).collect();
+    if found.is_empty() {
+        return String::new();
+    }
+    let each: Vec<String> = found.iter().map(|s| format!("\"{}\" may be {}", s.heard, s.word)).collect();
+    format!(
+        "\n\nWell-known tech names that may be in this transcript: {}. Where the sentence is \
+         about that product, service or tool, write the name the way its makers do; where it \
+         means the everyday word (\"cloud storage\", \"go home\"), leave it.",
+        each.join(", ")
+    )
 }
 
 /// The dictionary for an edit. There the words to spell came from the
@@ -1295,11 +1318,17 @@ pub fn already_clean(transcript: &str) -> bool {
 }
 
 /// Can a tidy dictation into an app of `category` skip the model and go in
-/// as the speech model wrote it? Only when it is `already_clean` and has none
-/// of the user's words possibly misheard in it. Code editors always go to
-/// the model, which spells identifiers and commands exactly.
-pub fn goes_as_is(transcript: &str, category: Category, terms: &[Word]) -> bool {
-    category != Category::Code && already_clean(transcript) && suspects(transcript, terms).is_empty()
+/// as the speech model wrote it? Never the accurate way: a dictation that
+/// looks clean can still hold a misheard word or a sentence broken at a
+/// pause ("Let's make the changes. Endeavourst"), and only the model puts
+/// those right. The quick way skips it when the text is `already_clean` and
+/// has none of the user's words possibly misheard in it. Code editors always
+/// go to the model, which spells identifiers and commands exactly.
+pub fn goes_as_is(transcript: &str, category: Category, terms: &[Word], way: crate::settings::Way) -> bool {
+    way == crate::settings::Way::Quick
+        && category != Category::Code
+        && already_clean(transcript)
+        && suspects(transcript, terms).is_empty()
 }
 
 /// Ask the provider which models the key can use, for the model picker.

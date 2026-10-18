@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { clearHistory, copyText, fixWord, forgetDictation, type Dictation } from "../api";
+import { copyText, fixWord, type Dictation } from "../api";
 import { diffWords } from "../diff";
 import { hotkeyLabel } from "../hotkey";
 import { readiness } from "../readiness";
@@ -9,23 +9,20 @@ import {
   Bars,
   clock,
   IconOkFill,
-  IconSearch,
   IconWarnFill,
-  IconX,
   LevelBars,
   Notice,
   Segmented,
   secondsBare,
   seconds,
-  Switch,
   when,
 } from "../ui";
 
 /** What the dictation was for, in the meta line: "Slack · chat style · 3:38 pm". */
-function meta(d: Dictation): string {
+export function meta(d: Dictation): string {
   const what =
     d.selection !== null
-      ? "edited your selection"
+      ? "rewrote your selection"
       : cleanupFailed(d)
         ? "cleanup failed"
         : d.mode === "rewrite"
@@ -44,16 +41,6 @@ function edited(d: Dictation): string | null {
   return `you changed ${d.edit.changed} ${d.edit.changed === 1 ? "word" : "words"}`;
 }
 
-/**
- * Of the dictations Utter could follow after pasting, how many you left as
- * they were. Fewer edits is the measure of accuracy that matters. A word
- * fixed later on a dictation Utter did not follow does not count.
- */
-export function editRate(history: Dictation[]): { followed: number; untouched: number } {
-  const followed = history.filter((d) => d.edit !== null && !d.edit.unwatched);
-  return { followed: followed.length, untouched: followed.filter((d) => d.edit!.changed === 0).length };
-}
-
 function cleanupFailed(d: Dictation): boolean {
   return !d.cleaned && !!d.note && /skipped|needs a model/i.test(d.note);
 }
@@ -65,11 +52,12 @@ function reason(note: string | null): string {
   return found ? found[1] : note;
 }
 
-type Fixed = { d: Dictation; wrong: string; right: string; remembered: boolean };
+export type Fixed = { d: Dictation; wrong: string; right: string; remembered: boolean };
 
-export default function TrySection() {
+export default function HomeSection() {
   const app = useApp();
   const { settings, dictation, history, fixLastAsked } = app;
+  const earlier = history.filter((d) => d.finishedAt !== dictation?.finishedAt).length;
   // The dictation whose words are being fixed, and the one just fixed.
   const [fixing, setFixing] = useState<Dictation | null>(null);
   const [fixed, setFixed] = useState<Fixed | null>(null);
@@ -106,7 +94,7 @@ export default function TrySection() {
     <>
       <div className="qhead" ref={top}>
         <div className="t">
-          <h1>Try it</h1>
+          <h1>Home</h1>
           <p>Hold {hotkeyLabel(settings.hotkey)} in any app, or practise here.</p>
         </div>
       </div>
@@ -115,8 +103,8 @@ export default function TrySection() {
         <Notice
           tone="pe"
           action={
-            <button className="qbtn sm" onClick={() => app.setTab("cleanup")}>
-              Open cleanup
+            <button className="qbtn sm" onClick={() => app.setTab("provider")}>
+              Open AI provider
             </button>
           }
         >
@@ -149,7 +137,24 @@ export default function TrySection() {
 
       {dictation && !fixing && !fixed && <Timings dictation={dictation} />}
 
-      <History history={history} onFix={startFix} />
+      {earlier > 0 && !fixing && (
+        <div className="qcard tight">
+          <div className="qrow">
+            <span>
+              <b style={{ font: "600 14px/1 var(--qf)" }}>
+                {earlier} earlier {earlier === 1 ? "dictation" : "dictations"}
+              </b>
+              <span className="qnote" style={{ marginLeft: 6 }}>
+                Search, copy and fix them.
+              </span>
+            </span>
+            <span className="sp" />
+            <button className="qbtn sm" onClick={() => app.setTab("history")}>
+              Open history
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -188,7 +193,7 @@ export function PracticeBox({
         <div className="qhints">
           <span>Hold to dictate</span>
           {settings.handsFree && <span>Double-tap for hands-free</span>}
-          {settings.rewriteHotkey && <span>Select text, hold {hotkeyLabel(settings.rewriteHotkey)} to edit it</span>}
+          {settings.rewriteHotkey && <span>Select text, hold {hotkeyLabel(settings.rewriteHotkey)} to rewrite it</span>}
         </div>
       )}
     </div>
@@ -212,7 +217,7 @@ function workWord(app: AppState): string {
   const style = live.app && live.app.category !== "other" ? ` · ${live.app.category} style` : "";
   if (live.stage === "tidying") return `Tidying${style}`;
   if (live.stage === "rewriting") return "Rewriting";
-  if (live.stage === "editing") return "Editing your selection";
+  if (live.stage === "editing") return "Rewriting your selection";
   if (live.stage === "transcribing") return "Transcribing";
   return live.mode === "rewrite" ? "Rewriting" : "Working";
 }
@@ -266,7 +271,7 @@ export function Strip({ app, readyText }: { app: AppState; readyText?: string })
     }
   } else {
     const ready = readiness(app);
-    if (ready.tone === "bad" || (ready.tone === "pe" && ready.tab === "model")) {
+    if (ready.tone === "bad" || (ready.tone === "pe" && ready.tab === "speech")) {
       tone = "pe";
       icon = <IconWarnFill hole="var(--bg)" />;
       word = ready.title;
@@ -347,7 +352,7 @@ function Lines({ text, className = "qsaid" }: { text: string; className?: string
   );
 }
 
-function useCopy() {
+export function useCopy() {
   const [copied, setCopied] = useState<number | null>(null);
   const copy = (d: Dictation) =>
     copyText(d.text).then(() => {
@@ -371,7 +376,7 @@ function LastDictation({ dictation, onFix }: { dictation: Dictation; onFix: () =
   return (
     <div className="qcard">
       <div className="qrow">
-        <div className="qlab">{edit ? "Last edit" : "Last dictation"}</div>
+        <div className="qlab">{edit ? "Last rewrite" : "Last dictation"}</div>
         <span className="sp" />
         <Segmented
           label="View"
@@ -410,7 +415,7 @@ function LastDictation({ dictation, onFix }: { dictation: Dictation; onFix: () =
               {copied === dictation.finishedAt ? "Copied" : "Copy"}
             </button>
             <span className="qnote" style={{ marginLeft: 6 }}>
-              Edits replace your selection, so there’s nothing to fix here.
+              Rewrites replace your selection, so there’s nothing to fix here.
             </span>
           </>
         ) : (
@@ -523,7 +528,7 @@ function tokens(text: string): { text: string; word: boolean }[] {
  * Fix a word: click the word that came out wrong, or drag across a few. The
  * correction is made in history and, if wanted, remembered in Your words.
  */
-function FixCard({
+export function FixCard({
   dictation,
   onCancel,
   onFixed,
@@ -705,14 +710,22 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function FixedCard({ d, wrong, right, remembered, onDone }: Fixed & { onDone: () => void }) {
+export function FixedCard({
+  d,
+  wrong,
+  right,
+  remembered,
+  onDone,
+  title = "Last dictation",
+}: Fixed & { onDone: () => void; title?: string }) {
   const caseOnly = wrong.toLowerCase() === right.toLowerCase();
   // The text as it now reads, with each fix marked.
   const pieces = d.text.split(new RegExp(`(?<![\\p{L}\\p{N}_])${escape(wrong)}(?![\\p{L}\\p{N}_])`, "iu"));
   return (
     <div className="qcard">
       <div className="qlab">
-        Last dictation<span className="r">{meta(d)}</span>
+        {title}
+        <span className="r">{meta(d)}</span>
       </div>
       <p className="qsaid">
         {pieces.map((piece, i) => (
@@ -742,141 +755,6 @@ function FixedCard({ d, wrong, right, remembered, onDone }: Fixed & { onDone: ()
           "Fixed here."
         )}
       </Notice>
-    </div>
-  );
-}
-
-/** Earlier dictations, kept only on this Mac. */
-function History({ history, onFix }: { history: Dictation[]; onFix: (d: Dictation) => void }) {
-  const { settings, update, refreshHistory, dictation } = useApp();
-  const [query, setQuery] = useState("");
-  const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const { copied, copy } = useCopy();
-  const rate = editRate(history);
-
-  // The newest one is shown in full above.
-  const earlier = history.filter((d) => d.finishedAt !== dictation?.finishedAt);
-  const needle = query.trim().toLowerCase();
-  const shown = needle ? earlier.filter((d) => `${d.text} ${d.raw} ${d.app.name}`.toLowerCase().includes(needle)) : earlier;
-
-  const run = (work: Promise<unknown>) =>
-    work.then(
-      () => setError(null),
-      (err) => setError(String(err)),
-    );
-
-  return (
-    <div className={`qcard ${earlier.length ? "" : "tight"}`}>
-      <div className="qrow">
-        <div className="qlab">Earlier</div>
-        <span className="sp" />
-        <span className="qnote" style={{ fontSize: 12.5 }} aria-hidden="true">
-          Keep history
-        </span>
-        <Switch small label="Keep history" checked={settings.keepHistory} onChange={(keepHistory) => run(update({ keepHistory }))} />
-      </div>
-
-      {!settings.keepHistory && (
-        <p className="qp">
-          History is off, so new dictations aren’t kept.
-          {history.length > 0 && " Ones from before stay here until you clear them."}
-        </p>
-      )}
-
-      {earlier.length === 0 ? (
-        settings.keepHistory && <p className="qp">Nothing yet. Past dictations stay here, on this Mac only.</p>
-      ) : (
-        <>
-          <label className="qsrch">
-            <IconSearch />
-            <input
-              type="search"
-              placeholder={`Search ${earlier.length} ${earlier.length === 1 ? "dictation" : "dictations"}`}
-              aria-label="Search history"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            {needle && <span className="n">{shown.length}</span>}
-          </label>
-          {shown.length === 0 ? (
-            <p className="qp">Nothing matches.</p>
-          ) : (
-            <div className="qlist">
-              {shown.map((d) => (
-                <div className="qli" key={d.finishedAt}>
-                  <div className="tx">
-                    <p>{d.text}</p>
-                    <small>{meta(d)}</small>
-                  </div>
-                  <div className="a">
-                    {d.selection === null && (
-                      <button className="qbtn sm ghost" onClick={() => onFix(d)}>
-                        Fix
-                      </button>
-                    )}
-                    <button className="qbtn sm ghost" onClick={() => run(copy(d))}>
-                      {copied === d.finishedAt ? "Copied" : "Copy"}
-                    </button>
-                    <button
-                      className="qx"
-                      aria-label="Delete this dictation"
-                      title="Delete"
-                      onClick={() => run(forgetDictation(d.finishedAt).then(refreshHistory))}
-                    >
-                      <IconX />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {history.length > 0 &&
-        (confirming ? (
-          <div className="qfoot" role="alert">
-            <span>
-              <b style={{ color: "var(--ink)" }}>
-                Clear all {history.length} {history.length === 1 ? "dictation" : "dictations"}?
-              </b>{" "}
-              This can’t be undone.
-            </span>
-            <span className="sp" />
-            <button className="qbtn sm" autoFocus onClick={() => setConfirming(false)}>
-              Keep them
-            </button>
-            <button
-              className="qbtn sm pri"
-              onClick={() => {
-                setConfirming(false);
-                run(clearHistory().then(refreshHistory));
-              }}
-            >
-              Clear all {history.length}
-            </button>
-          </div>
-        ) : (
-          <div className="qfoot">
-            <span>
-              Kept on this Mac only, up to 200.
-              {rate.followed > 0 && ` You left ${rate.untouched} of ${rate.followed} as typed.`}
-            </span>
-            <span className="sp" />
-            <button className="qbtn sm ghost" onClick={() => setConfirming(true)}>
-              Clear history
-            </button>
-          </div>
-        ))}
-      <span className="sr" role="status">
-        {copied !== null ? "Copied to the clipboard." : ""}
-      </span>
-      {error && (
-        <p className="qp" role="alert" style={{ color: "var(--bad-fg)" }}>
-          {error}
-        </p>
-      )}
     </div>
   );
 }

@@ -21,7 +21,7 @@ use tauri::{
 
 const ID: &str = "utter";
 
-/// The window's status, in its words: "Ready" / "Hold ⌃⌥Space in any app".
+/// The window's status, in its words: "Ready" / "Hold fn in any app".
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {

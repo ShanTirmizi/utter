@@ -46,7 +46,7 @@ function useTimeLeft(received: number, total: number, active: boolean): string |
   return `About ${Math.round(left / 60)} minutes left.`;
 }
 
-export default function ModelSection() {
+export default function SpeechSection() {
   const app = useApp();
   const { models, progress, downloadFault, settings } = app;
   const selected = selectedModel(app);
@@ -65,7 +65,7 @@ export default function ModelSection() {
     <>
       <div className="qhead">
         <div className="t">
-          <h1>Speech model</h1>
+          <h1>Speech</h1>
           <p>Turns your voice into text, here on this Mac.</p>
         </div>
       </div>
@@ -263,7 +263,7 @@ function LanguagePicker() {
           </div>
         )}
       </div>
-      <p className="qp">Pick one if it guesses wrong. Only Large understands languages other than English.</p>
+      <p className="qp">Pick one if it guesses wrong. Large and Parakeet understand other languages; Base and Small are English only.</p>
     </>
   );
 }

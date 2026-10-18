@@ -32,7 +32,17 @@ import {
   type Stage,
 } from "./api";
 
-export type TabId = "try" | "words" | "hotkey" | "model" | "cleanup" | "permissions" | "about";
+export type TabId =
+  | "home"
+  | "history"
+  | "words"
+  | "hotkeys"
+  | "speech"
+  | "cleanup"
+  | "provider"
+  | "privacy"
+  | "general"
+  | "about";
 
 /** What the dictation pipeline is doing right now. */
 export type Live = {
@@ -107,7 +117,7 @@ export type AppState = {
 };
 
 const IDLE: Live = { phase: "idle", mode: "tidy", handsFree: false, stage: null, app: null, message: null, since: 0 };
-const TABS: TabId[] = ["try", "words", "hotkey", "model", "cleanup", "permissions", "about"];
+const TABS: TabId[] = ["home", "history", "words", "hotkeys", "speech", "cleanup", "provider", "privacy", "general", "about"];
 
 /** `pnpm dev` only: "?tab=cleanup" opens the window on that section. */
 function firstTab(): TabId {
@@ -115,7 +125,7 @@ function firstTab(): TabId {
     const wanted = new URLSearchParams(window.location.search).get("tab") as TabId | null;
     if (wanted && TABS.includes(wanted)) return wanted;
   }
-  return "try";
+  return "home";
 }
 
 /** Load and track everything. Returns null until the settings have arrived. */
@@ -209,10 +219,10 @@ export function useAppState(): AppState | null {
         setTabNow(wanted);
       }
     });
-    // "Fix Last Word…" opens Try it on Fix a word for the last dictation.
+    // "Fix Last Word…" opens Home on Fix a word for the last dictation.
     const stopFixLast = listen("fix-last", () => {
       setCapturing(null);
-      setTabNow("try");
+      setTabNow("home");
       setFixLastAsked((n) => n + 1);
     });
     // "Add a Word…" in the menu bar opens the word list, ready to type into.

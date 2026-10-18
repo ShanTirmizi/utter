@@ -11,11 +11,16 @@
 //! A stopped stream captures nothing and does not light the microphone
 //! indicator. Bluetooth headsets are the exception: holding their microphone
 //! open keeps them in low-quality call mode, so theirs is released each time.
+//!
+//! The system's default microphone is used unless the user picked another in
+//! settings. A picked one that is unplugged falls back to the default until
+//! it comes back.
 
 use cpal::{
-    SampleFormat, Stream,
+    DeviceId, HostId, SampleFormat, Stream,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
+use serde::Serialize;
 use std::{
     sync::{
         Arc, Mutex,
@@ -76,9 +81,9 @@ impl Recorder {
                 for command in inbox {
                     match command {
                         Command::Prepare => {
-                            let device = system::default_input();
+                            let (device, uid) = pick();
                             if ready.is_none() && device != 0 && !system::is_bluetooth(device) {
-                                ready = open_stream(gauge.clone(), device).ok();
+                                ready = open_stream(gauge.clone(), device, uid.as_deref()).ok();
                             }
                         }
                         Command::Start(reply) => {
@@ -142,18 +147,71 @@ impl Recorder {
     }
 }
 
+/// The microphone the user picked, by its Core Audio UID; empty for the
+/// system default.
+static PREFERRED: Mutex<String> = Mutex::new(String::new());
+
+/// Use this microphone from the next dictation on; "" for the system default.
+pub fn prefer(uid: &str) {
+    *PREFERRED.lock().unwrap() = uid.trim().to_string();
+}
+
+/// The microphone to record from: the picked one while it is plugged in,
+/// otherwise the default. Its Core Audio id (0 if there is none), and its UID
+/// when it is not the default.
+fn pick() -> (u32, Option<String>) {
+    let preferred = PREFERRED.lock().unwrap().clone();
+    if !preferred.is_empty() {
+        let device = system::device_for_uid(&preferred);
+        if device != 0 && device != system::default_input() {
+            return (device, Some(preferred));
+        }
+    }
+    (system::default_input(), None)
+}
+
+/// A microphone as settings lists it.
+#[derive(Debug, Clone, Serialize)]
+pub struct Microphone {
+    /// Core Audio's UID: stable across launches and plugging it back in.
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Microphones {
+    /// Name of the system's default microphone, if there is one.
+    pub default_name: Option<String>,
+    pub devices: Vec<Microphone>,
+}
+
+/// Every microphone plugged in now, for the picker.
+pub fn microphones() -> Microphones {
+    let host = cpal::default_host();
+    let default_name = host.default_input_device().map(|d| d.to_string());
+    let devices = host
+        .input_devices()
+        .map(|all| {
+            all.filter_map(|d| Some(Microphone { id: d.id().ok()?.id().to_string(), name: d.to_string() }))
+                .collect()
+        })
+        .unwrap_or_default();
+    Microphones { default_name, devices }
+}
+
 /// Begin a recording, reusing the stopped stream from last time when it still
-/// reads from the system's current default microphone.
+/// reads from the microphone that should be used now.
 fn start(ready: &mut Option<Ready>, gauge: &Arc<AtomicU32>) -> Result<(), String> {
-    let device = system::default_input();
+    let (device, uid) = pick();
     if ready.as_ref().is_some_and(|r| r.device != device || r.invalid.load(Ordering::SeqCst)) {
-        // The user switched microphones since last time, or the system
-        // said the stream is no longer good.
+        // The user switched microphones since last time (here or in macOS),
+        // or the system said the stream is no longer good.
         *ready = None;
     }
     let reused = ready.is_some();
     if ready.is_none() {
-        *ready = Some(open_stream(gauge.clone(), device)?);
+        *ready = Some(open_stream(gauge.clone(), device, uid.as_deref())?);
     }
 
     let began = Instant::now();
@@ -161,7 +219,7 @@ fn start(ready: &mut Option<Ready>, gauge: &Arc<AtomicU32>) -> Result<(), String
     if outcome.is_err() && reused {
         // A kept stream can go stale (its device was unplugged and returned,
         // say). Open a fresh one once before giving up.
-        *ready = Some(open_stream(gauge.clone(), device)?);
+        *ready = Some(open_stream(gauge.clone(), device, uid.as_deref())?);
         return begin(ready.as_ref().expect("stream was just opened"), Instant::now());
     }
     if outcome.is_err() {
@@ -225,10 +283,14 @@ fn peek(ready: &Option<Ready>, from: usize) -> (Vec<f32>, usize) {
     (resample(&copied, current.rate, TARGET_RATE), end)
 }
 
-fn open_stream(gauge: Arc<AtomicU32>, device_id: u32) -> Result<Ready, String> {
-    let device = cpal::default_host()
-        .default_input_device()
-        .ok_or("No microphone found.")?;
+/// Open a stream, stopped, on the picked microphone (`uid`) or the default.
+fn open_stream(gauge: Arc<AtomicU32>, device_id: u32, uid: Option<&str>) -> Result<Ready, String> {
+    let host = cpal::default_host();
+    let device = match uid {
+        Some(uid) => host.device_by_id(&DeviceId::new(HostId::CoreAudio, uid)),
+        None => host.default_input_device(),
+    }
+    .ok_or("No microphone found.")?;
     let supported = device
         .default_input_config()
         .map_err(|e| format!("Could not read the microphone format: {e}"))?;
@@ -350,6 +412,7 @@ pub mod system {
     const SYSTEM: u32 = 1;
     const GLOBAL: u32 = code(b"glob");
     const DEFAULT_INPUT: u32 = code(b"dIn ");
+    const TRANSLATE_UID: u32 = code(b"uidd");
     const TRANSPORT: u32 = code(b"tran");
     const RUNNING_SOMEWHERE: u32 = code(b"gone");
 
@@ -373,6 +436,27 @@ pub mod system {
     /// The id of the default microphone; 0 if there is none.
     pub fn default_input() -> u32 {
         read(SYSTEM, DEFAULT_INPUT).unwrap_or(0)
+    }
+
+    /// The id of the device with this UID while it is plugged in; 0 if not.
+    pub fn device_for_uid(uid: &str) -> u32 {
+        use core_foundation::{base::TCFType, string::CFString};
+        let uid = CFString::new(uid);
+        let reference = uid.as_concrete_TypeRef();
+        let address = Address { selector: TRANSLATE_UID, scope: GLOBAL, element: 0 };
+        let mut device: u32 = 0;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                SYSTEM,
+                &address,
+                std::mem::size_of_val(&reference) as u32,
+                (&reference as *const core_foundation::string::CFStringRef).cast(),
+                &mut size,
+                (&mut device as *mut u32).cast(),
+            )
+        };
+        if status == 0 { device } else { 0 }
     }
 
     /// True for Bluetooth and Bluetooth LE microphones.

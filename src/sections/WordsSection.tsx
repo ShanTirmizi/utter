@@ -35,7 +35,7 @@ function removedWhen(at: number): string {
  * to listen for them, and cleanup puts right what it tends to hear instead.
  */
 export default function WordsSection() {
-  const { settings, update, adopt, addWordAsked, justLearned, dismissLearned } = useApp();
+  const { settings, update, adopt, addWordAsked, justLearned, dismissLearned, setTab } = useApp();
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +142,7 @@ export default function WordsSection() {
       <div className="qhead">
         <div className="t">
           <h1>
-            Your words
+            Words
             {words.length > 0 && <span className="qtag nt sm">{words.length}</span>}
           </h1>
           <p>Names and terms Utter should spell your way.</p>
@@ -283,25 +283,17 @@ export default function WordsSection() {
         <div className="qsw">
           <div className="tx">
             <b>Use what’s on screen</b>
-            <span>Reads the app you’re dictating into, so names on screen are spelled right. Only the names go to your cleanup model, and nothing is saved.</span>
-          </div>
-          <Switch label="Use what’s on screen" checked={settings.screenWords} onChange={(screenWords) => run(update({ screenWords }))} />
-        </div>
-        <div className="qsw">
-          <div className="tx">
-            <b>Send nearby text to cleanup</b>
             <span>
               {settings.screenWords
-                ? "Also gives your cleanup model the text around the cursor, so it can fix misheard words from what you’re writing about. With a hosted provider that text leaves your Mac. Never from a terminal or code editor, and never saved."
-                : "Needs Use what’s on screen."}
+                ? "On, so names where you dictate are spelled right and suggested here."
+                : "Off, so Utter doesn’t read your screen."}{" "}
+              Change it in{" "}
+              <button className="qlink" onClick={() => setTab("privacy")}>
+                Privacy
+              </button>
+              .
             </span>
           </div>
-          <Switch
-            label="Send nearby text to cleanup"
-            checked={settings.screenWords && settings.screenContext}
-            disabled={!settings.screenWords}
-            onChange={(screenContext) => run(update({ screenContext }))}
-          />
         </div>
       </div>
 

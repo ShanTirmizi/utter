@@ -12,6 +12,7 @@ mod history;
 mod hotkey;
 mod insert;
 mod learn;
+mod login;
 pub mod models;
 mod parakeet;
 mod permissions;
@@ -24,6 +25,7 @@ mod secrets;
 mod selection;
 mod settings;
 pub mod speech;
+mod tech;
 pub mod transcribe;
 mod tray;
 mod updates;
@@ -94,6 +96,10 @@ fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Settings, Str
     }
     if settings.appearance != previous.appearance {
         apply_appearance(&app, &settings.appearance);
+    }
+    // The next dictation records from the newly picked microphone.
+    if settings.microphone != previous.microphone {
+        audio::prefer(&settings.microphone);
     }
     // Switching the globe-key option takes effect now, not at the next
     // launch. (A hotkey change already did this while registering.)
@@ -195,6 +201,25 @@ async fn list_cleanup_models(app: AppHandle) -> Result<Vec<String>, String> {
             providers::NotReady::Problem(text) => text,
         })?;
     cleanup::list_models(&endpoint).await
+}
+
+/// The microphones plugged in now, for the picker in General.
+#[tauri::command]
+async fn microphones() -> Result<audio::Microphones, String> {
+    tauri::async_runtime::spawn_blocking(audio::microphones)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Whether Utter opens at login, as macOS has it now.
+#[tauri::command]
+fn login_item() -> login::LoginItem {
+    login::status()
+}
+
+#[tauri::command]
+fn set_login_item(enabled: bool) -> Result<login::LoginItem, String> {
+    login::set(enabled)
 }
 
 #[tauri::command]
@@ -604,6 +629,9 @@ pub fn run() {
             app.manage(pipeline::Pipeline::new());
             pipeline::load_history(app.handle());
             pipeline::preload_model(app.handle());
+            let saved = settings::load(app.handle());
+            // Before the stream is opened below, so it opens on the right one.
+            audio::prefer(&saved.microphone);
             // If Utter last stopped while holding the globe-key action off,
             // it still owes the user their own setting.
             globe::recover(app.handle());
@@ -619,7 +647,6 @@ pub fn run() {
             tray::build(app.handle())?;
             app.manage(updates::Updates::default());
             updates::start_daily(app.handle());
-            let saved = settings::load(app.handle());
             hotkey::restore(app.handle(), &saved);
             apply_appearance(app.handle(), &saved.appearance);
             Ok(())
@@ -636,6 +663,9 @@ pub fn run() {
             rewrite_styles,
             test_rewrite,
             permission_status,
+            microphones,
+            login_item,
+            set_login_item,
             request_microphone,
             request_accessibility,
             reset_accessibility,

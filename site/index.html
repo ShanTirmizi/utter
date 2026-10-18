@@ -93,7 +93,7 @@
       <section class="hero" aria-labelledby="hero-h">
         <div class="wrap">
           <a class="eyebrow" href="https://github.com/ShanTirmizi/utter/releases/latest">
-            <span><b>Utter <span data-copy="app-version">0.5.2</span></b> has a whole new look</span>
+            <span><b>Utter <span data-copy="app-version">0.6.0</span></b> has a whole new look</span>
             <span class="tag mi sm">New</span>
           </a>
           <h1 id="hero-h">Just talk. <span class="soft">Utter types it.</span></h1>
@@ -115,7 +115,7 @@
                Elements marked data-copy="app-version" copy the version from here.
                ========================================================================== -->
           <p class="meta">
-            Beta <span id="app-version">0.5.2</span> · <span id="dmg-size">Under 4 MB</span> · Apple silicon, macOS 12 or later
+            Beta <span id="app-version">0.6.0</span> · <span id="dmg-size">Under 4 MB</span> · Apple silicon, macOS 12 or later
           </p>
         </div>
 
@@ -290,9 +290,10 @@
             <span class="sp"></span>
             <button class="hold" id="hold" type="button">
               <span class="keys" aria-hidden="true">
-                <span class="key s"><span class="sy">⌃</span><span class="nm">control</span></span>
-                <span class="key s"><span class="sy">⌥</span><span class="nm">option</span></span>
-                <span class="key s space" id="thirdkey"><span class="sy" id="thirdkey-t"></span></span>
+                <span class="key s" data-keys="tidy"><span class="sy gl">🌐</span><span class="nm">fn</span></span>
+                <span class="key s" data-keys="rewrite" hidden><span class="sy">⌃</span><span class="nm">control</span></span>
+                <span class="key s" data-keys="rewrite" hidden><span class="sy">⌥</span><span class="nm">option</span></span>
+                <span class="key s" data-keys="rewrite" hidden><span class="sy">R</span></span>
               </span>
               <span class="hold-text">
                 <b>Hold to try</b>
@@ -404,14 +405,12 @@
           <div class="head rv">
             <p class="kicker">How it works</p>
             <h2 class="h2" id="how-h">One key tidies. <span class="soft">Another rewrites.</span></h2>
-            <p class="sub">Choose sentence by sentence, by which keys you hold. Both can be changed, and dictation can be the fn key on its own.</p>
+            <p class="sub">Choose sentence by sentence, by which key you hold: fn to tidy, ⌃⌥R to rewrite. Both can be changed.</p>
           </div>
           <div class="duo">
             <article class="card rv">
-              <div class="keys" role="img" aria-label="Hotkey: Control, Option, Space">
-                <span class="key s"><span class="sy">⌃</span><span class="nm">control</span></span>
-                <span class="key s"><span class="sy">⌥</span><span class="nm">option</span></span>
-                <span class="key s space"></span>
+              <div class="keys" role="img" aria-label="Hotkey: fn">
+                <span class="key s"><span class="sy gl">🌐</span><span class="nm">fn</span></span>
               </div>
               <h3>Tidy</h3>
               <p class="p">Keeps your words. Takes out the ums, repeats and false starts, fixes the punctuation, and breaks a long dictation into short paragraphs.</p>
@@ -452,8 +451,8 @@
           <div class="card fnrow rv">
             <div class="keys" role="img" aria-label="The fn key"><span class="key"><span class="sy gl">🌐</span><span class="nm">fn</span></span></div>
             <div>
-              <h3>Or just the fn key.</h3>
-              <p class="p">Hold fn to talk, double-tap it to go hands-free. Utter keeps the emoji picker out of the way while it runs, and gives it back when you quit.</p>
+              <h3>Just the fn key.</h3>
+              <p class="p">Hold fn to talk, double-tap it to go hands-free. Utter keeps the emoji picker out of the way while it runs, and gives it back when you quit. Prefer a combination? Record any one you like.</p>
             </div>
             <span class="tag mi"><span class="dot"></span>One key</span>
           </div>
@@ -682,31 +681,31 @@
           <div class="shots">
             <figure class="card shot rv">
               <picture>
-                <source srcset="/gallery/try-dark.webp" media="(prefers-color-scheme: dark)" />
-                <img src="/gallery/try-light.webp" width="1200" height="1010" loading="lazy" decoding="async" alt="Utter's Try it screen" />
+                <source srcset="/gallery/home-dark.webp" media="(prefers-color-scheme: dark)" />
+                <img src="/gallery/home-light.webp" width="1200" height="1010" loading="lazy" decoding="async" alt="Utter's Home screen" />
               </picture>
-              <figcaption><b>Try it</b> <span>Practise, then see what changed and how long it took.</span></figcaption>
+              <figcaption><b>Home</b> <span>Practise, then see what changed and how long it took.</span></figcaption>
             </figure>
             <figure class="card shot rv d1">
               <picture>
                 <source srcset="/gallery/words-dark.webp" media="(prefers-color-scheme: dark)" />
-                <img src="/gallery/words-light.webp" width="1200" height="1010" loading="lazy" decoding="async" alt="Utter's Your words screen" />
+                <img src="/gallery/words-light.webp" width="1200" height="1010" loading="lazy" decoding="async" alt="Utter's Words screen" />
               </picture>
-              <figcaption><b>Your words</b> <span>Names spelled your way, with what Utter hears instead.</span></figcaption>
+              <figcaption><b>Words</b> <span>Names spelled your way, with what Utter hears instead.</span></figcaption>
             </figure>
             <figure class="card shot rv">
               <picture>
-                <source srcset="/gallery/hotkey-dark.webp" media="(prefers-color-scheme: dark)" />
-                <img src="/gallery/hotkey-light.webp" width="1200" height="1010" loading="lazy" decoding="async" alt="Utter's Hotkey screen" />
+                <source srcset="/gallery/hotkeys-dark.webp" media="(prefers-color-scheme: dark)" />
+                <img src="/gallery/hotkeys-light.webp" width="1200" height="1010" loading="lazy" decoding="async" alt="Utter's Hotkeys screen" />
               </picture>
-              <figcaption><b>Hotkey</b> <span>Any key combination, or the fn key on its own.</span></figcaption>
+              <figcaption><b>Hotkeys</b> <span>Any key combination, or the fn key on its own.</span></figcaption>
             </figure>
             <figure class="card shot rv d1">
               <picture>
-                <source srcset="/gallery/cleanup-dark.webp" media="(prefers-color-scheme: dark)" />
-                <img src="/gallery/cleanup-light.webp" width="1200" height="1010" loading="lazy" decoding="async" alt="Utter's Cleanup screen" />
+                <source srcset="/gallery/provider-dark.webp" media="(prefers-color-scheme: dark)" />
+                <img src="/gallery/provider-light.webp" width="1200" height="1010" loading="lazy" decoding="async" alt="Utter's AI provider screen" />
               </picture>
-              <figcaption><b>Cleanup</b> <span>Pick a provider, or run a model on your Mac.</span></figcaption>
+              <figcaption><b>AI provider</b> <span>Pick a provider, or run a model on your Mac.</span></figcaption>
             </figure>
           </div>
         </div>
@@ -856,7 +855,7 @@
             <a class="btn on-dark lg" href="https://github.com/ShanTirmizi/utter/releases/latest/download/Utter-apple-silicon.dmg"><svg aria-hidden="true"><use href="#down" /></svg>Download for Mac</a>
             <a class="btn on-dark-ghost lg" href="https://github.com/ShanTirmizi/utter">Read the source</a>
           </div>
-          <p class="meta">Version <span data-copy="app-version">0.5.2</span> · Apple silicon · macOS 12 or later</p>
+          <p class="meta">Version <span data-copy="app-version">0.6.0</span> · Apple silicon · macOS 12 or later</p>
         </div>
       </section>
     </main>

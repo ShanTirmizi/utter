@@ -34,12 +34,12 @@ Why another dictation app:
   OpenRouter or a local model through Ollama, with your own key. Or skip it.
 
 <p align="center">
-  <img src="docs/images/try-it.png" alt="Try it: the practice box, the last dictation with its changes marked, and how long it took" width="400" />
-  <img src="docs/images/words.png" alt="Your words: names with what Utter hears instead, and suggestions from the screen" width="400" />
+  <img src="docs/images/home.png" alt="Home: the practice box and the last dictation with its changes marked" width="400" />
+  <img src="docs/images/words.png" alt="Words: names with what Utter hears instead, and suggestions from the screen" width="400" />
 </p>
 <p align="center">
-  <img src="docs/images/hotkey.png" alt="Hotkey, with the fn key chosen" width="400" />
-  <img src="docs/images/cleanup.png" alt="Cleanup, with the providers to choose from" width="400" />
+  <img src="docs/images/hotkeys.png" alt="Hotkeys, with the fn key chosen for dictating and a second key for rewriting" width="400" />
+  <img src="docs/images/provider.png" alt="AI provider, with the providers to choose from" width="400" />
 </p>
 <p align="center">
   <img src="docs/images/pill-listening.png" alt="The status pill while listening" width="260" />
@@ -60,8 +60,8 @@ Everything it does:
   one rewrites what you said so it reads better, in a style you choose.
 - **Edit by voice.** Select some text, hold the rewrite hotkey and say what to
   change: "make this shorter", "turn this into bullet points".
-- **One key if you like.** Use the fn (globe) key on its own: hold it to
-  talk, double-tap it for hands-free.
+- **One key.** Hold the fn (globe) key to talk, double-tap it for
+  hands-free. Or pick any key combination you like.
 - **Hands-free.** Double-tap the hotkey instead of holding it, talk for up to
   five minutes, and tap once more to finish.
 - **Your words.** A personal dictionary for the names and jargon that speech
@@ -85,8 +85,9 @@ flowchart LR
     F -. "any error" .-> G
 ```
 
-1. **Hotkey.** `⌃ ⌥ Space` (or the fn key on its own) to dictate, `⌃ ⌥ R` to
-   dictate and rewrite. Change either in settings.
+1. **Hotkey.** The fn key on its own (or a key combination such as
+   `⌃ ⌥ Space`) to dictate, `⌃ ⌥ R` to dictate and rewrite. Change either in
+   settings.
 2. **Record.** Utter listens only while you are dictating. A double tap
    instead of a hold starts a hands-free recording that runs until the next tap.
 3. **Transcribe.** A Whisper model runs on your Mac, using the GPU through
@@ -157,7 +158,7 @@ and Gatekeeper checks downloads for Apple's notarisation.
   open without warnings and permissions survive updates.
 - **Your own build** is signed ad hoc. It is never quarantined, so it opens
   straight away, but each rebuild counts as a new app: allow the microphone
-  again and use **Reset it** under Permissions for Accessibility. Set
+  again and use **Reset it** under General for Accessibility. Set
   `APPLE_SIGNING_IDENTITY` to a signing certificate of your own to avoid that.
 - **Maintainers** make a release with `scripts/release.sh`, which signs, packages
   and notarises; see the comments at its top.
@@ -168,19 +169,23 @@ Utter opens with a four-step welcome that takes about a minute:
 
 1. **Hello.** Pressing "Get started" also starts downloading the Small speech
    model (488 MB), so it is usually ready by step 3.
-2. **Permissions.** Allow the microphone; Accessibility is optional (see below).
+2. **Permissions.** Allow the microphone, and Accessibility, which lets Utter
+   type for you and hear the fn key (see below).
 3. **Speech model.** Keep Small, or pick another. Base is fastest but
    mishears names and jargon more often. Large is the most accurate and understands
-   languages other than English; under **Speech model** you can tell it which
+   languages other than English; under **Speech** you can tell it which
    one you speak, or leave it to detect.
-4. **Try it.** Hold `⌃ ⌥ Space`, say a sentence, and let go.
+4. **Try it.** Hold `fn`, say a sentence, and let go. If you skipped
+   Accessibility, this step offers `⌃ ⌥ Space` instead, which works without it.
 
-After that, the window has a sidebar: Try it, Words, then Settings (Hotkey,
-Speech model, Cleanup, Permissions), and About at the foot. The status card
-above About always says whether Utter is ready; if it is not, it names the one
-problem, the section that fixes it carries a `!`, and clicking the card opens
-it. The window follows the system appearance, or pick Light or Dark under
-**About**.
+After that, the window has a sidebar: Home, History and Words, then a
+Settings group you can fold away (Hotkeys, Speech, Cleanup, AI provider,
+Privacy, General), and About at the foot. The status card above About always
+says whether Utter is ready; if it is not, it names the one problem, the
+section that fixes it carries a `!` (and shows even with Settings folded), and
+clicking the card opens it. The window follows the system appearance, or pick
+Light or Dark under **General**, which is also where Utter can open at login
+and record from a microphone other than the system default.
 
 Closing the window keeps Utter running in the menu bar. The menu bar icon
 moves while Utter listens or works and shows a dot when it needs you. Its menu
@@ -235,7 +240,7 @@ dictation hotkey and Utter rewrites what you said before inserting it.
   menu-bar icon can copy the last dictation again.
 
 Pick the style under **Cleanup**, and press **Test on a sample** to see what it
-does to a sentence. The rewrite hotkey itself is under **Hotkey**; turn it off
+does to a sentence. The rewrite hotkey itself is under **Hotkeys**; turn it off
 there to switch the feature off.
 
 ## Edit selected text
@@ -263,18 +268,20 @@ tap does nothing but remind you how to start.
 - If you walk away, it stops by itself after 30 seconds without a sound, or
   after five minutes at most. What you said is then copied to the clipboard
   rather than typed, so it cannot land in the wrong place.
-- Switch it off under **Hotkey** if you never want it. A double tap is then
+- Switch it off under **Hotkeys** if you never want it. A double tap is then
   ignored.
 
 ## The fn key
 
-Under **Hotkey**, click **Use the fn key** to dictate with fn (the globe key)
-on its own, like this:
+Out of the box you dictate with fn (the globe key) on its own:
 
 - **Hold fn** and speak; let go to insert.
 - **Double-tap fn** for hands-free; tap once more to finish.
 - **fn in a shortcut** (fn+arrow, fn+Delete) still works as usual: the
   moment another key is pressed with fn, Utter drops that recording.
+
+To use a key combination instead, click **Record new hotkey** under
+**Hotkeys**. **Reset to fn** brings fn back.
 
 macOS will not register a lone modifier key as a hotkey, so Utter watches for
 fn with an event tap. That needs the Accessibility permission (already used for
@@ -303,7 +310,7 @@ entries; a handful of the ones you actually say works best.
   taught or simply sounding alike, always goes to the cleanup model, even
   when it is short and already looks clean. This needs cleanup set up; raw
   text only gets the speech model's hint.
-- **Fix a word.** On **Try it**, press **Fix** on a dictation and click the
+- **Fix a word.** On **Home** or **History**, press **Fix** on a dictation and click the
   word that came out wrong. It is corrected there, and the right spelling and
   the mishearing are remembered. Click the next word too when one name was
   heard as two ("pre a" for Priya).
@@ -326,7 +333,7 @@ entries; a handful of the ones you actually say works best.
   box, say), so a misheard word can be put right from it; never from a
   terminal or code editor. None of the window's text is ever kept. A name you then say
   is offered under **Suggested from your screen**; nothing is added without
-  you. Switch it off on the Words tab.
+  you. Switch it off under **Privacy**.
 - **Add a Word…** in the menu bar opens the list ready to type into.
 - A word you remove is never learned or suggested again, and stays under
   **Removed recently** for 30 days with its mishearings, in case you want it
@@ -334,20 +341,20 @@ entries; a handful of the ones you actually say works best.
 
 ## History
 
-The **Try it** tab lists your recent dictations under the last one. Search
-them, copy one again, forget one, or clear them all.
+The **History** tab lists your recent dictations. Search them, copy one
+again, fix a word, forget one, or clear them all.
 
 - Kept in one file on your Mac (`history.json` in Utter's Application Support
   folder), readable only by your user account. Never sent anywhere.
 - The most recent 200 are kept.
-- Switch **Keep history** off and nothing new is saved.
+- Switch **Keep history** off (under **Privacy**) and nothing new is saved.
 - **Edits.** A dictation you changed after Utter pasted it says how many words
-  you changed, and **About** shows the share you left as typed: the number
+  you changed, and **History** shows the share you left as typed: the number
   that says how well Utter is doing for you. Utter can tell only while it
   follows the text box after a paste (with **Learn from my corrections** or
   **Keep recordings** on, and Accessibility allowed); fixing a word on
-  **Try it** counts too. Only the count is kept.
-- **Keep recordings** (in **About**, off by default) also keeps the audio of
+  **Home** or **History** counts too. Only the count is kept.
+- **Keep recordings** (under **Privacy**, off by default) also keeps the audio of
   your last 50 dictations, as 16 kHz WAV files in a `recordings` folder next
   to `history.json`, readable only by your user account, with the text as you
   corrected it. They are for trying other speech models and prompts on what
@@ -360,18 +367,20 @@ them, copy one again, forget one, or clear them all.
 | Permission | Needed | Why |
 | --- | --- | --- |
 | Microphone | Yes | To hear you while the hotkey is held. |
-| Accessibility | Recommended | To press `⌘V` in the app you are typing in, to see the text you selected when you edit by voice, to read names in the window in front while you dictate, and to notice a word you correct right after a paste. Without it, Utter copies the text and you paste it yourself. |
-| Input Monitoring | No | A key combination is registered with macOS as a system hotkey, so Utter never sees your other keystrokes. With the fn key option, Utter notices only that some other key was pressed while fn is held, never which (see "The fn key"). |
+| Accessibility | Recommended | To hear the fn key, to press `⌘V` in the app you are typing in, to see the text you selected when you edit by voice, to read names in the window in front while you dictate, and to notice a word you correct right after a paste. Without it, Utter copies the text and you paste it yourself, and you dictate with a key combination instead of fn. |
+| Input Monitoring | No | With the fn key, Utter notices only that some other key was pressed while fn is held, never which (see "The fn key"). A key combination is registered with macOS as a system hotkey, so Utter never sees your other keystrokes. |
 
 You can change these under System Settings > Privacy & Security.
 
 **If Accessibility is switched on but Utter still says it is not allowed:**
 macOS is matching the switch to an older build of the app. In Utter, under
-**Permissions**, click **Reset it**, then switch Utter on again in System
+**General**, click **Reset it**, then switch Utter on again in System
 Settings. This happens after every rebuild of an ad-hoc signed build, for the
 reason given under "Signing, and why it matters".
 
 ## What leaves your Mac
+
+The **Privacy** page in Utter sums this up for your own settings.
 
 - **Audio:** never. Recordings kept with **Keep recordings** stay in a folder
   on your Mac.
@@ -542,8 +551,8 @@ The interface is React and hand-written CSS, in `src`:
 | `styles/` | `quiet.css` (tokens for light and dark, and components) and `app.css` |
 | `dev-mock.ts` | The pretend backend for `pnpm dev` |
 
-With `pnpm dev`, open `http://localhost:1420` and hold `⌃ ⌥ Space` to play a
-dictation. `/#pill` shows the status pill and `?welcome` the first run; the
+With `pnpm dev`, open `http://localhost:1420` and hold `⌃ ⌥ Space` (standing
+in for fn, which a browser cannot see) to play a dictation. `/#pill` shows the status pill and `?welcome` the first run; the
 notes at the top of `dev-mock.ts` list the other switches.
 
 More on the design choices is in [docs/DESIGN.md](docs/DESIGN.md).

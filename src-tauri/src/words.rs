@@ -26,6 +26,9 @@ pub enum Source {
     Learned,
     /// Suggested from what was on screen, and accepted.
     Screen,
+    /// One of the tech names Utter knows (see `tech`), for one dictation
+    /// only. Never saved.
+    Builtin,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

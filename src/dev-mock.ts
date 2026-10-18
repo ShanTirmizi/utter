@@ -4,8 +4,9 @@
 // dictations with a made-up voice. This file is never loaded inside the real
 // app or in production builds (see main.tsx).
 //
-// Hold the hotkey shown in the window (by default Control+Option+Space) to
-// dictate; Control+Option+R rewrites. Query parameters set the scene:
+// Hold the hotkey shown in the window to dictate; Control+Option+R rewrites.
+// The default is the fn key, which a browser never sees, so Control+Option+
+// Space stands in for it here. Query parameters set the scene:
 //
 //   ?welcome          start at the first-run screen
 //   ?tab=cleanup      open the main window on a section
@@ -25,8 +26,8 @@
 //   ?edit             the last dictation edited a selection
 //   ?audio            Keep recordings is on
 //   ?selected         the rewrite hotkey edits a pretend selection
-//   ?fn               the fn key is the dictation hotkey
-//   ?fnconflict       and macOS also shows emoji when it is pressed
+//   ?combo            Control+Option+Space is the dictation hotkey, not fn
+//   ?fnconflict       macOS also shows emoji when fn is pressed
 //   ?fail=cleanup|test|download|hotkey   make that step fail
 //   ?fail=startup-hotkey   macOS refused the hotkey at launch
 //   ?pill=listen|handsfree|transcribe|tidy|rewrite|edit|note|note2|paste|blocked|learned
@@ -51,7 +52,7 @@ const fail = query.get("fail");
 const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 let settings: Settings = {
-  hotkey: query.has("fn") ? "Fn" : "Control+Alt+Space",
+  hotkey: query.has("combo") ? "Control+Alt+Space" : "Fn",
   cleanupEnabled: query.get("cleanup") !== "off",
   way: "accurate",
   provider: "anthropic",
@@ -94,8 +95,15 @@ let settings: Settings = {
     : [],
   checkUpdates: false,
   appearance: "system",
+  microphone: "",
   onboarded: !query.has("welcome"),
 };
+let login: "off" | "on" | "needsApproval" | "unavailable" = query.has("nologin") ? "unavailable" : "off";
+const mics = [
+  { id: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone" },
+  { id: "AppleUSBAudioEngine:Shure:MV7:1", name: "Shure MV7" },
+  ...(query.has("airpods") ? [{ id: "AA-BB-CC:input", name: "Shan’s AirPods Pro" }] : []),
+];
 const keys = new Set<string>(query.has("key") ? ["anthropic"] : []);
 
 const catalog: Provider[] = [
@@ -395,6 +403,7 @@ function paste(text: string) {
 /** Does this key event complete the stored hotkey ("Control+Alt+Space")? */
 function matches(e: KeyboardEvent, hotkey: string): boolean {
   if (!hotkey) return false;
+  if (hotkey === "Fn") return e.key === "Fn" || matches(e, "Control+Alt+Space");
   const parts = hotkey.split("+");
   const code = parts[parts.length - 1];
   const wants = (m: string) => parts.includes(m);
@@ -542,6 +551,14 @@ export function installMock() {
           return "This is a quick test of the cleanup step.";
         case "permission_status":
           return { ...permissions };
+        case "microphones":
+          return { defaultName: mics[0].name, devices: mics };
+        case "login_item":
+          return login;
+        case "set_login_item":
+          if (login === "unavailable") throw "Only the installed Utter app can open at login.";
+          login = payload?.enabled ? "on" : "off";
+          return login;
         case "request_microphone":
           // Stand in for the person clicking "Allow" on the system prompt.
           setTimeout(() => (permissions.microphone = "granted"), 900);

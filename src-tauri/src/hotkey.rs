@@ -175,8 +175,9 @@ mod tests {
 
     #[test]
     fn the_default_hotkeys_are_valid_and_different() {
-        let (_, rewrite) = plan(&Settings::default()).unwrap();
-        assert!(rewrite.is_some());
+        // fn dictates, so no combination is registered for it.
+        let (dictate, rewrite) = plan(&Settings::default()).unwrap();
+        assert!(dictate.is_none() && rewrite.is_some());
     }
 
     #[test]
