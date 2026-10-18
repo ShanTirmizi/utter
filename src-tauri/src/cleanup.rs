@@ -48,10 +48,13 @@ wording they went on with: \"the thing I need is, so, the thing I need is a new 
 becomes \"The thing I need is a new key.\"
 - When the speaker changes their mind mid-sentence (\"at five, no wait, six\"), keep \
 only what they settled on.
-- Add the punctuation and capital letters the speech implies. The recogniser often \
-starts a new sentence wherever the speaker paused, even in the middle of one (\"what \
-I am looking for is And the general direction\"). Join such a sentence back together \
-and lower-case the stray capital.
+- Add the punctuation and capital letters the speech implies. The recogniser puts a \
+full stop or a question mark wherever the speaker paused, even in the middle of a \
+sentence, and starts the next words with a capital: \"what if we can make changes? In \
+dev, and then test them\" and \"because the buttons. Look a bit off\". Punctuate by \
+what is said, not by where they paused: join such a sentence back together (\"what if \
+we can make changes in dev, and then test them\") and lower-case the stray capital. \
+Never start a paragraph at a pause like that; paragraphs change with the topic.
 - Correct misheard words. A recogniser swaps words it does not know, above all names, \
 products and jargon, for ordinary words that sound alike. When a word is out of place \
 where it stands and a similar-sounding word fits the rest of the dictation, the \
@@ -854,6 +857,14 @@ const NEW_POINT: &[&str] = &[
     "on top of that", "the other thing", "one more thing", "other than that", "apart from that",
 ];
 
+/// Words a sentence hardly ever opens with, but which follow a pause in the
+/// middle of one: "make changes. In dev", "the buttons. Look", "said. To".
+const CARRIES_ON: &[&str] = &[
+    "in", "on", "at", "to", "of", "for", "with", "from", "into", "by", "about", "than", "as",
+    "which", "who", "whose", "because", "since", "until", "unless", "whether", "while", "like",
+    "or", "nor", "and", "look", "looks", "is", "are", "was", "were", "be", "been",
+];
+
 /// Short words that end in a full stop without ending a sentence.
 const ABBREVIATIONS: &[&str] = &[
     "mr", "mrs", "ms", "dr", "prof", "st", "vs", "etc", "e.g", "i.e", "inc", "ltd", "jr", "sr", "no",
@@ -886,7 +897,15 @@ pub fn paragraphs(text: &str) -> String {
             })
         };
         let full = count >= PARAGRAPH_SENTENCES || length + sentence.chars().count() > PARAGRAPH_HARD;
-        if !current.is_empty() && length >= 80 && ((length >= PARAGRAPH_SOFT && moves_on) || full) {
+        // A "sentence" that carries on the one before ("In dev, and then
+        // test them.") or one of only a few words is most likely a pause
+        // the recogniser took for a full stop: never a paragraph's start.
+        let carries_on = {
+            let first = sentence.split_whitespace().next().unwrap_or_default().to_lowercase();
+            let first = first.trim_matches(|c: char| !c.is_alphanumeric());
+            CARRIES_ON.contains(&first) || sentence.split_whitespace().count() <= 3
+        };
+        if !current.is_empty() && length >= 80 && !carries_on && ((length >= PARAGRAPH_SOFT && moves_on) || full) {
             out.push(std::mem::take(&mut current));
             count = 0;
         }
@@ -1624,6 +1643,19 @@ mod tests {
         // Not finished like a sentence, or too long to judge cheaply.
         assert!(!already_clean("so I was thinking"));
         assert!(!already_clean(&format!("{}.", "Word ".repeat(40).trim())));
+    }
+
+    #[test]
+    fn a_pause_taken_for_a_full_stop_never_starts_a_paragraph() {
+        // Long enough to be split, with the split falling at "In dev".
+        let block = "So I was thinking about how we handle the prompts for the docs agent, because right now \
+the non-engineers edit them directly and there is no real way to roll back when something goes wrong, \
+and what if we can make changes? In dev, and then test them properly before anything goes to prod. \
+That way nothing reaches users untested. Then the second thing is the evals, which are small right now \
+and need to grow before we change anything else in the prompts.";
+        let laid_out = paragraphs(block);
+        assert!(!laid_out.contains("\n\nIn dev"), "{laid_out}");
+        assert!(laid_out.contains("\n\n"), "a long block is still split: {laid_out}");
     }
 
     #[test]

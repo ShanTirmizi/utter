@@ -4,6 +4,7 @@ import { diffWords } from "../diff";
 import { hotkeyLabel } from "../hotkey";
 import { readiness } from "../readiness";
 import { useApp, useElapsed, useLevels, type AppState } from "../state";
+import { WaySwitch } from "./CleanupSection";
 import {
   Bars,
   clock,
@@ -445,7 +446,12 @@ function Timings({ dictation }: { dictation: Dictation }) {
     <div className="qcard">
       <div className="qlab">
         After you let go
-        {dictation.spokenMs > 0 && <span className="r">You spoke for {seconds(dictation.spokenMs, 1)}</span>}
+        {dictation.spokenMs > 0 && (
+          <span className="r">
+            You spoke for {seconds(dictation.spokenMs, 1)}
+            {dictation.way && ` · ${dictation.way === "quick" ? "Quick" : "Accurate"}`}
+          </span>
+        )}
       </div>
       <div className="qbig">
         {secondsBare(total)}
@@ -492,6 +498,15 @@ function Timings({ dictation }: { dictation: Dictation }) {
           </b>
         </div>
       </div>
+      {settings.cleanupEnabled && !edit && dictation.mode === "tidy" && (
+        <div className="qsw" style={{ padding: "12px 0 0" }}>
+          <div className="tx">
+            <b>How to tidy</b>
+            <span>Switch, dictate the same thing again, and compare the time.</span>
+          </div>
+          <WaySwitch />
+        </div>
+      )}
     </div>
   );
 }

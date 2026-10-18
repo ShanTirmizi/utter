@@ -53,6 +53,7 @@ const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
 let settings: Settings = {
   hotkey: query.has("fn") ? "Fn" : "Control+Alt+Space",
   cleanupEnabled: query.get("cleanup") !== "off",
+  way: "accurate",
   provider: "anthropic",
   cleanupModel: "",
   baseUrl: "",

@@ -95,7 +95,10 @@ flowchart LR
    only the last few seconds are left.
 4. **Clean up (optional).** The transcript goes to the model you chose, with a
    prompt that removes filler words, fixes punctuation, splits a long dictation
-   into short paragraphs, and matches the app you are typing in. With the rewrite hotkey, the prompt asks for better wording
+   into short paragraphs, and matches the app you are typing in. **Accurate**
+   (the default) tidies the whole dictation once you let go, so a pause in the
+   middle of a sentence never splits it; **Quick**, under Cleanup, tidies each
+   stretch while you are still talking, so only the last one waits. With the rewrite hotkey, the prompt asks for better wording
    instead, or, if you have text selected, for that text changed the way you
    said. If this step fails for any reason, the raw transcript is used (and
    selected text is left alone).

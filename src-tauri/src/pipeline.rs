@@ -19,7 +19,7 @@ use crate::{
     history, insert, models, permissions, recordings,
     selection::{self, Selection},
     providers::{self, NotReady},
-    settings::{self, Settings},
+    settings::{self, Settings, Way},
     transcribe::Transcriber,
     words::Word,
 };
@@ -86,6 +86,10 @@ pub struct Dictation {
     pub total_ms: u64,
     /// When it finished, in milliseconds since 1970.
     pub finished_at: u64,
+    /// How a tidied dictation was tidied: all at once or piece by piece.
+    /// `None` when it was not tidied, and in history from before there was
+    /// a choice.
+    pub way: Option<Way>,
     /// What the user changed in it after it was pasted, once they were done.
     /// `None` until then, and for good when nobody could tell: it was only
     /// copied, or the app would not show its text box.
@@ -828,7 +832,7 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
         // waits for the model when the key comes up. Rewriting needs the
         // whole thing at once, so this is for the dictation hotkey only.
         let mode = *app.state::<Pipeline>().mode.lock().unwrap();
-        let endpoint = if mode == Mode::Tidy && settings.cleanup_enabled {
+        let endpoint = if mode == Mode::Tidy && settings.cleanup_enabled && settings.way == Way::Quick {
             let lookup = settings.clone();
             tauri::async_runtime::spawn_blocking(move || providers::resolve(&lookup)).await.ok().and_then(Result::ok)
         } else {
@@ -1140,6 +1144,7 @@ async fn process(
                 finished_at: finished_at(),
                 edit: None,
                 recording: None,
+                way: None,
             }));
         }
     }
@@ -1151,7 +1156,9 @@ async fn process(
     // as it is when any piece could not be tidied.
     let mut heard_pieces = early_texts.clone();
     heard_pieces.push(rest_raw.clone());
+    // The accurate way never does this: the model always sees it whole.
     let all_tidied = mode == Mode::Tidy
+        && settings.way == Way::Quick
         && !early_texts.is_empty()
         && early_cleaned.len() == early_texts.len()
         && early_cleaned.iter().all(Option::is_some)
@@ -1227,6 +1234,7 @@ async fn process(
         finished_at,
         edit: None,
         recording: None,
+        way: (mode == Mode::Tidy && tidied.cleaned).then_some(settings.way),
     }))
 }
 

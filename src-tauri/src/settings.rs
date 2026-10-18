@@ -13,6 +13,9 @@ pub struct Settings {
     pub hotkey: String,
     /// Run the transcript through the cleanup model when one is set up.
     pub cleanup_enabled: bool,
+    /// How a dictation is tidied: all at once, or piece by piece while the
+    /// user talks.
+    pub way: Way,
     /// Which service runs cleanup; an id from `providers::CATALOG`.
     pub provider: String,
     /// Model to ask for. Empty means the provider's default, if it has one.
@@ -78,6 +81,7 @@ impl Default for Settings {
         Self {
             hotkey: "Control+Alt+Space".into(),
             cleanup_enabled: true,
+            way: Way::Accurate,
             provider: "anthropic".into(),
             cleanup_model: String::new(),
             base_url: String::new(),
@@ -106,6 +110,19 @@ impl Default for Settings {
             onboarded: false,
         }
     }
+}
+
+/// How a dictation is tidied.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Way {
+    /// The whole dictation in one go once the key comes up, so the model
+    /// sees every sentence whole, wherever the speaker paused.
+    #[default]
+    Accurate,
+    /// Each stretch while the user is still talking, so only the last one
+    /// waits for the model; a pause mid-sentence can end a sentence early.
+    Quick,
 }
 
 fn path(app: &AppHandle) -> Result<PathBuf, String> {

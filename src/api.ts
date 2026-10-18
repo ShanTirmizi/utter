@@ -5,6 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 export type Settings = {
   hotkey: string;
   cleanupEnabled: boolean;
+  /** Tidy the whole dictation at once ("accurate") or piece by piece while you talk ("quick"). */
+  way: Way;
   /** Which service runs cleanup; an id from `providers()`. */
   provider: string;
   /** Empty means the provider's default model, if it has one. */
@@ -109,6 +111,8 @@ export const testRewrite = () => invoke<string>("test_rewrite");
 export const listCleanupModels = () => invoke<string[]>("list_cleanup_models");
 
 // Progress reports from the dictation pipeline, sent on the "pipeline" event.
+export type Way = "accurate" | "quick";
+
 export type Dictation = {
   /** Exactly what the speech model heard. */
   raw: string;
@@ -135,6 +139,8 @@ export type Dictation = {
   totalMs: number;
   /** When it finished, in milliseconds since 1970. */
   finishedAt: number;
+  /** How it was tidied; null when it was not, or from before there was a choice. */
+  way?: Way | null;
   /**
    * What you changed in it after it was pasted, once you were done. Null
    * until then, and for good when Utter couldn't follow the text box.
