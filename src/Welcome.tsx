@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { openPrivacySettings, requestMicrophone } from "./api";
-import { hotkeyLabel } from "./hotkey";
+import { FN, hotkeyLabel } from "./hotkey";
 import { cleanupGap, selectedModel } from "./readiness";
 import { askAccessibility } from "./sections/GeneralSection";
 import { PracticeBox } from "./sections/HomeSection";
@@ -17,6 +17,8 @@ import {
 } from "./ui";
 
 const STEPS = 4;
+/** The hotkey offered when fn cannot work yet: it needs no permission. */
+const COMBINATION = "Control+Alt+Space";
 const MB = 1_000_000;
 
 /**
@@ -37,6 +39,11 @@ export default function Welcome() {
   const mic = permissions?.microphone ?? "undetermined";
   const micOn = mic === "granted";
   const axOn = permissions?.accessibility ?? false;
+  // The fn key is watched with an event tap, which macOS allows only with
+  // Accessibility. Without it fn does nothing, so the try-it step offers a
+  // combination instead, which works without.
+  const fn = settings.hotkey === FN;
+  const fnBlocked = fn && !axOn;
   const downloading = !!progress && progress.name === model?.name;
   const total = progress ? progress.total || (model?.sizeMb ?? 0) * MB : 0;
   const fraction = model?.downloaded ? 1 : downloading && total ? Math.min(1, progress.received / total) : 0;
@@ -161,7 +168,7 @@ export default function Welcome() {
           <>
             <Bars mode={holding ? "live" : working ? "work" : "rest"} style={{ height: 30 }} />
             <Keycaps hotkey={settings.hotkey} down={new Set(holding ? settings.hotkey.split("+") : modifiers)} style={{ margin: 0, gap: 8 }} />
-            <span className="qnote">{holding ? "Listening" : working ? "Typing" : "Hold the keys"}</span>
+            <span className="qnote">{holding ? "Listening" : working ? "Typing" : fn ? "Hold fn" : "Hold the keys"}</span>
           </>
         )}
       </div>
@@ -216,7 +223,9 @@ export default function Welcome() {
               {micOn
                 ? axOn
                   ? "Utter can hear you and type for you."
-                  : "Now let it type for you. You can skip this one."
+                  : fn
+                    ? "Now let it type for you and hear the fn key."
+                    : "Now let it type for you. You can skip this one."
                 : "macOS asks once for each. The microphone is the one Utter needs."}
             </p>
             <div className="ob-pm" style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 20 }}>
@@ -262,7 +271,9 @@ export default function Welcome() {
                   {askedAx && !axOn && <span className="qspin" aria-label="Waiting" style={{ margin: "6px 0 0 6px" }} />}
                 </div>
                 <p className="qp" style={{ fontSize: 12.5 }}>
-                  Lets Utter type for you. Without it, Utter copies and you press ⌘V.
+                  {fn
+                    ? "Lets Utter type for you, and makes the fn key work. Without it, Utter copies and you press ⌘V, and you dictate with a key combination instead of fn."
+                    : "Lets Utter type for you. Without it, Utter copies and you press ⌘V."}
                 </p>
                 {!axOn && !askedAx && (
                   <div className="qrowb" style={{ marginTop: 12 }}>
@@ -332,12 +343,31 @@ export default function Welcome() {
           <>
             <h1 className="ob-h1">{!worked ? "Try it" : pasted ? "It works." : "It heard you."}</h1>
             <p className="ob-lead">
-              {!worked
-                ? `Click the box, hold ${hotkeyLabel(settings.hotkey)}, say a sentence, then let go.`
-                : pasted
-                  ? `Hold ${hotkeyLabel(settings.hotkey)} in any app, wherever you can type.`
-                  : "It’s on your clipboard. Allow Accessibility later and Utter types it for you."}
+              {!worked && fnBlocked
+                ? "The fn key needs Accessibility. Allow it, or dictate with ⌃⌥Space for now."
+                : !worked
+                  ? `Click the box, hold ${hotkeyLabel(settings.hotkey)}, say a sentence, then let go.`
+                  : pasted
+                    ? `Hold ${hotkeyLabel(settings.hotkey)} in any app, wherever you can type.`
+                    : "It’s on your clipboard. Allow Accessibility later and Utter types it for you."}
             </p>
+            {!worked && fnBlocked && (
+              <div className="qrowb" style={{ marginTop: 16 }}>
+                <button
+                  className="qbtn pri"
+                  onClick={() => {
+                    setAskedAx(true);
+                    askAccessibility();
+                  }}
+                >
+                  {askedAx && <span className="qspin" />}
+                  Allow Accessibility
+                </button>
+                <button className="qbtn" onClick={() => app.update({ hotkey: COMBINATION }).catch(() => undefined)}>
+                  Use {hotkeyLabel(COMBINATION)} instead
+                </button>
+              </div>
+            )}
             <div style={{ marginTop: 18 }}>
               <PracticeBox autoFocus placeholder="Your words appear here." hints={false} />
               {!worked && (

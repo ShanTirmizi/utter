@@ -4,10 +4,8 @@ import { FN, fromKeyEvent, heldIds, hotkeyLabel } from "../hotkey";
 import { useApp } from "../state";
 import { IconInfoLine, IconOut, Keycaps, Notice, Switch } from "../ui";
 
-const DEFAULT_HOTKEY: Record<Mode, string> = {
-  tidy: "Control+Alt+Space",
-  rewrite: "Control+Alt+KeyR",
-};
+/** The dictation hotkey new users start on, as in `settings.rs`. */
+const DEFAULT_HOTKEY = FN;
 
 type Outcome = { kind: "saved" } | { kind: "bad"; attempt: string; message: string } | null;
 
@@ -146,7 +144,7 @@ export default function HotkeysSection() {
 function MainHotkey({ held }: { held: Set<string> }) {
   const app = useApp();
   const { settings, live } = app;
-  const { capturing, outcome, setOutcome, save, record } = useRecorder("tidy");
+  const { capturing, outcome, setOutcome, record } = useRecorder("tidy");
   const hotkey = settings.hotkey;
   const fn = hotkey === FN;
   const broken = !!app.hotkeyProblem && !capturing;
@@ -159,7 +157,6 @@ function MainHotkey({ held }: { held: Set<string> }) {
 
   const label = capturing ? "Recording" : outcome?.kind === "bad" ? "Not saved" : "Dictate";
   const right = capturing ? "esc cancels" : outcome || broken ? "" : "Press it now to test it";
-  const reset = hotkey !== DEFAULT_HOTKEY.tidy && DEFAULT_HOTKEY.tidy !== settings.rewriteHotkey;
 
   const useFn = () => {
     setOutcome(null);
@@ -251,14 +248,9 @@ function MainHotkey({ held }: { held: Set<string> }) {
                   Record new hotkey
                 </button>
               )}
-              {!fn && (
-                <button className="qbtn" title="Also switches macOS's own 🌐 key action off while Utter is running" onClick={useFn}>
-                  Use the fn key
-                </button>
-              )}
-              {reset && (
-                <button className="qbtn ghost" onClick={() => save(DEFAULT_HOTKEY.tidy)}>
-                  Reset to {hotkeyLabel(DEFAULT_HOTKEY.tidy)}
+              {hotkey !== DEFAULT_HOTKEY && (
+                <button className="qbtn" title="Hold fn to dictate, double-tap it for hands-free. Also switches macOS's own 🌐 key action off while Utter is running." onClick={useFn}>
+                  Reset to {hotkeyLabel(DEFAULT_HOTKEY)}
                 </button>
               )}
             </>

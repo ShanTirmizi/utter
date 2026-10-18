@@ -107,8 +107,7 @@
   var saidK = $("said-k");
   var saidW = $("said-w");
   var live = $("demo-live");
-  var thirdT = $("thirdkey-t");
-  var thirdKey = $("thirdkey");
+  var holdKeys = hold.querySelectorAll("[data-keys]");
 
   var wins = {};
   each(demo.querySelectorAll(".win"), function (win) {
@@ -230,9 +229,10 @@
       button.setAttribute("aria-pressed", String(button.getAttribute("data-mode") === state.mode));
     });
     mbarApp.textContent = wins[state.app].getAttribute("data-name");
-    var rewrite = state.mode === "rewrite";
-    thirdT.textContent = rewrite ? "R" : "";
-    thirdKey.classList.toggle("space", !rewrite);
+    // fn to tidy, as in the app. A page cannot see fn, so Space stands in for it.
+    each(holdKeys, function (key) {
+      key.hidden = key.getAttribute("data-keys") !== state.mode;
+    });
   }
 
   /* ----- the pill and the menu bar icon ----- */

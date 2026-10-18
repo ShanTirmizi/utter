@@ -345,12 +345,14 @@ local model are also given longer before Utter gives up and uses the raw text.
 
 ## Hotkey and permissions
 
-The hotkey is registered with macOS as a system hotkey. macOS then delivers the
-press and release to Utter and withholds that combination from other apps. This
-needs no permission at all.
+The dictation hotkey is the fn key on its own unless the user records a
+combination: one key every Mac keyboard has, held with one finger, with
+nothing to remember. A key combination is registered with macOS as a system
+hotkey. macOS then delivers the press and release to Utter and withholds that
+combination from other apps. This needs no permission at all.
 
-A lone modifier key cannot be registered that way. For the fn key, which users
-asked for, Utter installs an event tap. A tap that is allowed to act on events
+A lone modifier key cannot be registered that way. For the fn key Utter
+installs an event tap. A tap that is allowed to act on events
 needs Accessibility, which Utter already has for pasting; a listen-only tap
 would need Input Monitoring instead, so the tap is the acting kind and passes
 everything through unchanged. It is consulted only for fn going down and up
@@ -383,7 +385,7 @@ setting itself.
 | Permission | Used for | Asked when |
 | --- | --- | --- |
 | Microphone | Recording while you dictate | First-run screen |
-| Accessibility | Pressing `⌘V` in the focused app; reading the selection | First-run screen; optional |
+| Accessibility | Hearing the fn key; pressing `⌘V` in the focused app; reading the selection | First-run screen; optional (without it, the try-it step offers `⌃⌥Space` instead of fn) |
 
 The first-run screen explains each one, shows its live status, and lists Input
 Monitoring as not required so nobody goes looking for it.

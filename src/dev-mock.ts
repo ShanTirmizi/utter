@@ -4,8 +4,9 @@
 // dictations with a made-up voice. This file is never loaded inside the real
 // app or in production builds (see main.tsx).
 //
-// Hold the hotkey shown in the window (by default Control+Option+Space) to
-// dictate; Control+Option+R rewrites. Query parameters set the scene:
+// Hold the hotkey shown in the window to dictate; Control+Option+R rewrites.
+// The default is the fn key, which a browser never sees, so Control+Option+
+// Space stands in for it here. Query parameters set the scene:
 //
 //   ?welcome          start at the first-run screen
 //   ?tab=cleanup      open the main window on a section
@@ -25,8 +26,8 @@
 //   ?edit             the last dictation edited a selection
 //   ?audio            Keep recordings is on
 //   ?selected         the rewrite hotkey edits a pretend selection
-//   ?fn               the fn key is the dictation hotkey
-//   ?fnconflict       and macOS also shows emoji when it is pressed
+//   ?combo            Control+Option+Space is the dictation hotkey, not fn
+//   ?fnconflict       macOS also shows emoji when fn is pressed
 //   ?fail=cleanup|test|download|hotkey   make that step fail
 //   ?fail=startup-hotkey   macOS refused the hotkey at launch
 //   ?pill=listen|handsfree|transcribe|tidy|rewrite|edit|note|note2|paste|blocked|learned
@@ -51,7 +52,7 @@ const fail = query.get("fail");
 const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 let settings: Settings = {
-  hotkey: query.has("fn") ? "Fn" : "Control+Alt+Space",
+  hotkey: query.has("combo") ? "Control+Alt+Space" : "Fn",
   cleanupEnabled: query.get("cleanup") !== "off",
   way: "accurate",
   provider: "anthropic",
@@ -402,6 +403,7 @@ function paste(text: string) {
 /** Does this key event complete the stored hotkey ("Control+Alt+Space")? */
 function matches(e: KeyboardEvent, hotkey: string): boolean {
   if (!hotkey) return false;
+  if (hotkey === "Fn") return e.key === "Fn" || matches(e, "Control+Alt+Space");
   const parts = hotkey.split("+");
   const code = parts[parts.length - 1];
   const wants = (m: string) => parts.includes(m);

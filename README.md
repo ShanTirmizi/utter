@@ -60,8 +60,8 @@ Everything it does:
   one rewrites what you said so it reads better, in a style you choose.
 - **Edit by voice.** Select some text, hold the rewrite hotkey and say what to
   change: "make this shorter", "turn this into bullet points".
-- **One key if you like.** Use the fn (globe) key on its own: hold it to
-  talk, double-tap it for hands-free.
+- **One key.** Hold the fn (globe) key to talk, double-tap it for
+  hands-free. Or pick any key combination you like.
 - **Hands-free.** Double-tap the hotkey instead of holding it, talk for up to
   five minutes, and tap once more to finish.
 - **Your words.** A personal dictionary for the names and jargon that speech
@@ -85,8 +85,9 @@ flowchart LR
     F -. "any error" .-> G
 ```
 
-1. **Hotkey.** `⌃ ⌥ Space` (or the fn key on its own) to dictate, `⌃ ⌥ R` to
-   dictate and rewrite. Change either in settings.
+1. **Hotkey.** The fn key on its own (or a key combination such as
+   `⌃ ⌥ Space`) to dictate, `⌃ ⌥ R` to dictate and rewrite. Change either in
+   settings.
 2. **Record.** Utter listens only while you are dictating. A double tap
    instead of a hold starts a hands-free recording that runs until the next tap.
 3. **Transcribe.** A Whisper model runs on your Mac, using the GPU through
@@ -168,12 +169,14 @@ Utter opens with a four-step welcome that takes about a minute:
 
 1. **Hello.** Pressing "Get started" also starts downloading the Small speech
    model (488 MB), so it is usually ready by step 3.
-2. **Permissions.** Allow the microphone; Accessibility is optional (see below).
+2. **Permissions.** Allow the microphone, and Accessibility, which lets Utter
+   type for you and hear the fn key (see below).
 3. **Speech model.** Keep Small, or pick another. Base is fastest but
    mishears names and jargon more often. Large is the most accurate and understands
    languages other than English; under **Speech** you can tell it which
    one you speak, or leave it to detect.
-4. **Try it.** Hold `⌃ ⌥ Space`, say a sentence, and let go.
+4. **Try it.** Hold `fn`, say a sentence, and let go. If you skipped
+   Accessibility, this step offers `⌃ ⌥ Space` instead, which works without it.
 
 After that, the window has a sidebar: Home, History and Words, then a
 Settings group you can fold away (Hotkeys, Speech, Cleanup, AI provider,
@@ -270,13 +273,15 @@ tap does nothing but remind you how to start.
 
 ## The fn key
 
-Under **Hotkeys**, click **Use the fn key** to dictate with fn (the globe key)
-on its own, like this:
+Out of the box you dictate with fn (the globe key) on its own:
 
 - **Hold fn** and speak; let go to insert.
 - **Double-tap fn** for hands-free; tap once more to finish.
 - **fn in a shortcut** (fn+arrow, fn+Delete) still works as usual: the
   moment another key is pressed with fn, Utter drops that recording.
+
+To use a key combination instead, click **Record new hotkey** under
+**Hotkeys**. **Reset to fn** brings fn back.
 
 macOS will not register a lone modifier key as a hotkey, so Utter watches for
 fn with an event tap. That needs the Accessibility permission (already used for
@@ -362,8 +367,8 @@ again, fix a word, forget one, or clear them all.
 | Permission | Needed | Why |
 | --- | --- | --- |
 | Microphone | Yes | To hear you while the hotkey is held. |
-| Accessibility | Recommended | To press `⌘V` in the app you are typing in, to see the text you selected when you edit by voice, to read names in the window in front while you dictate, and to notice a word you correct right after a paste. Without it, Utter copies the text and you paste it yourself. |
-| Input Monitoring | No | A key combination is registered with macOS as a system hotkey, so Utter never sees your other keystrokes. With the fn key option, Utter notices only that some other key was pressed while fn is held, never which (see "The fn key"). |
+| Accessibility | Recommended | To hear the fn key, to press `⌘V` in the app you are typing in, to see the text you selected when you edit by voice, to read names in the window in front while you dictate, and to notice a word you correct right after a paste. Without it, Utter copies the text and you paste it yourself, and you dictate with a key combination instead of fn. |
+| Input Monitoring | No | With the fn key, Utter notices only that some other key was pressed while fn is held, never which (see "The fn key"). A key combination is registered with macOS as a system hotkey, so Utter never sees your other keystrokes. |
 
 You can change these under System Settings > Privacy & Security.
 
@@ -547,8 +552,8 @@ The interface is React and hand-written CSS, in `src`:
 | `styles/` | `quiet.css` (tokens for light and dark, and components) and `app.css` |
 | `dev-mock.ts` | The pretend backend for `pnpm dev` |
 
-With `pnpm dev`, open `http://localhost:1420` and hold `⌃ ⌥ Space` to play a
-dictation. `/#pill` shows the status pill and `?welcome` the first run; the
+With `pnpm dev`, open `http://localhost:1420` and hold `⌃ ⌥ Space` (standing
+in for fn, which a browser cannot see) to play a dictation. `/#pill` shows the status pill and `?welcome` the first run; the
 notes at the top of `dev-mock.ts` list the other switches.
 
 More on the design choices is in [docs/DESIGN.md](docs/DESIGN.md).

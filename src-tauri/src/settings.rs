@@ -9,7 +9,8 @@ use tauri::{AppHandle, Manager};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
-    /// Key combination to hold while speaking, e.g. "Control+Alt+Space".
+    /// What to hold while speaking: "Fn" for the fn (globe) key on its own,
+    /// the default, or a key combination such as "Control+Alt+Space".
     pub hotkey: String,
     /// Run the transcript through the cleanup model when one is set up.
     pub cleanup_enabled: bool,
@@ -82,7 +83,9 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            hotkey: "Control+Alt+Space".into(),
+            // One key, which every Mac keyboard has and nothing else needs
+            // held: hold it to talk, double-tap it for hands-free.
+            hotkey: crate::fnkey::FN.into(),
             cleanup_enabled: true,
             way: Way::Accurate,
             provider: "anthropic".into(),
@@ -169,6 +172,12 @@ mod tests {
         assert_eq!(parsed.provider, "anthropic");
         // Nobody's voice is kept unless they asked for it.
         assert!(!parsed.keep_audio);
+        // New users dictate with fn, and macOS's globe action is held off
+        // while they do; a combination someone saved is kept.
+        assert_eq!(Settings::default().hotkey, "Fn");
+        assert!(Settings::default().quiet_globe);
+        let saved: Settings = serde_json::from_str(r#"{"hotkey":"Control+Alt+Space"}"#).unwrap();
+        assert_eq!(saved.hotkey, "Control+Alt+Space");
     }
 
     #[test]
