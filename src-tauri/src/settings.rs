@@ -72,6 +72,9 @@ pub struct Settings {
     pub check_updates: bool,
     /// "system" follows the Mac's appearance; "light" or "dark" fixes it.
     pub appearance: String,
+    /// The microphone to record from, by its Core Audio UID. Empty means the
+    /// system default; a picked one that is unplugged falls back to it.
+    pub microphone: String,
     /// Set once the first-run permissions screen has been completed.
     pub onboarded: bool,
 }
@@ -107,6 +110,7 @@ impl Default for Settings {
             removed: Vec::new(),
             check_updates: false,
             appearance: "system".into(),
+            microphone: String::new(),
             onboarded: false,
         }
     }

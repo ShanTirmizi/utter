@@ -82,7 +82,7 @@ function useRecorder(which: Mode) {
   return { capturing, outcome, setOutcome, save, record, field };
 }
 
-export default function HotkeySection() {
+export default function HotkeysSection() {
   const app = useApp();
   const { settings } = app;
   const held = useHeldKeys();
@@ -92,8 +92,8 @@ export default function HotkeySection() {
     <>
       <div className="qhead">
         <div className="t">
-          <h1>Hotkey</h1>
-          <p>Hold it to dictate. Let go to insert.</p>
+          <h1>Hotkeys</h1>
+          <p>Hold to dictate. Let go to insert.</p>
         </div>
       </div>
       <MainHotkey held={held} />
@@ -131,10 +131,10 @@ export default function HotkeySection() {
           </div>
           <div>
             <b>Rewrite</b>
-            <span>{rw ? `Hold ${rw} to dictate in your style.` : "Set a rewrite hotkey above."}</span>
+            <span>{rw ? `Hold ${rw} to dictate in your rewrite style.` : "Set a rewrite hotkey above."}</span>
           </div>
           <div>
-            <b>Edit</b>
+            <b>Rewrite a selection</b>
             <span>{rw ? `Select text, hold ${rw}, say the change.` : "Needs the rewrite hotkey."}</span>
           </div>
         </div>
@@ -348,8 +348,8 @@ function RewriteHotkey({ held }: { held: Set<string> }) {
         {capturing
           ? "Hold at least one of ⌃ ⌥ ⌘, then one other key."
           : hotkey
-            ? "Hold to dictate in your rewrite style. With text selected, hold it and say how to change it, like “make it shorter”."
-            : "Rewriting and editing a selection both need this hotkey."}
+            ? "Hold to dictate in your rewrite style. Select text first to rewrite that instead: hold it and say how to change it, like “make it shorter”."
+            : "Rewriting, and rewriting a selection, both need this hotkey."}
       </p>
     </div>
   );

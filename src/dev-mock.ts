@@ -94,8 +94,15 @@ let settings: Settings = {
     : [],
   checkUpdates: false,
   appearance: "system",
+  microphone: "",
   onboarded: !query.has("welcome"),
 };
+let login: "off" | "on" | "needsApproval" | "unavailable" = query.has("nologin") ? "unavailable" : "off";
+const mics = [
+  { id: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone" },
+  { id: "AppleUSBAudioEngine:Shure:MV7:1", name: "Shure MV7" },
+  ...(query.has("airpods") ? [{ id: "AA-BB-CC:input", name: "Shan’s AirPods Pro" }] : []),
+];
 const keys = new Set<string>(query.has("key") ? ["anthropic"] : []);
 
 const catalog: Provider[] = [
@@ -542,6 +549,14 @@ export function installMock() {
           return "This is a quick test of the cleanup step.";
         case "permission_status":
           return { ...permissions };
+        case "microphones":
+          return { defaultName: mics[0].name, devices: mics };
+        case "login_item":
+          return login;
+        case "set_login_item":
+          if (login === "unavailable") throw "Only the installed Utter app can open at login.";
+          login = payload?.enabled ? "on" : "off";
+          return login;
         case "request_microphone":
           // Stand in for the person clicking "Allow" on the system prompt.
           setTimeout(() => (permissions.microphone = "granted"), 900);

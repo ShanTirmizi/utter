@@ -569,7 +569,7 @@ was just after the paste, the user's own text around them must be unchanged
 (otherwise the result is "unclear" and nothing is recorded), and the words
 between are compared with what was pasted. Words typed straight after or
 before the dictation are carrying on, not correcting. The word-level edit
-distance is stored on the dictation as `edit.changed`; a Fix on Try it adds
+distance is stored on the dictation as `edit.changed`; a Fix on Home or History adds
 to it. The edit rate is the share of followed dictations with none.
 
 The watch runs while learning is on or recordings are kept. With both off,
@@ -623,10 +623,16 @@ the folded sidebar, menus, the pill window).
   level about twenty times a second (`audio-level`, 0 to 1 for -60 dB to
   -12 dB), rising fast and falling slower so speech looks lively without
   flickering.
-- **Sections in a sidebar.** Try it and Words at the top, the settings in a
-  group under them, About at the foot. Below 680 px wide the sidebar folds to
-  icons. Rewrite has no section of its own: its hotkey sits beside the
-  dictation hotkey, and its style sits with the model that does the rewriting.
+- **Sections in a sidebar.** Home, History and Words at the top; then the
+  settings in a group that folds away and remembers being folded (a section
+  with a `!`, or the one open, stays in view either way): Hotkeys, Speech,
+  Cleanup, AI provider, Privacy, General; About at the foot. Each setting
+  lives in one place. Everything Utter keeps, reads or sends is on Privacy,
+  with a summary of what leaves the Mac for the current settings. The
+  language model is its own section because cleanup and rewrite both use it.
+  Below 680 px wide the sidebar folds to icons. Rewrite has no section of its
+  own: its hotkey sits beside the dictation hotkey, and its style with
+  Cleanup.
 - **Before and after.** The last dictation can be read as heard, as written, or
   as the changes between the two. The wait after letting go is the big number;
   three tiles split it into transcribing, the model, and inserting.

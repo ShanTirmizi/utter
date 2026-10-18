@@ -157,7 +157,7 @@ and Gatekeeper checks downloads for Apple's notarisation.
   open without warnings and permissions survive updates.
 - **Your own build** is signed ad hoc. It is never quarantined, so it opens
   straight away, but each rebuild counts as a new app: allow the microphone
-  again and use **Reset it** under Permissions for Accessibility. Set
+  again and use **Reset it** under General for Accessibility. Set
   `APPLE_SIGNING_IDENTITY` to a signing certificate of your own to avoid that.
 - **Maintainers** make a release with `scripts/release.sh`, which signs, packages
   and notarises; see the comments at its top.
@@ -171,16 +171,18 @@ Utter opens with a four-step welcome that takes about a minute:
 2. **Permissions.** Allow the microphone; Accessibility is optional (see below).
 3. **Speech model.** Keep Small, or pick another. Base is fastest but
    mishears names and jargon more often. Large is the most accurate and understands
-   languages other than English; under **Speech model** you can tell it which
+   languages other than English; under **Speech** you can tell it which
    one you speak, or leave it to detect.
 4. **Try it.** Hold `⌃ ⌥ Space`, say a sentence, and let go.
 
-After that, the window has a sidebar: Try it, Words, then Settings (Hotkey,
-Speech model, Cleanup, Permissions), and About at the foot. The status card
-above About always says whether Utter is ready; if it is not, it names the one
-problem, the section that fixes it carries a `!`, and clicking the card opens
-it. The window follows the system appearance, or pick Light or Dark under
-**About**.
+After that, the window has a sidebar: Home, History and Words, then a
+Settings group you can fold away (Hotkeys, Speech, Cleanup, AI provider,
+Privacy, General), and About at the foot. The status card above About always
+says whether Utter is ready; if it is not, it names the one problem, the
+section that fixes it carries a `!` (and shows even with Settings folded), and
+clicking the card opens it. The window follows the system appearance, or pick
+Light or Dark under **General**, which is also where Utter can open at login
+and record from a microphone other than the system default.
 
 Closing the window keeps Utter running in the menu bar. The menu bar icon
 moves while Utter listens or works and shows a dot when it needs you. Its menu
@@ -303,7 +305,7 @@ entries; a handful of the ones you actually say works best.
   taught or simply sounding alike, always goes to the cleanup model, even
   when it is short and already looks clean. This needs cleanup set up; raw
   text only gets the speech model's hint.
-- **Fix a word.** On **Try it**, press **Fix** on a dictation and click the
+- **Fix a word.** On **Home** or **History**, press **Fix** on a dictation and click the
   word that came out wrong. It is corrected there, and the right spelling and
   the mishearing are remembered. Click the next word too when one name was
   heard as two ("pre a" for Priya).
@@ -326,7 +328,7 @@ entries; a handful of the ones you actually say works best.
   box, say), so a misheard word can be put right from it; never from a
   terminal or code editor. None of the window's text is ever kept. A name you then say
   is offered under **Suggested from your screen**; nothing is added without
-  you. Switch it off on the Words tab.
+  you. Switch it off under **Privacy**.
 - **Add a Word…** in the menu bar opens the list ready to type into.
 - A word you remove is never learned or suggested again, and stays under
   **Removed recently** for 30 days with its mishearings, in case you want it
@@ -334,20 +336,20 @@ entries; a handful of the ones you actually say works best.
 
 ## History
 
-The **Try it** tab lists your recent dictations under the last one. Search
-them, copy one again, forget one, or clear them all.
+The **History** tab lists your recent dictations. Search them, copy one
+again, fix a word, forget one, or clear them all.
 
 - Kept in one file on your Mac (`history.json` in Utter's Application Support
   folder), readable only by your user account. Never sent anywhere.
 - The most recent 200 are kept.
-- Switch **Keep history** off and nothing new is saved.
+- Switch **Keep history** off (under **Privacy**) and nothing new is saved.
 - **Edits.** A dictation you changed after Utter pasted it says how many words
-  you changed, and **About** shows the share you left as typed: the number
+  you changed, and **History** shows the share you left as typed: the number
   that says how well Utter is doing for you. Utter can tell only while it
   follows the text box after a paste (with **Learn from my corrections** or
   **Keep recordings** on, and Accessibility allowed); fixing a word on
-  **Try it** counts too. Only the count is kept.
-- **Keep recordings** (in **About**, off by default) also keeps the audio of
+  **Home** or **History** counts too. Only the count is kept.
+- **Keep recordings** (under **Privacy**, off by default) also keeps the audio of
   your last 50 dictations, as 16 kHz WAV files in a `recordings` folder next
   to `history.json`, readable only by your user account, with the text as you
   corrected it. They are for trying other speech models and prompts on what
@@ -367,11 +369,13 @@ You can change these under System Settings > Privacy & Security.
 
 **If Accessibility is switched on but Utter still says it is not allowed:**
 macOS is matching the switch to an older build of the app. In Utter, under
-**Permissions**, click **Reset it**, then switch Utter on again in System
+**General**, click **Reset it**, then switch Utter on again in System
 Settings. This happens after every rebuild of an ad-hoc signed build, for the
 reason given under "Signing, and why it matters".
 
 ## What leaves your Mac
+
+The **Privacy** page in Utter sums this up for your own settings.
 
 - **Audio:** never. Recordings kept with **Keep recordings** stay in a folder
   on your Mac.

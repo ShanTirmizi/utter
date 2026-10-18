@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { openPrivacySettings, requestMicrophone } from "./api";
 import { hotkeyLabel } from "./hotkey";
 import { cleanupGap, selectedModel } from "./readiness";
-import { askAccessibility } from "./sections/PermissionsSection";
-import { PracticeBox } from "./sections/TrySection";
+import { askAccessibility } from "./sections/GeneralSection";
+import { PracticeBox } from "./sections/HomeSection";
 import { shortName, useApp } from "./state";
 import {
   Bars,
@@ -66,7 +66,8 @@ export default function Welcome() {
   };
 
   const finish = (openCleanup = false) => {
-    if (openCleanup) app.setTab("cleanup");
+    // Cleanup still off: its switch is on Cleanup. On but missing a key or model: AI provider.
+    if (openCleanup) app.setTab(settings.cleanupEnabled ? "provider" : "cleanup");
     app.update({ onboarded: true }).catch((err) => setFinishError(String(err)));
   };
 

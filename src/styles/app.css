@@ -25,6 +25,14 @@ button{cursor:default}
 .qmain{overflow-y:auto;overflow-x:hidden;position:relative}
 .qmain::after{content:"";display:block;height:4px;flex:none}
 .qabout .lbl{flex:none}
+/* Six settings pages: a tighter tree, and a sidebar that scrolls rather than
+   clips when the window is short. */
+.qside{overflow-y:auto;scrollbar-width:none}
+.qside::-webkit-scrollbar{display:none}
+.qbrand{margin-bottom:20px}
+.qtree .qnav{height:34px}
+.qtree .qnav::before{top:3px}
+.qtree::before{bottom:17px}
 
 /* Under 680 wide the sidebar shrinks to icons. */
 @media (max-width:679px){
@@ -35,7 +43,7 @@ button{cursor:default}
   .qnav .ico{display:block}
   .qtree{margin:0;padding:0;align-items:center}
   .qtree::before,.qtree .qnav::before{display:none}
-  .qtree .qnav{padding:0}
+  .qtree .qnav{padding:0;height:40px}
   .qnav .qbdg{position:absolute;top:2px;right:0;min-width:15px;height:15px;font-size:10px;padding:0 3px;border-radius:5px}
   .qstat{width:44px;height:44px;padding:0;align-items:center;justify-content:center}
   .qabout{justify-content:center;padding:0;width:44px;font-size:11px}
@@ -161,3 +169,12 @@ textarea.qarea:focus{box-shadow:inset 0 0 0 1.5px var(--ink2),0 0 0 4px var(--fo
 .qpill > span > svg{width:17px;height:17px;display:block}
 .qpill .bdg{flex:none}
 @media (prefers-reduced-motion:reduce){.pillwin .qpill{transition:opacity .2s linear!important}}
+
+/* Privacy: where each kind of data goes. */
+.qleave{margin:8px 0 0;display:flex;flex-direction:column}
+.qleave div{display:grid;grid-template-columns:170px minmax(0,1fr);gap:12px;padding:9px 0;border-top:1px solid var(--hair);font-size:13.5px;line-height:19px}
+.qleave div:first-child{border-top:0}
+.qleave dt{color:var(--mid)}
+.qleave dd{margin:0;color:var(--ink)}
+.qpi{color:var(--mid);display:inline-flex}
+.qpi svg{width:18px;height:18px}

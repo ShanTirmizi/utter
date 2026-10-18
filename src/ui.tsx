@@ -78,21 +78,28 @@ function Svg({ children, box = 20, size, stroke = 1.6, fill = false, className }
   );
 }
 
-export const IconTry = () => (
-  <Svg>
-    <path d="M4.5 8v4M7.5 5.5v9M10.5 3.5v13M13.5 5.5v9M16.5 8v4" />
-  </Svg>
-);
 export const IconWords = () => (
   <Svg>
     <path d="M3 15.5L7 4.5l4 11M4.4 11.5h5.2" />
     <path d="M13 9.2c.5-.8 1.3-1.2 2.2-1.2 1.5 0 2.3.9 2.3 2.3v5.2M17.5 12.3c-2.8 0-4.6.7-4.6 2 0 .9.7 1.4 1.7 1.4 1.6 0 2.9-1.2 2.9-3.4" />
   </Svg>
 );
-export const IconSettings = () => (
+export const IconHome = () => (
   <Svg>
-    <circle cx="10" cy="10" r="2.5" />
-    <path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4M15.3 15.3l-1.4-1.4M6.1 6.1L4.7 4.7" />
+    <path d="M3.5 9L10 3.5 16.5 9M5.5 7.5v8.5h9V7.5" />
+    <path d="M8.5 16v-4h3v4" />
+  </Svg>
+);
+export const IconHistory = () => (
+  <Svg>
+    <path d="M3.6 10a6.4 6.4 0 1 0 1.9-4.6M3.4 3.6v2.6H6" />
+    <path d="M10 6.6V10l2.3 1.6" />
+  </Svg>
+);
+export const IconSettings = () => (
+  <Svg box={24} stroke={1.8}>
+    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+    <circle cx="12" cy="12" r="3" />
   </Svg>
 );
 export const IconChevron = () => (
@@ -127,6 +134,19 @@ export const IconCleanup = () => (
 export const IconShield = () => (
   <Svg stroke={1.5}>
     <path d="M10 2.5l6 2.4v4.8c0 3.8-2.6 6.3-6 7.6-3.4-1.3-6-3.8-6-7.6V4.9z" />
+  </Svg>
+);
+export const IconPlug = () => (
+  <Svg stroke={1.5}>
+    <path d="M7.5 3v3.5M12.5 3v3.5M5 6.5h10v2.5a5 5 0 0 1-10 0z" />
+    <path d="M10 14v3" />
+  </Svg>
+);
+export const IconSliders = () => (
+  <Svg stroke={1.5}>
+    <path d="M3 6h7M14 6h3M3 14h3M10 14h7" />
+    <circle cx="12" cy="6" r="2" />
+    <circle cx="8" cy="14" r="2" />
   </Svg>
 );
 export const IconX = () => (

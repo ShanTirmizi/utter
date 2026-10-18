@@ -3,34 +3,65 @@ import { setTrayStatus } from "./api";
 import { readiness, tabFlags } from "./readiness";
 import AboutSection from "./sections/AboutSection";
 import CleanupSection from "./sections/CleanupSection";
-import HotkeySection from "./sections/HotkeySection";
-import ModelSection from "./sections/ModelSection";
-import PermissionsSection from "./sections/PermissionsSection";
-import TrySection from "./sections/TrySection";
+import GeneralSection from "./sections/GeneralSection";
+import HistorySection from "./sections/HistorySection";
+import HomeSection from "./sections/HomeSection";
+import HotkeysSection from "./sections/HotkeysSection";
+import PrivacySection from "./sections/PrivacySection";
+import ProviderSection from "./sections/ProviderSection";
+import SpeechSection from "./sections/SpeechSection";
 import WordsSection from "./sections/WordsSection";
 import { AppContextProvider, useApp, useAppState, type TabId } from "./state";
 import {
   IconChevron,
   IconChip,
   IconCleanup,
+  IconHistory,
+  IconHome,
   IconHotkey,
+  IconPlug,
   IconSettings,
   IconShield,
-  IconTry,
+  IconSliders,
   IconWords,
   Logo,
 } from "./ui";
 import Welcome from "./Welcome";
 
 const SETTINGS: { id: TabId; label: string; icon: ReactNode }[] = [
-  { id: "hotkey", label: "Hotkey", icon: <IconHotkey /> },
-  { id: "model", label: "Speech model", icon: <IconChip /> },
+  { id: "hotkeys", label: "Hotkeys", icon: <IconHotkey /> },
+  { id: "speech", label: "Speech", icon: <IconChip /> },
   { id: "cleanup", label: "Cleanup", icon: <IconCleanup /> },
-  { id: "permissions", label: "Permissions", icon: <IconShield /> },
+  { id: "provider", label: "AI provider", icon: <IconPlug /> },
+  { id: "privacy", label: "Privacy", icon: <IconShield /> },
+  { id: "general", label: "General", icon: <IconSliders /> },
 ];
 
 /** Every section in sidebar order, for the arrow keys. */
-const ORDER: TabId[] = ["try", "words", "hotkey", "model", "cleanup", "permissions", "about"];
+const ORDER: TabId[] = ["home", "history", "words", "hotkeys", "speech", "cleanup", "provider", "privacy", "general", "about"];
+
+/** Whether the settings group is open, kept between launches. Open unless folded. */
+const FOLD_KEY = "utter.settingsFolded";
+function savedOpen(): boolean {
+  try {
+    return localStorage.getItem(FOLD_KEY) !== "1";
+  } catch {
+    return true;
+  }
+}
+
+/** True while the window is narrow enough for the sidebar to fold to icons (see app.css). */
+function useNarrow(): boolean {
+  const query = "(max-width: 679px)";
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = () => setNarrow(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}
 
 export default function App() {
   const app = useAppState();
@@ -48,7 +79,11 @@ function MainWindow() {
   const { tab, setTab, updateInfo } = app;
   const ready = readiness(app);
   const flags = tabFlags(app);
-  const [settingsOpen, setSettingsOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(savedOpen);
+  // Folded to icons there is no group header to unfold with, so every
+  // settings page shows.
+  const narrow = useNarrow();
+  const groupOpen = settingsOpen || narrow;
   const navRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
   const main = useRef<HTMLElement>(null);
 
@@ -65,10 +100,17 @@ function MainWindow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trayKey]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(FOLD_KEY, settingsOpen ? "0" : "1");
+    } catch {
+      // Remembering is a nicety; the group still works without it.
+    }
+  }, [settingsOpen]);
+
   // A new section starts at the top.
   useEffect(() => {
     main.current?.scrollTo({ top: 0 });
-    if (SETTINGS.some((s) => s.id === tab)) setSettingsOpen(true);
   }, [tab]);
 
   // Up and down arrows move through the sidebar, as in a macOS source list.
@@ -76,7 +118,8 @@ function MainWindow() {
     const step = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
     if (!step || !(e.target instanceof HTMLElement) || !e.target.dataset.section) return;
     e.preventDefault();
-    const visible = ORDER.filter((id) => settingsOpen || !SETTINGS.some((s) => s.id === id));
+    const shown = (id: TabId) => groupOpen || !!flags[id] || tab === id;
+    const visible = ORDER.filter((id) => !SETTINGS.some((s) => s.id === id) || shown(id));
     // Move from the item that has focus, which is not always the one selected.
     const at = visible.indexOf(e.target.dataset.section as TabId);
     const next = visible[(at + step + visible.length) % visible.length];
@@ -115,7 +158,8 @@ function MainWindow() {
           <Logo />
           <span>Utter</span>
         </div>
-        {nav("try", "Try it", <IconTry />)}
+        {nav("home", "Home", <IconHome />)}
+        {nav("history", "History", <IconHistory />)}
         {nav("words", "Words", <IconWords />)}
         <button
           className="qnav on qgroup"
@@ -126,9 +170,9 @@ function MainWindow() {
           <span className="lbl">Settings</span>
           <IconChevron />
         </button>
-        {(settingsOpen || SETTINGS.some((s) => flags[s.id])) && (
+        {(groupOpen || SETTINGS.some((s) => flags[s.id] || tab === s.id)) && (
           <div className="qtree">
-            {SETTINGS.filter((s) => settingsOpen || flags[s.id] || tab === s.id).map((s) => nav(s.id, s.label, s.icon, true))}
+            {SETTINGS.filter((s) => groupOpen || flags[s.id] || tab === s.id).map((s) => nav(s.id, s.label, s.icon, true))}
           </div>
         )}
         <button
@@ -166,12 +210,15 @@ function MainWindow() {
       </nav>
 
       <main className="qmain" ref={main} aria-label={tab}>
-        {tab === "try" && <TrySection />}
+        {tab === "home" && <HomeSection />}
+        {tab === "history" && <HistorySection />}
         {tab === "words" && <WordsSection />}
-        {tab === "hotkey" && <HotkeySection />}
-        {tab === "model" && <ModelSection />}
+        {tab === "hotkeys" && <HotkeysSection />}
+        {tab === "speech" && <SpeechSection />}
         {tab === "cleanup" && <CleanupSection />}
-        {tab === "permissions" && <PermissionsSection />}
+        {tab === "provider" && <ProviderSection />}
+        {tab === "privacy" && <PrivacySection />}
+        {tab === "general" && <GeneralSection />}
         {tab === "about" && <AboutSection />}
       </main>
     </div>

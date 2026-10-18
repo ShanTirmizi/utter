@@ -58,10 +58,10 @@ export function readiness(app: AppState): Readiness {
 
   // Then the first of these that applies. Red only when dictation can't happen.
   if (permissions && permissions.microphone !== "granted") {
-    return { ...base, tone: "bad", title: "Allow the microphone", detail: "Dictation can’t start", tab: "permissions", action: "Allow Microphone…" };
+    return { ...base, tone: "bad", title: "Allow the microphone", detail: "Dictation can’t start", tab: "general", action: "Allow Microphone…" };
   }
   if (app.hotkeyProblem) {
-    return { ...base, tone: "bad", title: "A hotkey isn’t working", detail: "Fix it in Hotkey", tab: "hotkey", action: "Fix Hotkey…" };
+    return { ...base, tone: "bad", title: "A hotkey isn’t working", detail: "Fix it in Hotkeys", tab: "hotkeys", action: "Fix Hotkey…" };
   }
   const model = selectedModel(app);
   if (progress && !model?.downloaded) {
@@ -73,21 +73,21 @@ export function readiness(app: AppState): Readiness {
       tone: "live",
       title: `Downloading ${busy ? shortName(busy.label) : "a model"}`,
       detail: `${Math.round(fraction * 100)}%`,
-      tab: "model",
+      tab: "speech",
       bar: fraction,
     };
   }
   if (!progress && model && !model.downloaded) {
-    return { ...base, tone: "pe", title: "Download a speech model", detail: "Dictation can’t start yet", tab: "model", action: "Download a Speech Model…" };
+    return { ...base, tone: "pe", title: "Download a speech model", detail: "Dictation can’t start yet", tab: "speech", action: "Download a Speech Model…" };
   }
   if (settings.cleanupEnabled) {
     const gap = cleanupGap(app);
-    if (gap) return { ...base, tone: "pe", title: `Cleanup needs ${gap}`, detail: "Words go in as heard", tab: "cleanup", action: "Set Up Cleanup…" };
-    if (app.cleanupFault) return { ...base, tone: "pe", title: "Cleanup can’t connect", detail: "Words go in as heard", tab: "cleanup", action: "Fix Cleanup…" };
-    if (lastCleanupFailed(app)) return { ...base, tone: "pe", title: "Cleanup failed", detail: "Words went in as heard", tab: "cleanup", action: "Fix Cleanup…" };
+    if (gap) return { ...base, tone: "pe", title: `Cleanup needs ${gap}`, detail: "Words go in as heard", tab: "provider", action: "Set Up Cleanup…" };
+    if (app.cleanupFault) return { ...base, tone: "pe", title: "Cleanup can’t connect", detail: "Words go in as heard", tab: "provider", action: "Fix Cleanup…" };
+    if (lastCleanupFailed(app)) return { ...base, tone: "pe", title: "Cleanup failed", detail: "Words went in as heard", tab: "provider", action: "Fix Cleanup…" };
   }
   if (permissions && !permissions.accessibility) {
-    return { ...base, tone: "note", title: "Ready", detail: "You paste with ⌘V", tab: "permissions" };
+    return { ...base, tone: "note", title: "Ready", detail: "You paste with ⌘V", tab: "general" };
   }
   return { ...base, tone: "", title: "Ready", detail: `Hold ${hotkeyLabel(settings.hotkey)}`, tab: null };
 }
@@ -96,13 +96,13 @@ export function readiness(app: AppState): Readiness {
 export function tabFlags(app: AppState): Partial<Record<TabId, "bad" | "pe">> {
   const flags: Partial<Record<TabId, "bad" | "pe">> = {};
   const { permissions, settings } = app;
-  if (permissions && permissions.microphone !== "granted") flags.permissions = "bad";
-  if (app.hotkeyProblem) flags.hotkey = "bad";
+  if (permissions && permissions.microphone !== "granted") flags.general = "bad";
+  if (app.hotkeyProblem) flags.hotkeys = "bad";
   const model = selectedModel(app);
-  if (model && !model.downloaded && !app.progress) flags.model = "pe";
-  if (app.downloadFault && !model?.downloaded) flags.model = "pe";
+  if (model && !model.downloaded && !app.progress) flags.speech = "pe";
+  if (app.downloadFault && !model?.downloaded) flags.speech = "pe";
   if (settings.cleanupEnabled && (cleanupGap(app) || app.cleanupFault || lastCleanupFailed(app))) {
-    flags.cleanup = "pe";
+    flags.provider = "pe";
   }
   return flags;
 }
