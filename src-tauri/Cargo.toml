@@ -50,7 +50,9 @@ nnnoiseless = { version = "0.5", default-features = false }
 
 # Installs a newer release when the user asks: downloads it, checks its
 # signature against the public key in tauri.conf.json, and swaps it in place.
-tauri-plugin-updater = "2"
+# Same TLS as reqwest above rather than its own rustls, which would add
+# about a megabyte; `zip` brings the tar.gz reader the macOS install needs.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "zip"] }
 
 [profile.dev]
 # Smaller debug builds; line numbers in backtraces are enough here.
