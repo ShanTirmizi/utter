@@ -20,6 +20,9 @@
 //!                  to compare. Default: none, and saved if it is set up.
 //!                  The key comes from UTTER_API_KEY or the app's Keychain entry
 //!   --each         print every recording's result, not just the totals
+//!   --all          also tidy the recordings with nothing to score against,
+//!                  for the timing and failure columns (WER still comes only
+//!                  from the scored ones)
 //!
 //! For each combination it prints the word error rate (case and punctuation
 //! ignored), the words a user would still have to change (exactly as typed),
@@ -42,10 +45,11 @@ struct Options {
     models: Vec<String>,
     cleanups: Vec<String>,
     each: bool,
+    all: bool,
 }
 
 fn options() -> Result<Options, String> {
-    let mut options = Options { dir: replay::data_dir(), labels: None, models: Vec::new(), cleanups: Vec::new(), each: false };
+    let mut options = Options { dir: replay::data_dir(), labels: None, models: Vec::new(), cleanups: Vec::new(), each: false, all: false };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
@@ -55,6 +59,7 @@ fn options() -> Result<Options, String> {
             "--model" => options.models.push(value()?),
             "--cleanup" => options.cleanups.push(value()?),
             "--each" => options.each = true,
+            "--all" => options.all = true,
             "-h" | "--help" => return Err("usage: replay [--dir DIR] [--labels FILE] [--model M]... [--cleanup C]... [--each]".into()),
             other => return Err(format!("unknown option {other}; try --help")),
         }
@@ -73,6 +78,8 @@ struct Heard {
 struct Totals {
     score: Score,
     count: usize,
+    /// Recordings tidied, scored or not.
+    tidied: usize,
     /// Recordings that came out exactly as the reference.
     perfect: usize,
     failed: usize,
@@ -105,11 +112,11 @@ fn main() -> Result<(), String> {
         None => Default::default(),
     };
     let all = replay::gather(&options.dir, &labels);
-    let recordings: Vec<&Recording> = all.iter().filter(|r| r.reference.is_some()).collect();
+    let scored: Vec<&Recording> = all.iter().filter(|r| r.reference.is_some()).collect();
 
     // What there is to go on.
     let mut sources: BTreeMap<Source, usize> = BTreeMap::new();
-    for recording in &recordings {
+    for recording in &scored {
         *sources.entry(recording.reference.as_ref().unwrap().1).or_default() += 1;
     }
     let by_source: Vec<String> = sources.iter().map(|(source, n)| format!("{n} {}", source.name())).collect();
@@ -117,14 +124,14 @@ fn main() -> Result<(), String> {
         "{} recordings in {}: {} to score ({}), {} with nothing to score against",
         all.len(),
         options.dir.display(),
-        recordings.len(),
+        scored.len(),
         if by_source.is_empty() { "none".to_string() } else { by_source.join(", ") },
-        all.len() - recordings.len()
+        all.len() - scored.len()
     );
     if let Some(file) = &labels_file {
         println!("labels from {} ({} lines)", file.display(), labels.len());
     }
-    if recordings.is_empty() {
+    if scored.is_empty() && !options.all {
         return Err("Nothing to replay. Switch on Keep recordings in Utter and dictate, or pass --dir and --labels.".into());
     }
     if sources.contains_key(&Source::Accepted) {
@@ -148,6 +155,7 @@ fn main() -> Result<(), String> {
         }
     }
 
+    let recordings: Vec<&Recording> = if options.all { all.iter().collect() } else { scored.clone() };
     let audio: Vec<Vec<f32>> = recordings.iter().map(|r| replay::read_wav(&r.file)).collect::<Result<_, _>>()?;
     let hints = setup.hints();
     let transcriber = Transcriber::default();
@@ -181,18 +189,19 @@ fn main() -> Result<(), String> {
                 println!("\n== {label}");
             }
             for (recording, heard) in recordings.iter().zip(&heard) {
-                let (reference, source) = recording.reference.as_ref().unwrap();
                 let tidied = cleaner.tidy(&heard.raw, recording, &setup);
-                let score = Score::of(&tidied.text, reference);
-                totals.score += score;
-                totals.count += 1;
-                totals.perfect += usize::from(score.edits == 0);
+                totals.tidied += 1;
                 totals.failed += usize::from(tidied.failed);
                 totals.transcribe_ms.push(heard.ms);
                 if let Some(ms) = tidied.model_ms {
                     totals.model_ms.push(ms);
                 }
                 totals.total_ms.push(heard.ms + tidied.model_ms.unwrap_or(0));
+                let Some((reference, source)) = recording.reference.as_ref() else { continue };
+                let score = Score::of(&tidied.text, reference);
+                totals.score += score;
+                totals.count += 1;
+                totals.perfect += usize::from(score.edits == 0);
                 if options.each {
                     print_one(recording, *source, reference, &tidied.text, score);
                 }
@@ -207,14 +216,15 @@ fn main() -> Result<(), String> {
         "speech model + cleanup", "n", "WER", "edits", "no edit", "transcribe", "tidy", "total p90"
     );
     for (label, t) in &rows {
-        let failed = if t.failed > 0 { format!("  ({} tidy failed)", t.failed) } else { String::new() };
+        let failed = if t.failed > 0 { format!("  ({} of {} tidies failed)", t.failed, t.tidied) } else { String::new() };
+        let count = t.count.max(1);
         println!(
             "{:<44} {:>4} {:>5.1}% {:>7.2} {:>7.0}% {:>9.2}s {:>6} {:>10.2}s{failed}",
             label,
             t.count,
             t.score.error_rate() * 100.0,
-            t.score.edits as f64 / t.count as f64,
-            t.perfect as f64 * 100.0 / t.count as f64,
+            t.score.edits as f64 / count as f64,
+            t.perfect as f64 * 100.0 / count as f64,
             mean(&t.transcribe_ms),
             if t.model_ms.is_empty() { "-".to_string() } else { format!("{:.2}s", mean(&t.model_ms)) },
             p90(&t.total_ms),
