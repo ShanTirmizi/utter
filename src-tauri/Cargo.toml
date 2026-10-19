@@ -1,6 +1,6 @@
 [package]
 name = "utter"
-version = "0.6.0"
+version = "0.6.2"
 description = "Hold a hotkey, speak, release. Cleaned-up text lands in the app you are using."
 authors = ["Shan Tirmizi"]
 license = "MIT"
@@ -47,6 +47,12 @@ objc2-app-kit = "0.3.2"
 # examples.
 hound = "3"
 nnnoiseless = { version = "0.5", default-features = false }
+
+# Installs a newer release when the user asks: downloads it, checks its
+# signature against the public key in tauri.conf.json, and swaps it in place.
+# Same TLS as reqwest above rather than its own rustls, which would add
+# about a megabyte; `zip` brings the tar.gz reader the macOS install needs.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "zip"] }
 
 [profile.dev]
 # Smaller debug builds; line numbers in backtraces are enough here.

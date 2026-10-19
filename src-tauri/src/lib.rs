@@ -430,6 +430,13 @@ async fn check_for_updates(app: AppHandle) -> updates::UpdateStatus {
     updates::check(&app).await
 }
 
+/// Download and install the newest release, then relaunch. Returns only on
+/// failure, with what to tell the user.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    updates::install(&app).await
+}
+
 /// Put text on the clipboard, for the Copy buttons in the window.
 #[tauri::command]
 fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
@@ -623,6 +630,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Keep whisper.cpp's own logging out of the terminal.
             whisper_rs::install_logging_hooks();
@@ -687,6 +695,7 @@ pub fn run() {
             set_tray_status,
             update_status,
             check_for_updates,
+            install_update,
         ])
         // Closing the settings window hides it; Utter keeps running in the
         // menu bar so the hotkey stays available.

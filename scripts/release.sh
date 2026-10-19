@@ -11,7 +11,16 @@
 # notarised, and macOS will ask users to approve the first launch by hand.
 # Without an identity the app is signed ad hoc, as for a local build.
 #
-# Writes dist-release/Utter-apple-silicon.dmg and prints its SHA-256.
+# In-app updates: the app is also packed as Utter.app.tar.gz, signed with the
+# update key (~/.tauri/utter-updater.key, or UTTER_UPDATER_KEY; its password is
+# in the login keychain as "utter-updater-key"), and described in latest.json.
+# Utter's Install and restart reads latest.json from the newest GitHub release
+# and accepts the package only if its signature matches the public key in
+# tauri.conf.json and names the version announced. Lose the key and copies
+# out there can never update themselves again, so keep a backup of it.
+#
+# Writes dist-release/Utter-apple-silicon.dmg, Utter.app.tar.gz(.sig) and
+# latest.json, and prints the DMG's SHA-256. Upload all four to the release.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,6 +29,17 @@ profile="${UTTER_NOTARY_PROFILE:-}"
 out="dist-release"
 app="src-tauri/target/release/bundle/macos/Utter.app"
 dmg="$out/Utter-apple-silicon.dmg"
+update="$out/Utter.app.tar.gz"
+update_key="${UTTER_UPDATER_KEY:-$HOME/.tauri/utter-updater.key}"
+version=$(/usr/bin/python3 -c 'import json; print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
+repo="https://github.com/ShanTirmizi/utter"
+
+# A signed release without the update package would strand everyone on it, so
+# check for the key before spending minutes on the build.
+if [ -n "$identity" ] && { [ ! -f "$update_key" ] || ! security find-generic-password -s utter-updater-key >/dev/null 2>&1; }; then
+  echo "The update key ($update_key) or its keychain password is missing." >&2
+  exit 1
+fi
 
 echo "== Building"
 if [ -n "$identity" ]; then
@@ -50,6 +70,32 @@ if [ -n "$identity" ] && [ -n "$profile" ]; then
   rm -f "$out/Utter.zip"
 fi
 
+# The update is the app as notarised and stapled, so it opens without a
+# Gatekeeper prompt once it is swapped in.
+if [ -f "$update_key" ]; then
+  echo "== Update package"
+  mkdir -p "$out"
+  rm -f "$update" "$update.sig" "$out/latest.json"
+  COPYFILE_DISABLE=1 tar -C "$(dirname "$app")" -czf "$update" Utter.app
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(security find-generic-password -s utter-updater-key -w)" \
+    pnpm -s tauri signer sign -f "$update_key" --app-version "$version" "$update" >/dev/null
+  UTTER_VERSION="$version" UTTER_URL="$repo/releases/download/v$version/Utter.app.tar.gz" \
+    UTTER_SIG="$update.sig" /usr/bin/python3 - "$out/latest.json" <<'PY'
+import datetime, json, os, sys
+entry = {"signature": open(os.environ["UTTER_SIG"]).read().strip(), "url": os.environ["UTTER_URL"]}
+manifest = {
+    "version": os.environ["UTTER_VERSION"],
+    "notes": "See what's new on GitHub.",
+    "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    # The updater looks for the bundle-specific key first, then the plain one.
+    "platforms": {"darwin-aarch64-app": entry, "darwin-aarch64": entry},
+}
+json.dump(manifest, open(sys.argv[1], "w"), indent=2)
+PY
+else
+  echo "== No update key, so no update package"
+fi
+
 echo "== Packaging"
 stage=$(mktemp -d)
 ditto "$app" "$stage/Utter.app"
@@ -70,5 +116,5 @@ if [ -n "$identity" ] && [ -n "$profile" ]; then
 fi
 
 echo "== Done"
-ls -la "$dmg"
+ls -la "$out"
 shasum -a 256 "$dmg"
