@@ -28,7 +28,7 @@
 //   ?selected         the rewrite hotkey edits a pretend selection
 //   ?combo            Control+Option+Space is the dictation hotkey, not fn
 //   ?fnconflict       macOS also shows emoji when fn is pressed
-//   ?fail=cleanup|test|download|hotkey   make that step fail
+//   ?fail=cleanup|test|download|hotkey|install   make that step fail
 //   ?fail=startup-hotkey   macOS refused the hotkey at launch
 //   ?pill=listen|handsfree|transcribe|tidy|rewrite|edit|note|note2|paste|blocked|learned
 //                     hold the pill (open /#pill) in one state
@@ -654,6 +654,19 @@ export function installMock() {
           };
           if (query.get("fail") === "update") updateStatus.latest = null;
           return updateStatus;
+        case "install_update": {
+          // Stand in for downloading 3.7 MB, then relaunching as the new version.
+          const total = 3_682_398;
+          for (let received = 0; received < total; received += 460_000) {
+            await wait(180);
+            send("update-progress", { received: Math.min(received, total), total });
+            if (fail === "install" && received > total / 2) throw "The download didn’t finish. Check your connection and try again.";
+          }
+          send("update-progress", { received: total, total });
+          await wait(900);
+          window.location.reload();
+          return;
+        }
         case "fn_key_conflict":
           return query.has("fnconflict") && !settings.quietGlobe ? "show emoji and symbols" : null;
         default:

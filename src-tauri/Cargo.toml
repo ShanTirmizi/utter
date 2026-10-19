@@ -48,6 +48,10 @@ objc2-app-kit = "0.3.2"
 hound = "3"
 nnnoiseless = { version = "0.5", default-features = false }
 
+# Installs a newer release when the user asks: downloads it, checks its
+# signature against the public key in tauri.conf.json, and swaps it in place.
+tauri-plugin-updater = "2"
+
 [profile.dev]
 # Smaller debug builds; line numbers in backtraces are enough here.
 debug = "line-tables-only"

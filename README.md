@@ -118,6 +118,16 @@ for Apple Silicon Macs (M1 or later) on macOS 12 or later.
    so it opens like any other app.
 3. Follow the welcome screens.
 
+### Updating
+
+When a new version is out, **About** says so (press **Check for updates**, or
+switch on **Check automatically**). Press **Install and restart**: Utter
+downloads it, checks its signature, swaps itself for the new version and opens
+again, keeping your settings and words. This works however you installed it.
+Homebrew users can still run `brew upgrade --cask shantirmizi/tap/utter`.
+Versions before 0.6.1 can't do this yet: download the new one once by hand,
+and from then on it updates itself.
+
 ### Build it yourself
 
 The first build takes several minutes, nearly all of it compiling.
@@ -396,6 +406,9 @@ The **Privacy** page in Utter sums this up for your own settings.
 - **Update check:** only when you press **Check for updates** in About, or
   once a day if you switch on **Check automatically** (off by default). It is
   one request to GitHub for the latest release and sends nothing about you.
+  An update downloads only when you press **Install and restart**, straight
+  from the GitHub release, and is installed only if its signature matches the
+  key built into your copy of Utter.
 - Utter has no account, no analytics and no telemetry.
 
 ## Speed
@@ -528,7 +541,7 @@ The code is laid out as one file per stage of the pipeline, in
 | `history.rs`, `recordings.rs` | Past dictations, in a file on this Mac, and their recordings when kept |
 | `accuracy.rs`, `replay.rs` | What the user changed after a paste, scoring, and what the replay example needs |
 | `words.rs`, `learn.rs`, `screen.rs` | Your words and their mishearings, learning from corrections, names on screen |
-| `tray.rs`, `updates.rs` | The menu bar icon and menu, the update check |
+| `tray.rs`, `updates.rs` | The menu bar icon and menu, checking for and installing updates |
 | `secrets.rs`, `settings.rs` | Keychain and preferences |
 | `permissions.rs` | Check and request macOS permissions |
 | `login.rs` | Open at login |

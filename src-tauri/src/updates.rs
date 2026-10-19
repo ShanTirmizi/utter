@@ -2,6 +2,12 @@
 //! else: no identifier, no usage data. Only when the user presses Check for
 //! updates, or once a day if they switched on Check automatically (off by
 //! default, since it is a network request).
+//!
+//! Installing one happens only when the user presses Install and restart:
+//! Tauri's updater fetches `latest.json` from the newest release, downloads
+//! the app it names, checks it against the public key built into this copy
+//! (a signature that also names its version, so an older release cannot be
+//! passed off as a newer one), swaps it in place and relaunches.
 
 use serde::{Deserialize, Serialize};
 use std::{
@@ -123,6 +129,55 @@ pub async fn check(app: &AppHandle) -> UpdateStatus {
     *app.state::<Updates>().0.lock().unwrap() = status.clone();
     let _ = app.emit("update-status", status.clone());
     status
+}
+
+/// How far the download of an update has got, for the window.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Progress {
+    received: u64,
+    total: Option<u64>,
+}
+
+/// Download the newest release, install it over this copy and relaunch.
+/// Returns only if that failed, with what to tell the user; the app as it
+/// was is left in place.
+pub async fn install(app: &AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| format!("Updates can't be installed from here ({e})."))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|_| "This release can't be installed from inside Utter.".to_string())?
+        .ok_or_else(|| "You already have the newest version.".to_string())?;
+
+    let mut received = 0u64;
+    let window = app.clone();
+    update
+        .download_and_install(
+            move |chunk, total| {
+                received += chunk as u64;
+                let _ = window.emit("update-progress", Progress { received, total });
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| match e {
+            tauri_plugin_updater::Error::Minisign(_)
+            | tauri_plugin_updater::Error::Base64(_)
+            | tauri_plugin_updater::Error::SignatureUtf8(_)
+            | tauri_plugin_updater::Error::SignedVersionMismatch { .. } => {
+                "The download didn't pass its signature check, so it wasn't installed.".to_string()
+            }
+            tauri_plugin_updater::Error::Reqwest(_) | tauri_plugin_updater::Error::Network(_) => {
+                "The download didn't finish. Check your connection and try again.".to_string()
+            }
+            other => format!("The update couldn't be installed ({other})."),
+        })?;
+    // Quit the usual way, so the globe key is given back and the speech
+    // model freed, and start the new copy.
+    app.request_restart();
+    Ok(())
 }
 
 /// While Check automatically is on, check at launch and then once a day.
