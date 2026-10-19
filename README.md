@@ -125,7 +125,7 @@ switch on **Check automatically**). Press **Install and restart**: Utter
 downloads it, checks its signature, swaps itself for the new version and opens
 again, keeping your settings and words. This works however you installed it.
 Homebrew users can still run `brew upgrade --cask shantirmizi/tap/utter`.
-Versions before 0.6.1 can't do this yet: download the new one once by hand,
+Versions before 0.6.2 can't do this yet: download the new one once by hand,
 and from then on it updates itself.
 
 ### Build it yourself
