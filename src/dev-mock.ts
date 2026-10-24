@@ -61,6 +61,7 @@ let settings: Settings = {
   rewriteHotkey: "Control+Alt+KeyR",
   rewriteStyle: "clear",
   rewritePrompt: "",
+  rewriteModel: "",
   dictionary: query.has("words")
     ? [
         { word: "Claude", heardAs: ["cloud", "clawed"], source: "learned", addedAt: Date.now() - 3_600_000 },
@@ -107,13 +108,13 @@ const mics = [
 const keys = new Set<string>(query.has("key") ? ["anthropic"] : []);
 
 const catalog: Provider[] = [
-  { id: "anthropic", label: "Anthropic (Claude)", protocol: "anthropic", baseUrl: "https://api.anthropic.com/v1", defaultModel: "claude-haiku-5-5", needsKey: true, keyUrl: "https://console.anthropic.com/settings/keys" },
-  { id: "openai", label: "OpenAI", protocol: "openai", baseUrl: "https://api.openai.com/v1", defaultModel: "", needsKey: true, keyUrl: "https://platform.openai.com/api-keys" },
-  { id: "gemini", label: "Google Gemini", protocol: "openai", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: "", needsKey: true, keyUrl: "https://aistudio.google.com/apikey" },
-  { id: "groq", label: "Groq", protocol: "openai", baseUrl: "https://api.groq.com/openai/v1", defaultModel: "", needsKey: true, keyUrl: "https://console.groq.com/keys" },
-  { id: "openrouter", label: "OpenRouter", protocol: "openai", baseUrl: "https://openrouter.ai/api/v1", defaultModel: "", needsKey: true, keyUrl: "https://openrouter.ai/keys" },
-  { id: "ollama", label: "Ollama (on this Mac, no key)", protocol: "openai", baseUrl: "http://localhost:11434/v1", defaultModel: "", needsKey: false, keyUrl: "https://ollama.com" },
-  { id: "custom", label: "Other (OpenAI-compatible)", protocol: "openai", baseUrl: "", defaultModel: "", needsKey: true, keyUrl: "" },
+  { id: "anthropic", label: "Anthropic (Claude)", protocol: "anthropic", baseUrl: "https://api.anthropic.com/v1", defaultModel: "claude-haiku-5-5", rewriteModel: "claude-sonnet-5-5", needsKey: true, keyUrl: "https://console.anthropic.com/settings/keys" },
+  { id: "openai", label: "OpenAI", protocol: "openai", baseUrl: "https://api.openai.com/v1", defaultModel: "", rewriteModel: "", needsKey: true, keyUrl: "https://platform.openai.com/api-keys" },
+  { id: "gemini", label: "Google Gemini", protocol: "openai", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: "", rewriteModel: "", needsKey: true, keyUrl: "https://aistudio.google.com/apikey" },
+  { id: "groq", label: "Groq", protocol: "openai", baseUrl: "https://api.groq.com/openai/v1", defaultModel: "", rewriteModel: "", needsKey: true, keyUrl: "https://console.groq.com/keys" },
+  { id: "openrouter", label: "OpenRouter", protocol: "openai", baseUrl: "https://openrouter.ai/api/v1", defaultModel: "", rewriteModel: "", needsKey: true, keyUrl: "https://openrouter.ai/keys" },
+  { id: "ollama", label: "Ollama (on this Mac, no key)", protocol: "openai", baseUrl: "http://localhost:11434/v1", defaultModel: "", rewriteModel: "", needsKey: false, keyUrl: "https://ollama.com" },
+  { id: "custom", label: "Other (OpenAI-compatible)", protocol: "openai", baseUrl: "", defaultModel: "", rewriteModel: "", needsKey: true, keyUrl: "" },
 ];
 
 const styles: RewriteStyle[] = [

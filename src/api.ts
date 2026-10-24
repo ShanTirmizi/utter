@@ -19,6 +19,8 @@ export type Settings = {
   rewriteStyle: string;
   /** The user's own rewrite instruction, used when the style is "custom". */
   rewritePrompt: string;
+  /** Model for the rewrite hotkey. Empty means the provider's `rewriteModel`, else the cleanup model. */
+  rewriteModel: string;
   /** Names and terms to be spelled exactly this way. */
   dictionary: Word[];
   /** Removed words, lower case, and removed mishearings as "cloud→claude": never learned again. */
@@ -85,6 +87,8 @@ export type Provider = {
   protocol: "anthropic" | "openai";
   baseUrl: string;
   defaultModel: string;
+  /** What the rewrite hotkey uses unless one is chosen. Empty means the cleanup model. */
+  rewriteModel: string;
   needsKey: boolean;
   keyUrl: string;
 };

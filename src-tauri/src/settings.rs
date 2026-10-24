@@ -31,6 +31,9 @@ pub struct Settings {
     pub rewrite_style: String,
     /// The user's own rewrite instruction.
     pub rewrite_prompt: String,
+    /// Model for the rewrite hotkey. Empty means the provider's rewrite
+    /// model if it has one, otherwise the cleanup model.
+    pub rewrite_model: String,
     /// Names and terms the user wants spelled exactly this way, each with
     /// what the speech model tends to hear instead.
     pub dictionary: Vec<Word>,
@@ -94,6 +97,7 @@ impl Default for Settings {
             rewrite_hotkey: "Control+Alt+KeyR".into(),
             rewrite_style: "clear".into(),
             rewrite_prompt: String::new(),
+            rewrite_model: String::new(),
             dictionary: Vec::new(),
             forgotten: Vec::new(),
             learn_words: true,

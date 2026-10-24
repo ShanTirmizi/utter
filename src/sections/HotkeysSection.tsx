@@ -129,7 +129,7 @@ export default function HotkeysSection() {
           </div>
           <div>
             <b>Rewrite</b>
-            <span>{rw ? `Hold ${rw} to dictate in your rewrite style.` : "Set a rewrite hotkey above."}</span>
+            <span>{rw ? `Hold ${rw}, say what to write. It comes back finished.` : "Set a rewrite hotkey above."}</span>
           </div>
           <div>
             <b>Rewrite a selection</b>

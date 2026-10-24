@@ -115,7 +115,7 @@ export default function CleanupSection() {
   );
 }
 
-/** How the second hotkey rewords a dictation: a ready-made style, or your own. */
+/** How the second hotkey writes: a ready-made style, or your own. */
 function RewriteStyleCard() {
   const { settings, update, provider, hasKey } = useApp();
   const [styles, setStyles] = useState<RewriteStyle[]>([]);
@@ -199,7 +199,14 @@ function RewriteStyleCard() {
           </p>
         </>
       ) : (
-        preset && <p className="qquote">{preset.instruction}</p>
+        preset && (
+          <>
+            <p className="qquote">{preset.instruction}</p>
+            <p className="qp" style={{ fontSize: 12.5 }}>
+              Say what you want written, and how: “email Sam that I can’t make Thursday, keep it short”. What you say beats this style.
+            </p>
+          </>
+        )
       )}
       <div className="qrowb">
         <button className="qbtn" disabled={!canTest || testing} onClick={test}>

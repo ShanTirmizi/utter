@@ -43,6 +43,7 @@ export default function ProviderSection() {
   const { settings, update, provider, hasKey, setHasKey, setCleanupFault } = app;
   const [keyDraft, setKeyDraft] = useState("");
   const [modelDraft, setModelDraft] = useState(settings.cleanupModel);
+  const [rewriteDraft, setRewriteDraft] = useState(settings.rewriteModel);
   const [urlDraft, setUrlDraft] = useState(settings.baseUrl);
   const [models, setModels] = useState<string[]>([]);
   const [result, setResult] = useState<Result>(null);
@@ -55,6 +56,7 @@ export default function ProviderSection() {
   const ready = provider ? !provider.needsKey || hasKey === true : false;
   const baseUrl = provider?.baseUrl || settings.baseUrl;
   const model = settings.cleanupModel || provider?.defaultModel || "";
+  const rewriteDefault = provider?.rewriteModel || model;
   const gap = cleanupGap(app);
 
   // The provider on screen now. An answer that comes back after the user has
@@ -96,6 +98,9 @@ export default function ProviderSection() {
   useEffect(() => {
     setModelDraft((draft) => (draft.trim() === settings.cleanupModel ? draft : settings.cleanupModel));
   }, [settings.provider, settings.cleanupModel]);
+  useEffect(() => {
+    setRewriteDraft((draft) => (draft.trim() === settings.rewriteModel ? draft : settings.rewriteModel));
+  }, [settings.provider, settings.rewriteModel]);
 
   // Offer the provider's models as soon as it can be asked for them.
   useEffect(() => {
@@ -141,6 +146,16 @@ export default function ProviderSection() {
       setCleanupFault(null);
     } catch (err) {
       setResult({ tone: "pe", title: "The model wasn’t saved.", body: String(err) });
+    }
+  };
+
+  const saveRewriteModel = async (value: string) => {
+    const next = value.trim();
+    if (next === settings.rewriteModel) return;
+    try {
+      await update({ rewriteModel: next });
+    } catch (err) {
+      setResult({ tone: "pe", title: "The rewrite model wasn’t saved.", body: String(err) });
     }
   };
 
@@ -209,7 +224,7 @@ export default function ProviderSection() {
               className="qpv"
               role="radio"
               aria-checked={p.id === provider.id}
-              onClick={() => p.id !== provider.id && update({ provider: p.id, cleanupModel: "" }).catch(() => undefined)}
+              onClick={() => p.id !== provider.id && update({ provider: p.id, cleanupModel: "", rewriteModel: "" }).catch(() => undefined)}
             >
               <ProviderMark id={p.id} />
               <b>{shortName(p.label)}</b>
@@ -332,6 +347,29 @@ export default function ProviderSection() {
           </div>
         )}
       </div>
+
+      {ready && rewriteOn && (
+        <div className="qcard">
+          <div className="qlab">Rewrite model</div>
+          <ModelField
+            value={rewriteDraft}
+            onChange={setRewriteDraft}
+            models={models}
+            current={settings.rewriteModel}
+            placeholder={rewriteDefault || "Type a name, or list them"}
+            onSave={saveRewriteModel}
+            listing={busy === "list"}
+            disabled={busy !== null}
+            onList={() => refreshModels(true)}
+            openAsked={0}
+          />
+          <p className="qp" style={{ fontSize: 12.5 }}>
+            {provider.rewriteModel
+              ? `Leave it empty to use ${provider.rewriteModel}. Rewriting is real writing, so a stronger model is worth the extra second or two.`
+              : "Leave it empty to use the cleanup model. Rewriting is real writing, so a stronger model is worth the extra second or two."}
+          </p>
+        </div>
+      )}
     </>
   );
 }
