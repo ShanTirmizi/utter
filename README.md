@@ -195,15 +195,19 @@ Word…, Add a Word…, Undo Learning, About Utter, Check for Updates… and Qui
 1. Under **AI provider**, pick a provider.
 2. Paste an API key for it and press Save. The **Get a … key** link (for
    example "Get an Anthropic key") opens the provider's key page.
-3. Choose a model. Click the model field to pick from what your key can use
-   (**List models** refreshes the list), or type a name. Pick a small, fast
-   one: cleanup is light editing, and you wait for it.
+3. Most providers start with a small, fast model already chosen. To use
+   another, click the model field to pick from what your key can use
+   (**List models** refreshes the list), or type a name. Keep it small and
+   fast: cleanup is light editing, and you wait for it.
 4. Press **Test** to confirm it works.
 
 | Provider | Key | Model |
 | --- | --- | --- |
 | Anthropic (Claude) | Yes | Defaults to Claude Haiku |
-| OpenAI, Google Gemini, Groq, OpenRouter | Yes | You choose |
+| OpenAI | Yes | Defaults to GPT-5.4 mini |
+| Google Gemini | Yes | Defaults to Gemini 3.5 Flash-Lite |
+| Groq | Yes | Defaults to GPT-OSS 20B |
+| OpenRouter | Yes | You choose |
 | Ollama | No, runs on your Mac | You choose from the models you have pulled |
 | Other (OpenAI-compatible) | Yes | You enter the base URL and choose |
 

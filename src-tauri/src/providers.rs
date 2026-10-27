@@ -24,8 +24,9 @@ pub struct Provider {
     pub protocol: Protocol,
     /// Empty for `custom`, where the user supplies it.
     pub base_url: &'static str,
-    /// Empty when the user must pick one; model names change too often to
-    /// hard-code for every provider, so the app lists them live instead.
+    /// A small, fast model, used until the user picks another. Empty where
+    /// there is no sensible guess (OpenRouter, Ollama, custom): the app lists
+    /// the models live instead.
     pub default_model: &'static str,
     /// The model the rewrite hotkey uses unless the user picks one. Tidying
     /// wants speed; writing is where a stronger model shows. Empty means the
@@ -52,7 +53,7 @@ pub const CATALOG: [Provider; 7] = [
         label: "OpenAI",
         protocol: Protocol::OpenAi,
         base_url: "https://api.openai.com/v1",
-        default_model: "",
+        default_model: "gpt-5.4-mini",
         rewrite_model: "",
         needs_key: true,
         key_url: "https://platform.openai.com/api-keys",
@@ -62,7 +63,7 @@ pub const CATALOG: [Provider; 7] = [
         label: "Google Gemini",
         protocol: Protocol::OpenAi,
         base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
-        default_model: "",
+        default_model: "gemini-3.5-flash-lite",
         rewrite_model: "",
         needs_key: true,
         key_url: "https://aistudio.google.com/apikey",
@@ -72,7 +73,7 @@ pub const CATALOG: [Provider; 7] = [
         label: "Groq",
         protocol: Protocol::OpenAi,
         base_url: "https://api.groq.com/openai/v1",
-        default_model: "",
+        default_model: "openai/gpt-oss-20b",
         rewrite_model: "",
         needs_key: true,
         key_url: "https://console.groq.com/keys",
@@ -256,8 +257,11 @@ mod tests {
 
     #[test]
     fn other_providers_need_a_model_to_be_chosen() {
-        let err = endpoint(&settings("openai", "  ", ""), Some("k".into())).unwrap_err();
+        let err = endpoint(&settings("openrouter", "  ", ""), Some("k".into())).unwrap_err();
         assert!(matches!(err, NotReady::Problem(_)));
+        // Where there is a sensible default, nothing has to be chosen.
+        let groq = endpoint(&settings("groq", "", ""), Some("k".into())).unwrap();
+        assert_eq!(groq.model, "openai/gpt-oss-20b");
         let ok = endpoint(&settings("openai", "some-model", ""), Some("k".into())).unwrap();
         assert_eq!(ok.model, "some-model");
         assert_eq!(ok.base_url, "https://api.openai.com/v1");

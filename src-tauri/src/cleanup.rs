@@ -648,6 +648,17 @@ fn is_faithful(reply: &str, transcript: &str, terms: &[String]) -> bool {
     // name to its dictionary spelling is exactly what was asked for.
     let from_dictionary: std::collections::HashSet<String> = terms.iter().flat_map(|t| words(t)).collect();
     let known: std::collections::HashSet<&str> = said.iter().map(String::as_str).collect();
+    // Another form of a word that was said is still the speaker's word:
+    // tidying puts "it work" right as "it works", "labels data" as "label
+    // data". The two share all but their last letter or so.
+    let another_form = |word: &str| {
+        word.chars().count() >= 4
+            && known.iter().any(|said| {
+                let shared = said.chars().zip(word.chars()).take_while(|(a, b)| a == b).count();
+                let shorter = said.chars().count().min(word.chars().count());
+                shared >= 4 && shared + 1 >= shorter
+            })
+    };
     // Two or three neighbouring words run together: spoken "user id" may be
     // written as userId or user_id, which reads back as "userid".
     let joined: std::collections::HashSet<String> = said
@@ -660,6 +671,7 @@ fn is_faithful(reply: &str, transcript: &str, terms: &[String]) -> bool {
     // neighbouring words run together.
     let not_said = |word: &String| {
         !(known.contains(word.as_str())
+            || another_form(word)
             || word.chars().any(|c| c.is_ascii_digit())
             || joined.contains(word))
     };
@@ -681,8 +693,10 @@ fn is_faithful(reply: &str, transcript: &str, terms: &[String]) -> bool {
     if said.len() < 3 {
         return written.len() <= said.len() + 1 && new_words <= 1;
     }
-    // Allow a few genuinely new words, such as a corrected mishearing.
-    if new_words > (said.len() / 10).clamp(1, 6) {
+    // Allow a few genuinely new words, such as a corrected mishearing or a
+    // smoother way of putting a clumsy phrase: one in ten, so a minute of
+    // speech has room for as many repairs, for its length, as a sentence.
+    if new_words > (said.len() / 10).max(1) {
         return false;
     }
     // New words bunched at the start or the end are a preamble ("Sure, here
@@ -764,15 +778,6 @@ const CHANGES_OF_MIND: &[&[&str]] = &[
 /// How many words before a change of mind it can take back.
 const TAKEN_BACK: usize = 12;
 
-/// Is this a swear word? The speaker's swearing is theirs to keep.
-fn is_swearing(word: &str) -> bool {
-    const EXACT: &[&str] = &[
-        "damn", "damned", "crap", "crappy", "bloody", "bastard", "arse", "ass", "asshole", "arsehole",
-        "piss", "pissed", "bitch", "bollocks", "wanker", "dick", "cunt", "hell",
-    ];
-    word.starts_with("fuck") || word.starts_with("shit") || word.contains("bullshit") || EXACT.contains(&word)
-}
-
 /// Did tidying drop part of what was said, rather than just fillers? A word
 /// with content in the transcript should still be in the reply, perhaps in
 /// another form ("upgrading" as "upgrade") or run into a neighbour
@@ -781,7 +786,9 @@ fn is_swearing(word: &str) -> bool {
 /// corrected mishearing, which may have been heard as two words, so words
 /// missing side by side count once) and a few more in a long dictation.
 /// Beyond that, or when most of one sentence is gone, a clause went
-/// missing. Swearing never goes.
+/// missing. Swearing counts like any other word: the prompt asks for it to
+/// be kept, but "shit like that" trimmed with the fillers is no reason to
+/// throw away the whole tidy.
 fn drops_content(
     transcript: &str,
     said: &[String],
@@ -819,9 +826,6 @@ fn drops_content(
         }
         content += 1;
         if !kept(word) {
-            if is_swearing(word) {
-                return true;
-            }
             if foreign || taken_back.contains(word) {
                 continue;
             }
@@ -1576,9 +1580,13 @@ mod openai {
     /// is known to take them. Reasoning only adds delay to light editing, and
     /// it must never end up in the text. Groq's GPT-OSS models put their
     /// reasoning in a field of its own; its Qwen 3 models put it in the
-    /// answer unless told otherwise. Other providers get nothing extra,
-    /// because some reject settings they do not know.
+    /// answer unless told otherwise. OpenAI's GPT-5 models reason at length
+    /// by default. Other providers get nothing extra, because some reject
+    /// settings they do not know.
     pub(super) fn reasoning_settings(base_url: &str, model: &str) -> Option<Value> {
+        if base_url.starts_with("https://api.openai.com/") && model.starts_with("gpt-5") {
+            return Some(json!({ "reasoning_effort": "low" }));
+        }
         let groq = base_url.starts_with("https://api.groq.com/");
         if !groq {
             return None;
@@ -2036,6 +2044,8 @@ on Monday. Thanks. Talk soon.";
         assert!(openai::reasoning_settings(groq, "llama-3.1-8b-instant").is_none());
         // Elsewhere nothing is added: some providers reject unknown settings.
         assert!(openai::reasoning_settings("https://api.openai.com/v1", "openai/gpt-oss-20b").is_none());
+        assert_eq!(openai::reasoning_settings("https://api.openai.com/v1", "gpt-5.4-mini").unwrap()["reasoning_effort"], "low");
+        assert!(openai::reasoning_settings("https://api.openai.com/v1", "gpt-4.1-mini").is_none());
         // Reasoning written into the answer is taken out.
         assert_eq!(openai::without_thinking("<think>\nhmm, tidy it\n</think>\n\nHello there."), "Hello there.");
         assert_eq!(openai::without_thinking("Hello there."), "Hello there.");
@@ -2108,7 +2118,7 @@ on Monday. Thanks. Talk soon.";
     }
 
     #[test]
-    fn a_reply_that_drops_a_clause_or_softens_swearing_is_rejected() {
+    fn a_reply_that_drops_a_clause_is_rejected() {
         // What a model returned: the opening clause and the blunt opinion gone.
         let said = "Also on the logo side, can you please create a better logo? This logo is really shit. \
             I'm not a big fan of the logo. Can you please create a much better logo for this?";
@@ -2123,13 +2133,50 @@ on Monday. Thanks. Talk soon.";
             in terms of actually versioning the prompts themselves.";
         let cut = "That would mean we test the prompt in dev and import it to prod.";
         assert!(tidy_ok(cut, said).is_err());
-        // Swearing toned down is not tidying.
-        let said = "Contour just do some research and find what free music we can use for a demo like this. \
-            Contour is to go and fucking research seriously.";
-        assert!(tidy_ok("Claude, just do some research and find free music we can use for a demo like this. \
-            Claude, go and do some serious research.", said).is_err());
-        assert!(tidy_ok("Claude, just do some research and find free music we can use for a demo like this. \
-            Claude, go and fucking research seriously.", said).is_ok());
+    }
+
+    #[test]
+    fn a_long_dictation_tidied_with_its_swearing_trimmed_is_kept() {
+        // Real minute-long dictations whose tidies were thrown away: one for
+        // "shit like that" going with the fillers, one for having more than
+        // a handful of words put another way ("functionalities", "example").
+        let said = "What about LLM as a judge? Do we have a course on the LLM as a judge? So I've done the course \
+            for the e-val. Do we have a course for LLM as a judge? And like, kind of like best practices, configure \
+            it, how could we configure it, shit like that, basically. The pitfalls, all of that shit, you know. And \
+            again, make sure the research you do, I think you've already done some research, right? But make sure \
+            the research is like relatively recent-ish, because obviously the agentic world changes quite a lot. So \
+            yeah, and make sure it's like reputable as well. So I would love to kind of see and understand how that \
+            works. But I think we already have... something built. I'm not sure exactly. Do we have a course built \
+            or something like that? But yeah, can you just double check? Think about it step by step.";
+        let tidied = "What about LLM as a judge? Do we have a course on the LLM as a judge? So I've done the course \
+            for the e-val. Do we have a course for LLM as a judge? Also best practices, configure it, how could we \
+            configure it, that kind of thing. The pitfalls, all of that. And again, make sure the research you do, \
+            I think you've already done some research, right? But make sure the research is relatively recent, \
+            because obviously the agentic world changes quite a lot. So yeah, and make sure it's reputable as well. \
+            I would love to see and understand how that works. I think we already have something built. I'm not \
+            sure exactly. Do we have a course built or something like that? But yeah, can you just double check? \
+            Think about it step by step.";
+        assert!(tidy_ok(tidied, said).is_ok());
+        let said = "Kind of want like two functionality built in uh for this app. One of them is just like \
+            summarize everything happened up to this point. You know, when you like open a book after a few time and \
+            then you've like listened to thirty percent of it but you don't really know what happened, so it kinda \
+            summarizes it. And the second one is just a Chapters page when it turns the animation it's just not that \
+            good. It's just rubbish. So please spend a lot of fucking time trying to make that shit good, bro. Like \
+            come on, what the fuck are we doing here? It needs to be good and make sure it looks good for all of the \
+            different types we have. You know when we can select different oh what looks best. And make sure it \
+            looks good for like all of them, okay? Like we want it to be like premium fucking feeling. Does that \
+            make sense?";
+        let tidied = "I want two functionalities built into this app. One is to summarize everything that happened \
+            up to this point. For example, when you open a book after a while and you've listened to thirty percent \
+            of it but don't know what happened, it should summarize it. The second is a Chapters page; the animation \
+            is just rubbish. Please spend a lot of fucking time making that shit good, bro. What the fuck are we \
+            doing here? It needs to look good for all the different types we have. When we can select different or \
+            what looks best, make sure it looks good for all of them, okay? We want it to have a premium fucking \
+            feeling. Does that make sense?";
+        assert!(tidy_ok(tidied, said).is_ok());
+        // Still refused: the dictation answered rather than tidied.
+        assert!(tidy_ok("Here is a summary of your request. You want a recap feature and a better chapters page. \
+            I would suggest starting with the recap, since readers return after long breaks.", said).is_err());
     }
 
     #[test]
