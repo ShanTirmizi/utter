@@ -671,9 +671,26 @@ About shows the version and can ask GitHub for the latest release
 (`updates.rs`): one unauthenticated request to the releases API, nothing else
 sent. It happens when the user presses Check for updates or chooses Check for
 Updates… in the menu bar, and once a day only if they switch on Check
-automatically, which is off by default because it is a network request. A
-newer release is offered as a link to its GitHub page; Utter does not download
-or install anything itself.
+automatically, which is off by default because it is a network request.
+
+A newer release is installed only when the user presses Install and restart.
+Tauri's updater fetches `latest.json` from the newest release, downloads
+`Utter.app.tar.gz`, and checks it against the minisign public key in
+`tauri.conf.json`. With `requireSignedVersion` the signature must also name
+the version `latest.json` announces, so a doctored manifest cannot pass an
+older, genuinely signed release off as a newer one. The new app replaces the
+old one in a single atomic swap (an administrator password is asked for only
+when the user can't write to the app, which is rare for an app in
+Applications), and Utter quits the usual way, giving back the globe key and
+freeing the speech model, then relaunches. If anything fails, the old app is
+left as it was and About offers the release on GitHub instead. It works the
+same whether Utter came from the DMG or Homebrew; the cask says
+`auto_updates true`, so `brew upgrade` leaves an app that updates itself alone.
+
+`scripts/release.sh` builds the update package from the notarised, stapled
+app and signs it with the private key kept outside the repository (its
+password is in the maintainer's keychain). Without that key no copy of Utter
+can be updated in place again, so it is backed up.
 
 ### Quitting
 

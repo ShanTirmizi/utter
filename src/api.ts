@@ -257,6 +257,10 @@ export type UpdateStatus = {
 };
 export const updateStatus = () => invoke<UpdateStatus>("update_status");
 export const checkForUpdates = () => invoke<UpdateStatus>("check_for_updates");
+/** Download the newest release, install it and relaunch. Rejects, with what to say, if it can't. */
+export const installUpdate = () => invoke<void>("install_update");
+/** Sent while an update downloads: bytes so far, and the size when the server gives it. */
+export type UpdateProgress = { received: number; total: number | null };
 
 export type MicStatus = "undetermined" | "granted" | "denied";
 export type PermissionStatus = { microphone: MicStatus; accessibility: boolean };

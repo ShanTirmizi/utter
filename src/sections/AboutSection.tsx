@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { checkForUpdates } from "../api";
+import { checkForUpdates, installUpdate, type UpdateProgress } from "../api";
 import { useApp } from "../state";
-import { IconOut, Logo, Notice, Switch, when } from "../ui";
+import { IconOut, Logo, Notice, Switch, WaveProgress, when } from "../ui";
 
 const REPO = "https://github.com/ShanTirmizi/utter";
 
@@ -18,7 +19,30 @@ export default function AboutSection() {
   const app = useApp();
   const { updateInfo: update, setUpdateInfo: setUpdate, settings } = app;
   const [checking, setChecking] = useState(false);
+  // While an update downloads: how far it has got. Utter relaunches when it's in.
+  const [installing, setInstalling] = useState<UpdateProgress | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
   const version = update?.current ?? "";
+
+  useEffect(() => {
+    if (!installing) return;
+    const stop = listen<UpdateProgress>("update-progress", ({ payload }) => setInstalling(payload));
+    return () => {
+      stop.then((unlisten) => unlisten());
+    };
+  }, [installing !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const install = () => {
+    setInstallError(null);
+    setInstalling({ received: 0, total: null });
+    // Resolves only if it failed: on success Utter quits and the new one opens.
+    installUpdate().catch((err) => {
+      setInstalling(null);
+      setInstallError(String(err));
+    });
+  };
+  const releaseUrl = update?.url ?? `${REPO}/releases/latest`;
+  const fraction = installing?.total ? Math.min(1, installing.received / installing.total) : 0;
 
   const check = () => {
     setChecking(true);
@@ -57,14 +81,38 @@ export default function AboutSection() {
                 )}
               </p>
             )}
-            <div className="qrowb">
-              <button className="qbtn pri" onClick={() => openUrl(update.url ?? `${REPO}/releases/latest`)}>
-                Get {update.latest}
-              </button>
-              <span className="qnote" style={{ fontSize: 12.5, marginLeft: 4 }}>
-                Opens the release on GitHub
-              </span>
-            </div>
+            {installing ? (
+              <>
+                <WaveProgress fraction={fraction} label={`Utter ${update.latest} download`} />
+                <div className="qtags">
+                  <span className="qtag nt">{installing.total ? `${Math.round(fraction * 100)}%` : "Starting"}</span>
+                  <span className="qnote">
+                    {fraction >= 1 ? "Installing. Utter restarts in a moment." : "Utter restarts when it’s in."}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="qrowb">
+                <button className="qbtn pri" onClick={install}>
+                  Install and restart
+                </button>
+                <span className="qnote" style={{ fontSize: 12.5, marginLeft: 4 }}>
+                  Takes a few seconds. Your settings and words stay as they are.
+                </span>
+              </div>
+            )}
+            {installError && (
+              <Notice
+                tone="pe"
+                action={
+                  <button className="qbtn sm" onClick={() => openUrl(releaseUrl)}>
+                    Download it
+                  </button>
+                }
+              >
+                <b>Not installed.</b> <span>{installError} You can download {update.latest} from GitHub instead.</span>
+              </Notice>
+            )}
           </>
         ) : (
           <>
