@@ -168,17 +168,22 @@ and Gatekeeper checks downloads for Apple's notarisation.
 
 ## First run
 
-Utter opens with a four-step welcome that takes about a minute:
+Utter opens with a five-step welcome that takes about a minute:
 
 1. **Hello.** Pressing "Get started" also starts downloading the Small speech
-   model (488 MB), so it is usually ready by step 3.
+   model (488 MB), so it is usually ready by the time you try it.
 2. **Permissions.** Allow the microphone, and Accessibility, which lets Utter
    type for you and hear the fn key (see below).
 3. **Speech model.** Keep Small, or pick another. Base is fastest but
    mishears names and jargon more often. Large is the most accurate and understands
    languages other than English; under **Speech** you can tell it which
    one you speak, or leave it to detect.
-4. **Try it.** Hold `fn`, say a sentence, and let go. If you skipped
+4. **Tidy it up?** Choose how dictations are tidied: **Claude Haiku**
+   (recommended: paste an Anthropic key, which goes straight into the
+   Keychain), **on this Mac with Ollama** (nothing leaves your Mac), or
+   **Not now** (words go in as heard). Other providers are under **AI
+   provider** any time.
+5. **Try it.** Hold `fn`, say a sentence, and let go. If you skipped
    Accessibility, this step offers `⌃ ⌥ Space` instead, which works without it.
 
 After that, the window has a sidebar: Home, History and Words, then a
@@ -200,15 +205,19 @@ Word…, Add a Word…, Undo Learning, About Utter, Check for Updates… and Qui
 1. Under **AI provider**, pick a provider.
 2. Paste an API key for it and press Save. The **Get a … key** link (for
    example "Get an Anthropic key") opens the provider's key page.
-3. Choose a model. Click the model field to pick from what your key can use
-   (**List models** refreshes the list), or type a name. Pick a small, fast
-   one: cleanup is light editing, and you wait for it.
+3. Most providers start with a small, fast model already chosen. To use
+   another, click the model field to pick from what your key can use
+   (**List models** refreshes the list), or type a name. Keep it small and
+   fast: cleanup is light editing, and you wait for it.
 4. Press **Test** to confirm it works.
 
 | Provider | Key | Model |
 | --- | --- | --- |
 | Anthropic (Claude) | Yes | Defaults to Claude Haiku |
-| OpenAI, Google Gemini, Groq, OpenRouter | Yes | You choose |
+| OpenAI | Yes | Defaults to GPT-5.4 mini |
+| Google Gemini | Yes | Defaults to Gemini 3.5 Flash-Lite |
+| Groq | Yes | Defaults to GPT-OSS 20B |
+| OpenRouter | Yes | You choose |
 | Ollama | No, runs on your Mac | You choose from the models you have pulled |
 | Other (OpenAI-compatible) | Yes | You enter the base URL and choose |
 

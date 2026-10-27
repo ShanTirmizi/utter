@@ -296,13 +296,29 @@ impl Cleaner {
             Some(_) if cleanup::goes_as_is(raw, category, terms, setup.settings.way) => as_heard(None, false),
             Some(endpoint) => {
             let target = AppContext { category, ..AppContext::unknown() };
-            let started = Instant::now();
-            let result =
-                tauri::async_runtime::block_on(cleanup::run(raw, &target, endpoint, &Task::Tidy, terms));
-            let ms = Some(started.elapsed().as_millis() as u64);
+            // A replay asks far faster than anyone dictates, so a provider's
+            // rate limit is waited out rather than counted as a failure. Only
+            // the attempt that answers is timed.
+            let mut waits = [5u64, 10, 20, 30, 30, 45, 60, 60].into_iter();
+            let (result, ms) = loop {
+                let started = Instant::now();
+                let result =
+                    tauri::async_runtime::block_on(cleanup::run(raw, &target, endpoint, &Task::Tidy, terms));
+                let ms = Some(started.elapsed().as_millis() as u64);
+                match (&result, waits.next()) {
+                    (Err(e), Some(wait)) if e.to_string().contains("Rate limited") => {
+                        eprintln!("[rate limited] {}: waiting {wait}s", self.label);
+                        std::thread::sleep(std::time::Duration::from_secs(wait));
+                    }
+                    _ => break (result, ms),
+                }
+            };
             match result {
                 Ok(text) => Tidied { text, model_ms: ms, failed: false },
-                Err(_) => as_heard(ms, true),
+                Err(e) => {
+                    eprintln!("[tidy failed] {}: {e}", self.label);
+                    as_heard(ms, true)
+                }
             }
             }
         };

@@ -24,9 +24,14 @@ pub struct Provider {
     pub protocol: Protocol,
     /// Empty for `custom`, where the user supplies it.
     pub base_url: &'static str,
-    /// Empty when the user must pick one; model names change too often to
-    /// hard-code for every provider, so the app lists them live instead.
+    /// A small, fast model, used until the user picks another. Empty where
+    /// there is no sensible guess (OpenRouter, Ollama, custom): the app lists
+    /// the models live instead.
     pub default_model: &'static str,
+    /// The model the rewrite hotkey uses unless the user picks one. Tidying
+    /// wants speed; writing is where a stronger model shows. Empty means the
+    /// cleanup model.
+    pub rewrite_model: &'static str,
     pub needs_key: bool,
     /// Where to create a key, for the "Get a key" link.
     pub key_url: &'static str,
@@ -39,6 +44,7 @@ pub const CATALOG: [Provider; 7] = [
         protocol: Protocol::Anthropic,
         base_url: "https://api.anthropic.com/v1",
         default_model: "claude-haiku-5-5",
+        rewrite_model: "claude-sonnet-5-5",
         needs_key: true,
         key_url: "https://console.anthropic.com/settings/keys",
     },
@@ -47,7 +53,8 @@ pub const CATALOG: [Provider; 7] = [
         label: "OpenAI",
         protocol: Protocol::OpenAi,
         base_url: "https://api.openai.com/v1",
-        default_model: "",
+        default_model: "gpt-5.4-mini",
+        rewrite_model: "",
         needs_key: true,
         key_url: "https://platform.openai.com/api-keys",
     },
@@ -56,7 +63,8 @@ pub const CATALOG: [Provider; 7] = [
         label: "Google Gemini",
         protocol: Protocol::OpenAi,
         base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
-        default_model: "",
+        default_model: "gemini-3.5-flash-lite",
+        rewrite_model: "",
         needs_key: true,
         key_url: "https://aistudio.google.com/apikey",
     },
@@ -65,7 +73,8 @@ pub const CATALOG: [Provider; 7] = [
         label: "Groq",
         protocol: Protocol::OpenAi,
         base_url: "https://api.groq.com/openai/v1",
-        default_model: "",
+        default_model: "openai/gpt-oss-20b",
+        rewrite_model: "",
         needs_key: true,
         key_url: "https://console.groq.com/keys",
     },
@@ -75,6 +84,7 @@ pub const CATALOG: [Provider; 7] = [
         protocol: Protocol::OpenAi,
         base_url: "https://openrouter.ai/api/v1",
         default_model: "",
+        rewrite_model: "",
         needs_key: true,
         key_url: "https://openrouter.ai/keys",
     },
@@ -84,6 +94,7 @@ pub const CATALOG: [Provider; 7] = [
         protocol: Protocol::OpenAi,
         base_url: "http://localhost:11434/v1",
         default_model: "",
+        rewrite_model: "",
         needs_key: false,
         key_url: "https://ollama.com",
     },
@@ -93,6 +104,7 @@ pub const CATALOG: [Provider; 7] = [
         protocol: Protocol::OpenAi,
         base_url: "",
         default_model: "",
+        rewrite_model: "",
         needs_key: true,
         key_url: "",
     },
@@ -186,6 +198,18 @@ pub fn endpoint(settings: &Settings, api_key: Option<String>) -> Result<Endpoint
     })
 }
 
+/// The endpoint for the rewrite hotkey, rewriting or editing by voice: the
+/// same service and key, with the model chosen for rewriting.
+pub fn for_rewrite(endpoint: Endpoint, settings: &Settings) -> Endpoint {
+    let chosen = settings.rewrite_model.trim();
+    let default = find(&settings.provider).map_or("", |p| p.rewrite_model);
+    let model = if chosen.is_empty() { default } else { chosen };
+    if model.is_empty() {
+        return endpoint;
+    }
+    Endpoint { model: model.to_string(), ..endpoint }
+}
+
 /// As `endpoint`, reading the key from the Keychain. This can block on a
 /// system prompt, so call it off the async threads.
 pub fn resolve(settings: &Settings) -> Result<Endpoint, NotReady> {
@@ -213,14 +237,31 @@ mod tests {
     }
 
     #[test]
+    fn rewriting_gets_its_own_model() {
+        let tidy = endpoint(&settings("anthropic", "", ""), Some("k".into())).unwrap();
+        let rewrite = for_rewrite(tidy.clone(), &settings("anthropic", "", ""));
+        assert_eq!(rewrite.model, "claude-sonnet-5-5");
+        assert_eq!(rewrite.api_key, tidy.api_key);
+        // The user's own choice wins.
+        let chosen = Settings { rewrite_model: "claude-opus-5-5".into(), ..settings("anthropic", "", "") };
+        assert_eq!(for_rewrite(tidy, &chosen).model, "claude-opus-5-5");
+        // A provider with no rewrite model of its own rewrites with the cleanup model.
+        let openai = endpoint(&settings("openai", "some-model", ""), Some("k".into())).unwrap();
+        assert_eq!(for_rewrite(openai, &settings("openai", "some-model", "")).model, "some-model");
+    }
+
+    #[test]
     fn a_missing_key_is_not_reported_as_a_problem() {
         assert_eq!(endpoint(&settings("openai", "x", ""), None).unwrap_err(), NotReady::NoKey);
     }
 
     #[test]
     fn other_providers_need_a_model_to_be_chosen() {
-        let err = endpoint(&settings("openai", "  ", ""), Some("k".into())).unwrap_err();
+        let err = endpoint(&settings("openrouter", "  ", ""), Some("k".into())).unwrap_err();
         assert!(matches!(err, NotReady::Problem(_)));
+        // Where there is a sensible default, nothing has to be chosen.
+        let groq = endpoint(&settings("groq", "", ""), Some("k".into())).unwrap();
+        assert_eq!(groq.model, "openai/gpt-oss-20b");
         let ok = endpoint(&settings("openai", "some-model", ""), Some("k".into())).unwrap();
         assert_eq!(ok.model, "some-model");
         assert_eq!(ok.base_url, "https://api.openai.com/v1");

@@ -1373,6 +1373,7 @@ async fn edit_selection(
             }
             NotReady::Problem(text) => format!("{text} {UNCHANGED}"),
         })?;
+    let endpoint = providers::for_rewrite(endpoint, settings);
 
     if endpoint.local && length > MAX_SELECTION_CHARS_LOCAL {
         return Err(format!(
@@ -1454,6 +1455,8 @@ async fn improve(
         }
         Err(e) => return untouched(Some(format!("{what} skipped: {e}")), None),
     };
+
+    let endpoint = if mode == Mode::Rewrite { providers::for_rewrite(endpoint, settings) } else { endpoint };
 
     // Only now is a model really about to be asked, so only now say so. With
     // no key set up, the pill must not claim to be tidying.

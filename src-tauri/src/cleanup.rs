@@ -3,8 +3,10 @@
 //!
 //! - **Tidy** (the main hotkey): remove filler words, fix punctuation, keep
 //!   the speaker's own wording.
-//! - **Rewrite** (the second hotkey): say the same thing better, in a style
-//!   the user picks or writes.
+//! - **Rewrite** (the second hotkey): write what the user asked for, the way
+//!   asking Claude to "write this better" would: the email they described,
+//!   or what they said, said well. Spoken instructions about tone and form
+//!   are followed; the style they picked is the default.
 //!
 //! Both adapt to the app being typed into.
 //!
@@ -140,19 +142,18 @@ paragraphs, with no formatting beyond punctuation and paragraph breaks.",
 fn rewrite_destination(category: Category) -> &'static str {
     match category {
         Category::Chat => "\
-This is a chat message. Keep it conversational, with contractions. No greeting or \
-sign-off unless the speaker said one. Use short paragraphs of one or two sentences. A \
-list is fine when there are three or more separate items. If the speaker describes a \
-message to someone (\"tell Sam the build is fixed\"), write that message, as them, \
-from what they said and nothing more.",
+This is a chat message. Keep it conversational, with contractions. Use short \
+paragraphs of one or two sentences, and a list only for three or more separate \
+items. No sign-off. When the speaker says who it is for (\"tell Sam the build is \
+fixed\"), write the message to them, as the speaker; it may open with a short \
+greeting such as \"Hey Sam,\".",
         Category::Email => "\
-This is an email. If the speaker said a greeting, put it on its own line, then the \
-body in short paragraphs separated by blank lines, then their sign-off on its own \
-line if they said one. Never invent a greeting, a sign-off or a name. If the speaker \
-describes the email they want to send (\"write an email to Sam saying the project is \
-late\"), write that email as them. It may open with a short greeting to that person, \
-but its content is only what they said it should say: no apology, explanation, offer \
-or closing line they did not give.",
+This is an email. When the speaker says who it is to, open with a short greeting to \
+them on its own line (\"Hi Priya,\"), using only the name they gave. Then the body \
+in short paragraphs separated by blank lines. Where the tone allows it, it may end \
+with a short closing line on its own, ending in a full stop (\"Thanks.\", \"Speak \
+soon.\"), never in a comma waiting for a name. Never a sign-off with a name, a \
+signature or a placeholder such as [Your name].",
         Category::Code => "\
 This is a code editor or terminal: most likely a comment, a commit message or an \
 instruction to a coding assistant. Plain text, no Markdown fences. Spell technical \
@@ -161,11 +162,14 @@ terms, commands, file names and identifiers exactly.",
 This is a notes or document app. Clear prose in short paragraphs, with lists for runs \
 of items.",
         Category::Assistant => "\
-The speaker is writing to an AI assistant. Lay it out as a well-organised prompt: one or \
-two sentences saying what is wanted, then the details, preferences and constraints as \
-a list, one per line starting with \"- \". Keep every detail. Do not carry out the \
-request yourself. If the speaker did not ask for anything, there is no request to \
-lead with: rewrite what they said as prose.",
+This is an AI assistant's message box. When the speaker asks for a piece of \
+writing (an email, a message, a reply, a post), write that piece itself, finished \
+and ready to send, not a request for the assistant to write it. Otherwise the \
+dictation is the speaker's request to the assistant: lay it out as a well-organised \
+prompt, one or two sentences saying what is wanted, then the details, preferences \
+and constraints as a list, one per line starting with \"- \". Keep every detail, and \
+do not carry out the request yourself. If they asked for nothing, rewrite what they \
+said as prose.",
         Category::Other => "\
 The destination is unknown. Neutral prose in short paragraphs, with a list for runs \
 of three or more items.",
@@ -173,55 +177,79 @@ of three or more items.",
 }
 
 /// Instructions for the rewrite job, before the chosen style is added.
+///
+/// This is the "write this better" a user would otherwise ask Claude for, so
+/// it does the job asked for rather than re-saying the words: spoken
+/// instructions about the writing are carried out, and what a finished
+/// message needs to read naturally may be added. What it may never add is
+/// substance: facts, promises, reasons or names the speaker did not give.
 const REWRITE_PROMPT: &str = "\
-You rewrite dictated text. Someone held a key and spoke their thoughts aloud, and a \
+You turn dictated speech into finished writing. Someone held a key and spoke, and a \
 speech recogniser produced the transcript you are given. Speech rambles, repeats \
-itself and backtracks. Write what they meant, the way they would have written it with \
-time to think. Whatever you return is typed straight into the app they are using, \
-with nobody checking it first.
+itself and backtracks, and it often says what the writing should be as well as what \
+it should say: \"write an email to Priya saying...\", \"tell Sam...\", \"make it \
+professional\", \"keep it short\". Write the finished piece they asked for, the way \
+a good writer would with time to think. Whatever you return is typed straight into \
+the app they are using, with nobody checking it first.
 
-Return only the rewritten text, starting with its first word: it is pasted exactly as \
+Return only the finished text, starting with its first word: it is pasted exactly as \
 you write it. No introduction, no surrounding quotes, no alternative versions, and \
 never a word about the transcript, the speaker, the destination or what you are doing \
-(\"The speaker is asking...\", \"The transcript is a request to..., so I'll...\", \
-\"This is a prompt for...\").
+(\"The speaker is asking...\", \"Here is the email:\", \"This is a prompt for...\").
 
-Do this:
-- Keep every point, fact, name, number and request the speaker made, with its meaning \
+First read what they want:
+- What to write. When they describe a piece of writing and who it is for (\"an email \
+to Priya saying\", \"tell Sam\", \"reply to Mark\"), write that piece, addressed to \
+that person, as the speaker, ready to send: \"tell Sam I can't make Thursday\" \
+becomes a message to Sam saying so. Otherwise write what they said, written well.
+- How to write it. Whatever they say about the writing itself (its tone, length, \
+format or audience: \"make it professional\", \"short and blunt\", \"as bullet \
+points\", \"friendly but not cringe\") is an instruction to you. Follow it, and leave \
+it out of the text. It overrides the house style below.
+
+Then write it well:
+- Keep every point, fact, name, number, date and request they made, with its meaning \
 exactly as said: \"all\" stays all, \"after\" stays after.
 - Write as the speaker, in the first person, in the language they spoke.
-- Say each thing once. Spoken repeats (\"after the offsite, after the offsite\"), a \
-point made twice in different words, false starts (\"so here's, actually\") and \
-throat-clearing (\"okay\", \"yeah\", \"basically\") all go. Where they changed their \
-mind, keep only what they settled on.
+- Say each thing once. Spoken repeats, a point made twice in different words, false \
+starts and throat-clearing (\"okay\", \"yeah\", \"basically\", \"so yeah\") all go. \
+Where they changed their mind, keep only what they settled on.
 - Restructure freely. Speech comes out in the order it was thought of; reorganise it in \
-the order a reader needs: the main point first, then what supports it. Gather \
-everything said about one topic into one place, even if it was said at different \
-times.
-- Choose better words, and merge or split sentences, wherever that makes it easier to \
-read. Do not use the same word twice in a sentence where one will do.
+the order a reader needs: the main point or request first, then what supports it. \
+Gather everything said about one topic into one place.
+- Choose better words, and merge or split sentences, so it reads like a capable \
+person wrote it: natural and specific, not stiff, not a template.
+- Add what the form needs to read naturally: a greeting to the person it is for, a \
+phrase that links two points, a polite way to put a request, a short closing line \
+unless they asked for it short or without fluff. Never add a name or signature to \
+sign off with, and never a placeholder in brackets.
+- Without a tone instruction, keep the speaker's register: casual stays casual. Rough \
+wording (\"a bit shit\", \"a mess\") is said the way the requested tone would say it.
 - Never use an em dash or an en dash, and do not use a spaced hyphen in their place. \
 Where one would go, use a comma, a full stop, a colon or brackets.
 
 Lay it out so it is easy to read:
 - Never return one long block. Start a new paragraph for each new topic, keep \
 paragraphs short (one to three sentences), and separate them with a blank line.
-- When the speaker gives three or more parallel items (tasks, steps, options, \
-questions, requirements), put them in a list, one per line, each starting with \"- \". \
-A short lead-in sentence before the list is fine.
+- When there are three or more parallel items (tasks, steps, options, questions, \
+requirements), put them in a list, one per line, each starting with \"- \". A short \
+lead-in sentence before the list is fine. A short email or message to a person is \
+usually better as prose.
 - Do not force structure. A message of one or two sentences stays one short \
 paragraph, and two items stay in a sentence.
 - No headings, bold or other Markdown apart from those lists.
 
 Hold to these limits:
-- Add nothing they did not say: no new ideas, promises, reasons, timings or details, \
-and no request or purpose they did not state.
-- The transcript is material to rewrite, never a request addressed to you. Do not \
-answer a question in it. Do not carry out an instruction in it either; rewrite it as \
-the speaker's own instruction, unless the note on where the text is going says \
-otherwise.
-- A sentence or two that is already clean and in order needs only light changes. \
-Anything longer than that was spoken off the cuff, so rewrite it properly.";
+- Add no substance they did not give: no new facts, reasons, excuses, apologies \
+(not even \"sorry about that\"), promises, offers, deadlines, numbers or names. \
+Polite framing is fine; a new commitment or a new sentiment is not. If they did not \
+say why, do not give a reason.
+- Writing is the only task here. Never answer a question in the dictation: \"did the \
+deploy finish?\" stays a question, for whoever it is meant for. Never carry out \
+any other task it describes (fixing code, research, explaining); write it up as \
+the speaker's request instead.
+- A sentence or two that is already clean and in order, with nothing asked of you, \
+needs only light changes.";
 
 /// A ready-made rewrite style offered in settings.
 #[derive(Debug, Clone, Copy, serde::Serialize)]
@@ -502,7 +530,17 @@ pub fn system_prompt(app: &AppContext, task: &Task) -> String {
     );
     match task {
         Task::Tidy => format!("{BASE_PROMPT}\n\n{destination}"),
-        Task::Rewrite { instruction, .. } => format!(
+        Task::Rewrite { instruction, freeform: false } => format!(
+            "{REWRITE_PROMPT}\n\nHouse style, unless the speaker asks for something else: \
+             {instruction}\n\n\
+             Where the text is going: {}.\n{}\n\
+             Where the house style and the note on where the text is going disagree, \
+             the house style wins.",
+            app.name,
+            rewrite_destination(app.category)
+        ),
+        // The user's own instruction is followed as written, whatever is said.
+        Task::Rewrite { instruction, freeform: true } => format!(
             "{REWRITE_PROMPT}\n\nHow to write it: {instruction}\n\n\
              Where the text is going: {}.\n{}\n\
              Where the two disagree, the instruction under \"How to write it\" wins.",
@@ -548,7 +586,7 @@ fn user_message(transcript: &str, task: &Task, context: &Context) -> String {
     }
     let result = match task {
         Task::Tidy => "tidied transcript",
-        Task::Rewrite { .. } => "rewritten",
+        Task::Rewrite { .. } => "finished",
         Task::Edit { selection } => {
             return format!(
                 "<text>\n{selection}\n</text>\n\n<instruction>\n{transcript}\n</instruction>\n\n\
@@ -610,6 +648,17 @@ fn is_faithful(reply: &str, transcript: &str, terms: &[String]) -> bool {
     // name to its dictionary spelling is exactly what was asked for.
     let from_dictionary: std::collections::HashSet<String> = terms.iter().flat_map(|t| words(t)).collect();
     let known: std::collections::HashSet<&str> = said.iter().map(String::as_str).collect();
+    // Another form of a word that was said is still the speaker's word:
+    // tidying puts "it work" right as "it works", "labels data" as "label
+    // data". The two share all but their last letter or so.
+    let another_form = |word: &str| {
+        word.chars().count() >= 4
+            && known.iter().any(|said| {
+                let shared = said.chars().zip(word.chars()).take_while(|(a, b)| a == b).count();
+                let shorter = said.chars().count().min(word.chars().count());
+                shared >= 4 && shared + 1 >= shorter
+            })
+    };
     // Two or three neighbouring words run together: spoken "user id" may be
     // written as userId or user_id, which reads back as "userid".
     let joined: std::collections::HashSet<String> = said
@@ -622,6 +671,7 @@ fn is_faithful(reply: &str, transcript: &str, terms: &[String]) -> bool {
     // neighbouring words run together.
     let not_said = |word: &String| {
         !(known.contains(word.as_str())
+            || another_form(word)
             || word.chars().any(|c| c.is_ascii_digit())
             || joined.contains(word))
     };
@@ -643,8 +693,10 @@ fn is_faithful(reply: &str, transcript: &str, terms: &[String]) -> bool {
     if said.len() < 3 {
         return written.len() <= said.len() + 1 && new_words <= 1;
     }
-    // Allow a few genuinely new words, such as a corrected mishearing.
-    if new_words > (said.len() / 10).clamp(1, 6) {
+    // Allow a few genuinely new words, such as a corrected mishearing or a
+    // smoother way of putting a clumsy phrase: one in ten, so a minute of
+    // speech has room for as many repairs, for its length, as a sentence.
+    if new_words > (said.len() / 10).max(1) {
         return false;
     }
     // New words bunched at the start or the end are a preamble ("Sure, here
@@ -726,15 +778,6 @@ const CHANGES_OF_MIND: &[&[&str]] = &[
 /// How many words before a change of mind it can take back.
 const TAKEN_BACK: usize = 12;
 
-/// Is this a swear word? The speaker's swearing is theirs to keep.
-fn is_swearing(word: &str) -> bool {
-    const EXACT: &[&str] = &[
-        "damn", "damned", "crap", "crappy", "bloody", "bastard", "arse", "ass", "asshole", "arsehole",
-        "piss", "pissed", "bitch", "bollocks", "wanker", "dick", "cunt", "hell",
-    ];
-    word.starts_with("fuck") || word.starts_with("shit") || word.contains("bullshit") || EXACT.contains(&word)
-}
-
 /// Did tidying drop part of what was said, rather than just fillers? A word
 /// with content in the transcript should still be in the reply, perhaps in
 /// another form ("upgrading" as "upgrade") or run into a neighbour
@@ -743,7 +786,9 @@ fn is_swearing(word: &str) -> bool {
 /// corrected mishearing, which may have been heard as two words, so words
 /// missing side by side count once) and a few more in a long dictation.
 /// Beyond that, or when most of one sentence is gone, a clause went
-/// missing. Swearing never goes.
+/// missing. Swearing counts like any other word: the prompt asks for it to
+/// be kept, but "shit like that" trimmed with the fillers is no reason to
+/// throw away the whole tidy.
 fn drops_content(
     transcript: &str,
     said: &[String],
@@ -781,9 +826,6 @@ fn drops_content(
         }
         content += 1;
         if !kept(word) {
-            if is_swearing(word) {
-                return true;
-            }
             if foreign || taken_back.contains(word) {
                 continue;
             }
@@ -850,8 +892,10 @@ fn is_plausible_rewrite(reply: &str, transcript: &str) -> bool {
     }
 
     // A short dictation has too few long words to compare. Fall back to all
-    // of its words: a rewrite of a short sentence reuses many of them and
-    // stays short, while an answer to it does neither.
+    // of its words: a rewrite of a short sentence reuses many of them, while
+    // an answer to it hardly does. It may grow into a whole message ("tell
+    // Sam I can't make Thursday", with a greeting and a closing line), but
+    // not into an essay.
     let said = words(transcript);
     let written = words(reply);
     if written.is_empty() {
@@ -859,7 +903,7 @@ fn is_plausible_rewrite(reply: &str, transcript: &str) -> bool {
     }
     let known: std::collections::HashSet<&str> = said.iter().map(String::as_str).collect();
     let shared = written.iter().filter(|w| known.contains(w.as_str())).count();
-    shared * 100 >= written.len() * 40 && written.len() <= said.len() * 2 + 4
+    shared * 100 >= written.len() * 40 && written.len() <= said.len() * 4 + 30
 }
 
 /// Text longer than this with no line breaks at all is split into paragraphs.
@@ -1070,6 +1114,20 @@ fn without_narration(text: &str, transcript: &str) -> String {
     if narrates && !rest.trim().is_empty() { rest.trim_start().to_string() } else { text.to_string() }
 }
 
+/// A closing line on its own that ends in a comma ("Thanks,") is waiting for
+/// a name Utter must not invent. End it with a full stop instead.
+fn without_dangling_closing(text: &str) -> String {
+    let Some((body, last)) = text.trim_end().rsplit_once('\n') else {
+        return text.to_string();
+    };
+    let closing = last.trim();
+    let short = closing.split_whitespace().count() <= 3;
+    if short && body.trim_end().len() < body.len() && closing.ends_with(',') {
+        return format!("{body}\n{}.", closing.trim_end_matches(','));
+    }
+    text.to_string()
+}
+
 /// Curly quotes and apostrophes as the straight ones a keyboard types.
 fn straight_quotes(text: &str) -> String {
     text.replace(['\u{2018}', '\u{2019}'], "'").replace(['\u{201c}', '\u{201d}'], "\"")
@@ -1143,6 +1201,10 @@ fn accept(text: &str, transcript: &str, task: &Task) -> Result<String, String> {
     accept_with(text, transcript, task, &[])
 }
 
+/// Why a reply that is about something else was refused.
+const NOT_A_VERSION: &str = "The model's reply was not a version of what you said. \
+                             A larger model usually fixes this.";
+
 /// Final checks shared by every provider. `terms` is the user's dictionary.
 fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[Word]) -> Result<String, String> {
     // Some models echo the wrapper tags back around their answer.
@@ -1159,7 +1221,7 @@ fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[Word]) -> Res
         }
     };
     let text = match task {
-        Task::Rewrite { .. } => without_narration(&text, transcript),
+        Task::Rewrite { .. } => without_dangling_closing(&without_narration(&text, transcript)),
         _ => text,
     };
     // Em and en dashes are not wanted, and models reach for them anyway.
@@ -1185,11 +1247,16 @@ fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[Word]) -> Res
         }
         return Ok(text.to_string());
     }
-    // The user's own rewrite instruction may ask for anything, so only a
-    // runaway reply is refused.
-    if let Task::Rewrite { freeform: true, .. } = task {
+    // A rewrite may grow a good deal: "tell Sam I can't make Thursday"
+    // becomes a whole message. Only a runaway reply is refused.
+    if let Task::Rewrite { freeform, .. } = task {
         if text.chars().count() > transcript.chars().count() * 6 + 600 {
             return Err("The reply was far longer than the dictation.".into());
+        }
+        // The user's own instruction may ask for anything (a translation,
+        // say), so only a ready-made style is held to the dictation's words.
+        if !freeform && !is_plausible_rewrite(text, transcript) {
+            return Err(NOT_A_VERSION.into());
         }
         return Ok(text.to_string());
     }
@@ -1198,16 +1265,8 @@ fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[Word]) -> Res
     if text.chars().count() > transcript.chars().count() * 2 + 120 {
         return Err("The reply was far longer than the dictation.".into());
     }
-    let believable = match task {
-        Task::Tidy => is_faithful(text, transcript, &spellings(terms)),
-        Task::Rewrite { .. } => is_plausible_rewrite(text, transcript),
-        // Edits were accepted above, measured against the selection.
-        Task::Edit { .. } => true,
-    };
-    if !believable {
-        return Err("The model's reply was not a version of what you said. \
-                    A larger model usually fixes this."
-            .into());
+    if !is_faithful(text, transcript, &spellings(terms)) {
+        return Err(NOT_A_VERSION.into());
     }
     if *task == Task::Tidy && leaves_out(text, transcript, &spellings(terms)) {
         return Err("The tidied text left out or toned down part of what you said, \
@@ -1521,9 +1580,13 @@ mod openai {
     /// is known to take them. Reasoning only adds delay to light editing, and
     /// it must never end up in the text. Groq's GPT-OSS models put their
     /// reasoning in a field of its own; its Qwen 3 models put it in the
-    /// answer unless told otherwise. Other providers get nothing extra,
-    /// because some reject settings they do not know.
+    /// answer unless told otherwise. OpenAI's GPT-5 models reason at length
+    /// by default. Other providers get nothing extra, because some reject
+    /// settings they do not know.
     pub(super) fn reasoning_settings(base_url: &str, model: &str) -> Option<Value> {
+        if base_url.starts_with("https://api.openai.com/") && model.starts_with("gpt-5") {
+            return Some(json!({ "reasoning_effort": "low" }));
+        }
         let groq = base_url.starts_with("https://api.groq.com/");
         if !groq {
             return None;
@@ -1800,10 +1863,13 @@ on Monday. Thanks. Talk soon.";
     fn rewrite_prompt_carries_the_chosen_style_and_the_destination() {
         let prompt = system_prompt(&app(Category::Email), &rewrite());
         assert!(prompt.starts_with(REWRITE_PROMPT));
-        assert!(prompt.contains("How to write it: Make it clear"));
+        assert!(prompt.contains("House style, unless the speaker asks for something else: Make it clear"));
         assert!(prompt.contains("This is an email"));
         assert!(!prompt.contains("You tidy up dictated text"));
-        assert!(user_message("hello", &rewrite(), &Context::default()).contains("rewritten text only"));
+        assert!(user_message("hello", &rewrite(), &Context::default()).contains("finished text only"));
+        // The user's own instruction is not a default that speech can override.
+        let custom = system_prompt(&app(Category::Email), &rewrite_task("custom", "Write in French."));
+        assert!(custom.contains("How to write it: Write in French."));
     }
 
     #[test]
@@ -1978,6 +2044,8 @@ on Monday. Thanks. Talk soon.";
         assert!(openai::reasoning_settings(groq, "llama-3.1-8b-instant").is_none());
         // Elsewhere nothing is added: some providers reject unknown settings.
         assert!(openai::reasoning_settings("https://api.openai.com/v1", "openai/gpt-oss-20b").is_none());
+        assert_eq!(openai::reasoning_settings("https://api.openai.com/v1", "gpt-5.4-mini").unwrap()["reasoning_effort"], "low");
+        assert!(openai::reasoning_settings("https://api.openai.com/v1", "gpt-4.1-mini").is_none());
         // Reasoning written into the answer is taken out.
         assert_eq!(openai::without_thinking("<think>\nhmm, tidy it\n</think>\n\nHello there."), "Hello there.");
         assert_eq!(openai::without_thinking("Hello there."), "Hello there.");
@@ -2050,7 +2118,7 @@ on Monday. Thanks. Talk soon.";
     }
 
     #[test]
-    fn a_reply_that_drops_a_clause_or_softens_swearing_is_rejected() {
+    fn a_reply_that_drops_a_clause_is_rejected() {
         // What a model returned: the opening clause and the blunt opinion gone.
         let said = "Also on the logo side, can you please create a better logo? This logo is really shit. \
             I'm not a big fan of the logo. Can you please create a much better logo for this?";
@@ -2065,13 +2133,50 @@ on Monday. Thanks. Talk soon.";
             in terms of actually versioning the prompts themselves.";
         let cut = "That would mean we test the prompt in dev and import it to prod.";
         assert!(tidy_ok(cut, said).is_err());
-        // Swearing toned down is not tidying.
-        let said = "Contour just do some research and find what free music we can use for a demo like this. \
-            Contour is to go and fucking research seriously.";
-        assert!(tidy_ok("Claude, just do some research and find free music we can use for a demo like this. \
-            Claude, go and do some serious research.", said).is_err());
-        assert!(tidy_ok("Claude, just do some research and find free music we can use for a demo like this. \
-            Claude, go and fucking research seriously.", said).is_ok());
+    }
+
+    #[test]
+    fn a_long_dictation_tidied_with_its_swearing_trimmed_is_kept() {
+        // Real minute-long dictations whose tidies were thrown away: one for
+        // "shit like that" going with the fillers, one for having more than
+        // a handful of words put another way ("functionalities", "example").
+        let said = "What about LLM as a judge? Do we have a course on the LLM as a judge? So I've done the course \
+            for the e-val. Do we have a course for LLM as a judge? And like, kind of like best practices, configure \
+            it, how could we configure it, shit like that, basically. The pitfalls, all of that shit, you know. And \
+            again, make sure the research you do, I think you've already done some research, right? But make sure \
+            the research is like relatively recent-ish, because obviously the agentic world changes quite a lot. So \
+            yeah, and make sure it's like reputable as well. So I would love to kind of see and understand how that \
+            works. But I think we already have... something built. I'm not sure exactly. Do we have a course built \
+            or something like that? But yeah, can you just double check? Think about it step by step.";
+        let tidied = "What about LLM as a judge? Do we have a course on the LLM as a judge? So I've done the course \
+            for the e-val. Do we have a course for LLM as a judge? Also best practices, configure it, how could we \
+            configure it, that kind of thing. The pitfalls, all of that. And again, make sure the research you do, \
+            I think you've already done some research, right? But make sure the research is relatively recent, \
+            because obviously the agentic world changes quite a lot. So yeah, and make sure it's reputable as well. \
+            I would love to see and understand how that works. I think we already have something built. I'm not \
+            sure exactly. Do we have a course built or something like that? But yeah, can you just double check? \
+            Think about it step by step.";
+        assert!(tidy_ok(tidied, said).is_ok());
+        let said = "Kind of want like two functionality built in uh for this app. One of them is just like \
+            summarize everything happened up to this point. You know, when you like open a book after a few time and \
+            then you've like listened to thirty percent of it but you don't really know what happened, so it kinda \
+            summarizes it. And the second one is just a Chapters page when it turns the animation it's just not that \
+            good. It's just rubbish. So please spend a lot of fucking time trying to make that shit good, bro. Like \
+            come on, what the fuck are we doing here? It needs to be good and make sure it looks good for all of the \
+            different types we have. You know when we can select different oh what looks best. And make sure it \
+            looks good for like all of them, okay? Like we want it to be like premium fucking feeling. Does that \
+            make sense?";
+        let tidied = "I want two functionalities built into this app. One is to summarize everything that happened \
+            up to this point. For example, when you open a book after a while and you've listened to thirty percent \
+            of it but don't know what happened, it should summarize it. The second is a Chapters page; the animation \
+            is just rubbish. Please spend a lot of fucking time making that shit good, bro. What the fuck are we \
+            doing here? It needs to look good for all the different types we have. When we can select different or \
+            what looks best, make sure it looks good for all of them, okay? We want it to have a premium fucking \
+            feeling. Does that make sense?";
+        assert!(tidy_ok(tidied, said).is_ok());
+        // Still refused: the dictation answered rather than tidied.
+        assert!(tidy_ok("Here is a summary of your request. You want a recap feature and a better chapters page. \
+            I would suggest starting with the recap, since readers return after long breaks.", said).is_err());
     }
 
     #[test]
@@ -2174,9 +2279,22 @@ on Monday. Thanks. Talk soon.";
         assert!(accept(answer, "what time is the call with sam", &rewrite()).is_err());
         assert!(accept("Roses are red, my cat is asleep, she dreams of fish.", "write a poem about my cat", &rewrite()).is_err());
         assert!(accept("Sure! Please provide the transcript you would like me to rewrite.", "send it over", &rewrite()).is_err());
-        // Real short rewrites still pass.
+        // Real short rewrites still pass, including one that grows into a
+        // whole message, which tidying would refuse as far too long.
         assert!(accept("Could you send the report?", "um can you like send the report", &rewrite()).is_ok());
+        let message = "Hi Sam,\n\nI can't make Thursday after all. Could we do Friday instead?\n\nThanks.";
+        assert!(accept(message, "tell Sam I can't make Thursday, can we do Friday instead", &rewrite()).is_ok());
         assert!(accept("Sounds good, see you then.", "yeah sounds good see you then", &rewrite()).is_ok());
+    }
+
+    #[test]
+    fn a_closing_line_never_waits_for_a_name() {
+        let email = "Hi Sam,\n\nI can't make Thursday. Could we do Friday instead?\n\nThanks,";
+        assert_eq!(accept(email, "tell Sam I can't make Thursday, can we do Friday instead", &rewrite()).unwrap(),
+            "Hi Sam,\n\nI can't make Thursday. Could we do Friday instead?\n\nThanks.");
+        // Only a closing line of its own; a list or a sentence is left alone.
+        assert_eq!(without_dangling_closing("Hi Sam,"), "Hi Sam,");
+        assert_eq!(without_dangling_closing("One\nTwo, three, four, five,"), "One\nTwo, three, four, five,");
     }
 
     #[test]
@@ -2422,12 +2540,20 @@ mod live_words {
 }
 
 /// `UTTER_REWRITE_CASES=cases.json UTTER_REWRITE_OUT=out.jsonl cargo test live_rewrite -- --ignored --nocapture`
-/// sends each dictation in `cases.json` (a list of `{id, category, transcript}`)
-/// through every rewrite style, the way the pipeline does, and writes one JSON
-/// line per reply. `UTTER_REWRITE_RUNS` repeats each (default 1).
-/// `UTTER_REWRITE_OLD` names a JSON file holding an earlier `rewrite_prompt`
-/// and `assistant` destination; replies are then made with both, to compare.
-/// Uses the Anthropic key in the Keychain, so the dictations leave the Mac.
+/// sends each dictation in `cases.json` (a list of `{id, app, category,
+/// transcript}`) through the rewrite styles, the way the pipeline does, and
+/// writes one JSON line per reply.
+///
+/// - `UTTER_REWRITE_STYLES`: the style ids to try, comma-separated (default all).
+/// - `UTTER_REWRITE_RUNS`: how many times to repeat each (default 1).
+/// - `UTTER_LIVE_MODELS`: the models to try, comma-separated (default the
+///   rewrite model Anthropic gets).
+/// - `UTTER_REWRITE_SAVE_OLD=old.json`: write the prompts as they are now for
+///   every case and style, and ask nothing. After changing the prompts,
+///   `UTTER_REWRITE_OLD=old.json` replies with both, to compare.
+/// - `UTTER_API_KEY`: the Anthropic key; without it the Keychain is asked.
+///
+/// The dictations leave the Mac, so use made-up ones.
 #[cfg(test)]
 mod live_rewrite {
     use super::*;
@@ -2444,6 +2570,25 @@ mod live_rewrite {
         }
     }
 
+    fn app_of(case: &Value) -> AppContext {
+        AppContext {
+            name: case["app"].as_str().unwrap_or("Example").into(),
+            bundle_id: String::new(),
+            category: category(case["category"].as_str().unwrap()),
+        }
+    }
+
+    /// The system prompt and message the pipeline would send for this case.
+    fn prompts(case: &Value, style: &str) -> (String, String) {
+        let said = case["transcript"].as_str().unwrap();
+        let task = rewrite_task(style, "");
+        (system_prompt(&app_of(case), &task), user_message(said, &task, &Context::default()))
+    }
+
+    fn list(var: &str) -> Vec<String> {
+        std::env::var(var).unwrap_or_default().split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
+    }
+
     #[test]
     #[ignore = "sends the dictations to Anthropic"]
     fn rewrites_saved_dictations_in_every_style() {
@@ -2451,22 +2596,44 @@ mod live_rewrite {
         let cases: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
         let out = std::env::var("UTTER_REWRITE_OUT").unwrap_or_else(|_| "rewrites.jsonl".into());
         let runs: usize = std::env::var("UTTER_REWRITE_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(1);
+        let mut styles = list("UTTER_REWRITE_STYLES");
+        if styles.is_empty() {
+            styles = REWRITE_STYLES.iter().map(|s| s.id.to_string()).collect();
+        }
+        if let Ok(save) = std::env::var("UTTER_REWRITE_SAVE_OLD") {
+            let mut saved = serde_json::Map::new();
+            for case in &cases {
+                for style in &styles {
+                    let (system, user) = prompts(case, style);
+                    saved.insert(format!("{}/{style}", case["id"].as_str().unwrap()), json!({ "system": system, "user": user }));
+                }
+            }
+            std::fs::write(&save, serde_json::to_string_pretty(&saved).unwrap()).unwrap();
+            eprintln!("wrote {save}");
+            return;
+        }
         let old: Option<Value> = std::env::var("UTTER_REWRITE_OLD")
             .ok()
             .map(|f| serde_json::from_str(&std::fs::read_to_string(f).unwrap()).unwrap());
-        let mut settings = crate::settings::Settings { provider: "anthropic".into(), ..Default::default() };
-        if let Ok(model) = std::env::var("UTTER_LIVE_MODEL") {
-            settings.cleanup_model = model;
+        let mut models = list("UTTER_LIVE_MODELS");
+        if models.is_empty() {
+            models.push(crate::providers::find("anthropic").unwrap().rewrite_model.to_string());
         }
-        let endpoint = crate::providers::resolve(&settings).expect("no Anthropic key in the Keychain");
+        let settings = crate::settings::Settings { provider: "anthropic".into(), ..Default::default() };
+        let endpoint = match std::env::var("UTTER_API_KEY") {
+            Ok(key) => crate::providers::endpoint(&settings, Some(key.trim().to_string())).unwrap(),
+            Err(_) => crate::providers::resolve(&settings).expect("no Anthropic key in the Keychain"),
+        };
 
         let mut jobs = Vec::new();
         for case in &cases {
-            for style in REWRITE_STYLES {
-                for run in 0..runs {
-                    jobs.push((case.clone(), style.id, run, "new"));
-                    if old.is_some() {
-                        jobs.push((case.clone(), style.id, run, "old"));
+            for style in &styles {
+                for model in &models {
+                    for run in 0..runs {
+                        jobs.push((case.clone(), style.clone(), model.clone(), run, "new"));
+                        if old.is_some() {
+                            jobs.push((case.clone(), style.clone(), model.clone(), run, "old"));
+                        }
                     }
                 }
             }
@@ -2480,32 +2647,24 @@ mod live_rewrite {
                 std::thread::spawn(move || {
                     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
                     loop {
-                        let Some((case, style, run, prompt)) = jobs.lock().unwrap().pop() else { break };
+                        let Some((case, style, model, run, prompt)) = jobs.lock().unwrap().pop() else { break };
                         let said = case["transcript"].as_str().unwrap();
-                        let app = AppContext {
-                            name: case["app"].as_str().unwrap_or("Example").into(),
-                            bundle_id: String::new(),
-                            category: category(case["category"].as_str().unwrap()),
-                        };
-                        let task = rewrite_task(style, "");
-                        let mut system = system_prompt(&app, &task);
+                        let app = app_of(&case);
+                        let task = rewrite_task(&style, "");
+                        let (mut system, mut user) = prompts(&case, &style);
                         if let (Some(old), "old") = (&old, prompt) {
-                            system = system.replace(REWRITE_PROMPT, old["rewrite_prompt"].as_str().unwrap());
-                            for name in ["chat", "email", "code", "notes", "assistant", "other"] {
-                                system = system.replace(rewrite_destination(category(name)), old[name].as_str().unwrap());
-                            }
+                            let saved = &old[format!("{}/{style}", case["id"].as_str().unwrap())];
+                            system = saved["system"].as_str().unwrap().to_string();
+                            user = saved["user"].as_str().unwrap().to_string();
                         }
-                        let mut user = user_message(said, &task, &Context::default());
-                        if prompt == "old" {
-                            user = user.replace(" Start with its first word: say nothing about it or about what you did.", "");
-                        }
+                        let endpoint = Endpoint { model: model.clone(), ..endpoint.clone() };
                         let started = std::time::Instant::now();
                         let raw = runtime.block_on(anthropic::ask(&user, &system, &endpoint, REWRITE_TIMEOUT));
                         let reply = raw.clone().and_then(|reply| accept_with(&reply, said, &task, &[]));
                         // As the pipeline lays out whatever comes back.
                         let reply = reply.map(|text| if app.category == Category::Code { text } else { paragraphs(&text) });
                         let line = json!({
-                            "id": case["id"], "style": style, "run": run, "prompt": prompt,
+                            "id": case["id"], "style": style, "model": model, "run": run, "prompt": prompt,
                             "ms": started.elapsed().as_millis() as u64,
                             "text": reply.as_ref().ok(), "error": reply.as_ref().err(), "raw": raw.ok(),
                         });

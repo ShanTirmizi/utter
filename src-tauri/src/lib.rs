@@ -177,8 +177,8 @@ fn rewrite_styles() -> Vec<cleanup::RewriteStyle> {
 /// can see what a style does before relying on it.
 #[tauri::command]
 async fn test_rewrite(app: AppHandle) -> Result<String, String> {
-    let endpoint = current_endpoint(&app).await?;
     let settings = settings::load(&app);
+    let endpoint = providers::for_rewrite(current_endpoint(&app).await?, &settings);
     let task = cleanup::rewrite_task(&settings.rewrite_style, &settings.rewrite_prompt);
     let sample = "um so basically I think we should like push the meeting to friday because uh \
                   half the team is out on thursday and yeah I just think it makes more sense that way";

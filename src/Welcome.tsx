@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { openPrivacySettings, requestMicrophone } from "./api";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { listCleanupModels, openPrivacySettings, requestMicrophone, setApiKey } from "./api";
 import { FN, hotkeyLabel } from "./hotkey";
 import { cleanupGap, selectedModel } from "./readiness";
 import { askAccessibility } from "./sections/GeneralSection";
@@ -16,7 +17,11 @@ import {
   WaveProgress,
 } from "./ui";
 
-const STEPS = 4;
+const STEPS = 5;
+/** The steps after the permissions: the speech model, cleanup, then a first dictation. */
+const MODEL = 2;
+const CLEANUP = 3;
+const TRY = 4;
 /** The hotkey offered when fn cannot work yet: it needs no permission. */
 const COMBINATION = "Control+Alt+Space";
 const MB = 1_000_000;
@@ -33,6 +38,7 @@ export default function Welcome() {
   const [askedMic, setAskedMic] = useState(false);
   const [askedAx, setAskedAx] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
+  const [tidy, setTidy] = useState<TidyChoice | null>(null);
 
   const model = selectedModel(app);
   const modelName = model ? shortName(model.label) : "Speech model";
@@ -51,7 +57,7 @@ export default function Welcome() {
   const holding = live.phase === "recording";
   const working = live.phase === "processing";
   // The first dictation made on this screen.
-  const worked = step === 3 && fresh && !holding && !working && !!dictation;
+  const worked = step === TRY && fresh && !holding && !working && !!dictation;
   const pasted = !!dictation?.inserted;
 
   // Keep the chosen model coming: start it once nothing else is downloading.
@@ -94,9 +100,10 @@ export default function Welcome() {
     };
   }, []);
 
-  const nextLabel = step === 0 ? "Get started" : step === 3 ? (worked ? "Finish" : "Skip for now") : "Continue";
-  const primary = step === 0 || (step === 1 && micOn) || step === 2 || (step === 3 && worked);
-  const next = () => (step < 3 ? setStep(step + 1) : finish());
+  const nextLabel =
+    step === 0 ? "Get started" : step === TRY ? (worked ? "Finish" : "Skip for now") : step === CLEANUP && !tidy ? "Skip for now" : "Continue";
+  const primary = step === 0 || (step === 1 && micOn) || step === MODEL || (step === CLEANUP && !!tidy) || (step === TRY && worked);
+  const next = () => (step < TRY ? setStep(step + 1) : finish());
 
   return (
     <div className="qwin">
@@ -151,7 +158,7 @@ export default function Welcome() {
             <span className="qtag mi">Both allowed</span>
           </>
         )}
-        {step === 2 && (
+        {step === MODEL && (
           <div style={{ width: 250, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
             <WaveProgress fraction={fraction} label={`${modelName} download`} bars={40} style={{ height: 110, margin: 0, gap: 3, width: 250 }} />
             <span style={{ font: "600 30px/1 var(--qfd)", letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums" }}>
@@ -164,7 +171,19 @@ export default function Welcome() {
             </span>
           </div>
         )}
-        {step === 3 && (
+        {step === CLEANUP && (
+          <div style={{ width: 270, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="qcard tight">
+              <span className="qtag sm nt">As heard</span>
+              <p className="qp" style={{ margin: "8px 0 0", fontFamily: "var(--qmono)", fontSize: 13 }}>um so i think we should uh move it to thursday</p>
+            </div>
+            <div className="qcard tight">
+              <span className="qtag sm mi">Tidied</span>
+              <p className="qp" style={{ margin: "8px 0 0", color: "var(--ink)" }}>I think we should move it to Thursday.</p>
+            </div>
+          </div>
+        )}
+        {step === TRY && (
           <>
             <Bars mode={holding ? "live" : working ? "work" : "rest"} style={{ height: 30 }} />
             <Keycaps hotkey={settings.hotkey} down={new Set(holding ? settings.hotkey.split("+") : modifiers)} style={{ margin: 0, gap: 8 }} />
@@ -293,7 +312,7 @@ export default function Welcome() {
           </>
         )}
 
-        {step === 2 && (
+        {step === MODEL && (
           <>
             <h1 className="ob-h1">Pick a speech model</h1>
             <p className="ob-lead">It turns your voice into text on this Mac. You can change it later.</p>
@@ -339,7 +358,9 @@ export default function Welcome() {
           </>
         )}
 
-        {step === 3 && (
+        {step === CLEANUP && <TidyStep choice={tidy} setChoice={setTidy} />}
+
+        {step === TRY && (
           <>
             <h1 className="ob-h1">{!worked ? "Try it" : pasted ? "It works." : "It heard you."}</h1>
             <p className="ob-lead">
@@ -410,7 +431,7 @@ export default function Welcome() {
               <i key={i} className={i < step ? "done" : i === step ? "now" : ""} />
             ))}
           </span>
-          {step >= 1 && step !== 2 && model && (
+          {step >= 1 && step !== MODEL && model && (
             <span
               className="qnote dl"
               title={model.downloaded ? "Speech model ready" : `Speech model ${percent}%`}
@@ -436,5 +457,161 @@ export default function Welcome() {
         </div>
       </div>
     </div>
+  );
+}
+
+type TidyChoice = "hosted" | "local" | "skip";
+
+/**
+ * First run: how dictations get tidied. Claude Haiku with the user's own key
+ * (fast and careful), a model on this Mac through Ollama (nothing leaves it),
+ * or not now (words go in as heard). The other providers are under AI
+ * provider; this only gets someone started.
+ */
+function TidyStep({ choice, setChoice }: { choice: TidyChoice | null; setChoice: (choice: TidyChoice) => void }) {
+  const app = useApp();
+  const { settings, catalog, hasKey, setHasKey, setCleanupFault } = app;
+  const anthropic = catalog.find((p) => p.id === "anthropic");
+  const [keyDraft, setKeyDraft] = useState("");
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [local, setLocal] = useState<{ ready: boolean; text: string } | null>(null);
+
+  const checkLocal = async (current: string) => {
+    setLocal({ ready: false, text: "Looking for Ollama on this Mac…" });
+    try {
+      const found = await listCleanupModels();
+      if (!found.length) {
+        setLocal({ ready: false, text: "Ollama is running but has no models yet. Download one in Ollama, then check again." });
+        return;
+      }
+      const model = found.includes(current) ? current : found[0];
+      if (model !== current) await app.update({ cleanupModel: model });
+      setLocal({ ready: true, text: `Using ${model}, on this Mac.` });
+    } catch {
+      setLocal({ ready: false, text: "Ollama isn't running on this Mac. Install it from ollama.com, download a model, then check again." });
+    }
+  };
+
+  const pick = async (next: TidyChoice) => {
+    setChoice(next);
+    try {
+      if (next === "hosted" && (settings.provider !== "anthropic" || !settings.cleanupEnabled)) {
+        await app.update(settings.provider === "anthropic" ? { cleanupEnabled: true } : { provider: "anthropic", cleanupModel: "", cleanupEnabled: true });
+      }
+      if (next === "local") {
+        const current = settings.provider === "ollama" ? settings.cleanupModel : "";
+        if (settings.provider !== "ollama" || !settings.cleanupEnabled) await app.update({ provider: "ollama", cleanupModel: current, cleanupEnabled: true });
+        await checkLocal(current);
+      }
+      // "Not now" means words go in as heard, whatever was picked before.
+      if (next === "skip" && settings.cleanupEnabled) await app.update({ cleanupEnabled: false });
+    } catch {
+      // The choice still stands; AI provider shows what is missing.
+    }
+  };
+
+  const saveKey = async () => {
+    if (!keyDraft.trim()) return;
+    try {
+      await setApiKey("anthropic", keyDraft.trim());
+      setKeyDraft("");
+      setKeyError(null);
+      setHasKey(true);
+      setCleanupFault(null);
+    } catch (err) {
+      setKeyError(String(err));
+    }
+  };
+
+  const keyReady = settings.provider === "anthropic" && hasKey === true;
+  const option = (id: TidyChoice, title: string, tag: string | null, note: string) => (
+    <button
+      key={id}
+      className="qmrow"
+      role="radio"
+      aria-checked={choice === id}
+      onClick={() => pick(id)}
+      style={{ appearance: "none", border: 0, background: "none", width: "100%", textAlign: "left", font: "inherit", color: "inherit" }}
+    >
+      <span className={`rd ${choice === id ? "on" : ""}`} aria-hidden="true" />
+      <div className="tx">
+        <b>
+          {title}
+          {tag && <small>{tag}</small>}
+        </b>
+        <span>{note}</span>
+      </div>
+    </button>
+  );
+
+  return (
+    <>
+      <h1 className="ob-h1">Tidy it up?</h1>
+      <p className="ob-lead">An AI takes out the ums, fixes punctuation and matches the app you're in. You can change this later.</p>
+      <div className="qcard tight" style={{ marginTop: 20, paddingTop: 6, paddingBottom: 6 }} role="radiogroup" aria-label="How to tidy">
+        {option("hosted", "Claude Haiku", "Recommended", "Fast, and careful with your words. Needs an Anthropic key; a dictation costs a fraction of a cent.")}
+        {option("local", "On this Mac, with Ollama", null, "Nothing leaves your Mac. Slower, and small models make more mistakes.")}
+        {option("skip", "Not now", null, "Your words go in as heard. Set it up any time under AI provider.")}
+      </div>
+
+      {choice === "hosted" && (
+        <div style={{ marginTop: 12 }}>
+          {keyReady ? (
+            <p className="qp" style={{ margin: 0 }}>
+              <span className="qtag sm mi">Key saved</span> In your Keychain, and sent only to Anthropic.
+            </p>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <label className="qfld mono" style={{ flex: 1, margin: 0 }}>
+                  <input
+                    id="welcome-anthropic-key"
+                    type="password"
+                    placeholder="Paste your Anthropic API key"
+                    aria-label="Anthropic API key"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={keyDraft}
+                    onChange={(e) => setKeyDraft(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && saveKey()}
+                  />
+                </label>
+                <button className="qbtn pri" disabled={!keyDraft.trim()} onClick={saveKey}>
+                  Save
+                </button>
+              </div>
+              {anthropic?.keyUrl && (
+                <button className="qlink" style={{ fontSize: 12.5, marginTop: 8 }} onClick={() => openUrl(anthropic.keyUrl).catch(() => undefined)}>
+                  Get an Anthropic key
+                </button>
+              )}
+              {keyError && (
+                <p className="qp" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--bad-fg)" }}>
+                  The key wasn't saved: {keyError}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {choice === "local" && local && (
+        <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <p className="qp" style={{ margin: 0, flex: 1, minWidth: 0 }}>
+            {local.ready && <span className="qtag sm mi" style={{ marginRight: 6 }}>Ready</span>}
+            {local.text}
+          </p>
+          {!local.ready && (
+            <button className="qbtn sm" onClick={() => checkLocal(settings.cleanupModel)}>
+              Check again
+            </button>
+          )}
+        </div>
+      )}
+
+      <p className="qp" style={{ margin: "12px 2px 0" }}>
+        Groq, OpenAI, Gemini, OpenRouter and any compatible service are under AI provider.
+      </p>
+    </>
   );
 }

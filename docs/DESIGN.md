@@ -327,6 +327,29 @@ the reply. Elsewhere it sends only the standard fields, because some providers
 reject settings they do not know. Any reasoning that still arrives inside
 `<think>` tags is cut off before the reply is checked.
 
+### Which hosted model to recommend
+
+First run recommends Claude Haiku. Measured on 19 October 2026 by replaying
+50 of the author's own kept dictations (speech model Base) through each
+cleanup model the way Accurate does, with `cargo run --example replay --
+--all --cleanup …`:
+
+| Cleanup model | Mean time to tidy | Tidies Utter rejected | WER vs. kept text (10 scored) |
+| --- | --- | --- | --- |
+| Anthropic Claude Haiku (`claude-haiku-5-5`) | 1.09 s | 1 of 50 | 7.1% |
+| Groq GPT-OSS 120B | 0.89 s | 2 of 50 | 11.3% |
+| Groq GPT-OSS 20B | 0.52 s | 4 of 50 | 11.6% |
+| Groq Qwen 3.8 27B | 0.42 s | 5 of 50 | 11.3% |
+
+A rejected tidy goes in as heard (see "checks on the reply"). Haiku was the
+most reliable; the Groq models were quicker by 0.2 to 0.7 s. Two caveats: the
+error rates come from only 10 recordings, and 7 of those references are text
+Haiku itself wrote at the time, which favours Haiku (a second Haiku run on the
+same 10 gave 9.1%, so treat the gap as a lean, not a verdict). And the Groq key
+was on a free plan: sent back to back, nearly every request was rate limited
+(the replay now waits those out and times only the answer), which ordinary
+dictation rarely meets but Quick, with a request per piece, can.
+
 ### Local models
 
 With Ollama, Utter asks the server to load the model as soon as the key goes
