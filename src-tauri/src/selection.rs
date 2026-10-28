@@ -23,6 +23,7 @@ unsafe extern "C" {
         value: *mut CFTypeRef,
     ) -> i32;
     fn AXUIElementSetAttributeValue(element: CFTypeRef, attribute: CFStringRef, value: CFTypeRef) -> i32;
+    fn AXUIElementIsAttributeSettable(element: CFTypeRef, attribute: CFStringRef, settable: *mut u8) -> i32;
     fn AXUIElementSetMessagingTimeout(element: CFTypeRef, seconds: f32) -> i32;
     fn AXValueGetTypeID() -> core_foundation::base::CFTypeID;
     fn AXValueGetValue(value: CFTypeRef, kind: u32, out: *mut std::ffi::c_void) -> bool;
@@ -116,6 +117,111 @@ pub fn read() -> Selection {
         } else {
             Selection::Text(text)
         }
+    }
+}
+
+/// Roles of focused elements that hold no text and take none from a paste:
+/// a web page with no box selected, lists of files or messages, buttons.
+/// Tables are left out, since a spreadsheet pastes into its cells.
+const NOT_TEXT: &[&str] = &[
+    "AXWebArea", "AXList", "AXOutline", "AXBrowser", "AXButton", "AXImage", "AXLink", "AXCheckBox",
+    "AXRadioButton", "AXPopUpButton", "AXMenuButton", "AXSlider", "AXTabGroup", "AXToolbar",
+];
+
+/// Is there plainly nowhere to type? True only when the app in front says
+/// what has focus and it is something that holds no text: part of a web page
+/// that is not editable, a list of files or messages, a button. Also when
+/// Finder is in front with no name being edited. An app that will not say
+/// gets the benefit of the doubt: a paste is never held back on a guess.
+pub fn nowhere_to_type() -> bool {
+    let finder = NSWorkspace::sharedWorkspace()
+        .frontmostApplication()
+        .and_then(|app| app.bundleIdentifier())
+        .is_some_and(|id| id.to_string() == "com.apple.finder");
+    unsafe {
+        let system = AXUIElementCreateSystemWide();
+        if system.is_null() {
+            return false;
+        }
+        AXUIElementSetMessagingTimeout(system, TIMEOUT_SECONDS);
+        let focused = copy(system, "AXFocusedUIElement");
+        CFRelease(system);
+        if focused.is_null() {
+            #[cfg(debug_assertions)]
+            eprintln!("[focus] nothing focused (finder: {finder})");
+            // The desktop, with nothing of Finder's open.
+            return finder;
+        }
+        AXUIElementSetMessagingTimeout(focused, TIMEOUT_SECONDS);
+        let role = text_of(copy(focused, "AXRole")).unwrap_or_default();
+        let has = |attribute| {
+            let value = copy(focused, attribute);
+            if !value.is_null() {
+                CFRelease(value);
+            }
+            !value.is_null()
+        };
+        let mut settable = 0u8;
+        let name = CFString::from_static_string("AXValue");
+        let value_settable =
+            AXUIElementIsAttributeSettable(focused, name.as_concrete_TypeRef(), &mut settable) == 0 && settable != 0;
+        let text_role = matches!(role.as_str(), "AXTextField" | "AXTextArea" | "AXComboBox");
+        let editable_ancestor = has("AXEditableAncestor");
+        let cursor = has("AXSelectedTextRange");
+        let in_page = in_web_page(focused);
+        // Browsers give every part of a page a text range, editable or not,
+        // so on a page only an editable part counts. Elsewhere, a cursor
+        // means text goes here.
+        let texty = text_role || value_settable || editable_ancestor || (cursor && !in_page);
+        // A browser that has not described the page yet may name the page
+        // when a box in it has focus. Only a page it has described counts.
+        let described = role != "AXWebArea" || {
+            let children = copy(focused, "AXChildren");
+            let any = !children.is_null()
+                && CFGetTypeID(children) == core_foundation::array::CFArrayGetTypeID()
+                && core_foundation::array::CFArrayGetCount(children as _) > 0;
+            if !children.is_null() {
+                CFRelease(children);
+            }
+            any
+        };
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[focus] role {role} text role {text_role} value settable {value_settable} editable ancestor {editable_ancestor} cursor {cursor} in page {in_page} described {described} finder {finder}"
+        );
+        CFRelease(focused);
+        !texty && described && (finder || in_page || NOT_TEXT.contains(&role.as_str()))
+    }
+}
+
+/// Is `element` a web page, or part of one? Looks a few dozen levels up.
+unsafe fn in_web_page(element: CFTypeRef) -> bool {
+    unsafe {
+        if text_of(copy(element, "AXRole")).as_deref() == Some("AXWebArea") {
+            return true;
+        }
+        let mut current = copy(element, "AXParent");
+        for _ in 0..40 {
+            if current.is_null() {
+                return false;
+            }
+            AXUIElementSetMessagingTimeout(current, TIMEOUT_SECONDS);
+            let role = text_of(copy(current, "AXRole"));
+            if role.as_deref() == Some("AXWebArea") {
+                CFRelease(current);
+                return true;
+            }
+            let parent = copy(current, "AXParent");
+            CFRelease(current);
+            current = parent;
+            if role.as_deref() == Some("AXWindow") {
+                break;
+            }
+        }
+        if !current.is_null() {
+            CFRelease(current);
+        }
+        false
     }
 }
 
@@ -558,6 +664,15 @@ mod tests {
         let started = std::time::Instant::now();
         let around = around_cursor(600, 1500);
         eprintln!("took {:?}\nBEFORE: {:?}\nNEARBY: {}", started.elapsed(), around.before, around.nearby);
+    }
+
+    /// Run with `cargo test -- --ignored --nocapture`. Says whether the app
+    /// in front a few seconds from now has anywhere to type. It only reads.
+    #[test]
+    #[ignore = "asks the focused app, and needs the Accessibility permission"]
+    fn report_whether_there_is_anywhere_to_type() {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        eprintln!("nowhere to type: {}", nowhere_to_type());
     }
 
     /// Run with `cargo test -- --ignored --nocapture`. Reports what the app

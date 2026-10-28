@@ -41,13 +41,30 @@ if [ -n "$identity" ] && { [ ! -f "$update_key" ] || ! security find-generic-pas
   exit 1
 fi
 
+# The Parakeet speech engine runs in a helper program of its own, which goes
+# into the app beside Utter's executable (Contents/MacOS/utter-parakeet) and is
+# signed with it. Only release builds include it: tauri.release.conf.json adds
+# it, since an ordinary `cargo build` would fail without the file. The first
+# build of the helper fetches FluidAudio and takes a few minutes.
+echo "== Building the Parakeet helper"
+swift build -c release --arch arm64 --package-path src-tauri/parakeet
+helper="src-tauri/binaries/utter-parakeet-aarch64-apple-darwin"
+mkdir -p "$(dirname "$helper")"
+cp "$(swift build -c release --arch arm64 --package-path src-tauri/parakeet --show-bin-path)/utter-parakeet" "$helper"
+strip -x "$helper"
+
 echo "== Building"
 if [ -n "$identity" ]; then
-  APPLE_SIGNING_IDENTITY="$identity" pnpm tauri build
+  APPLE_SIGNING_IDENTITY="$identity" pnpm tauri build --config src-tauri/tauri.release.conf.json
 else
-  pnpm tauri build
+  pnpm tauri build --config src-tauri/tauri.release.conf.json
 fi
 codesign --verify --deep --strict "$app"
+# Without the helper, everyone who updates loses Parakeet.
+if [ ! -x "$app/Contents/MacOS/utter-parakeet" ]; then
+  echo "The Parakeet helper is missing from the app." >&2
+  exit 1
+fi
 
 notarise() {
   # Submit, wait, and fail loudly with Apple's log if it is rejected.

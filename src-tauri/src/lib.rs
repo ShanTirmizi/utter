@@ -16,6 +16,7 @@ mod login;
 pub mod models;
 mod parakeet;
 mod permissions;
+mod pill;
 mod pipeline;
 mod providers;
 mod recordings;
@@ -438,6 +439,19 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
 }
 
 /// Put text on the clipboard, for the Copy buttons in the window.
+/// The pill's X: drop the dictation under way, recorded or being worked on.
+#[tauri::command]
+fn cancel_dictation(app: AppHandle) {
+    pipeline::discard(&app);
+}
+
+/// Where the pill is while it has a button, so its window takes the mouse
+/// there and nowhere else.
+#[tauri::command]
+fn pill_area(app: AppHandle, area: Option<pill::Area>) {
+    pill::set_area(&app, area);
+}
+
 #[tauri::command]
 fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
     // The pasteboard is only touched from the main thread.
@@ -608,12 +622,14 @@ fn apply_appearance(app: &AppHandle, appearance: &str) {
 }
 
 /// The status pill is a small always-on-top window at the bottom centre of
-/// the screen. It never takes clicks or focus, so it cannot steal the cursor
-/// from the app being dictated into.
+/// the screen. It never takes focus, so it cannot steal the cursor from the
+/// app being dictated into, and it takes clicks only on its buttons (see
+/// `pill`).
 fn place_pill(app: &AppHandle) {
     let Some(pill) = app.get_webview_window("pill") else {
         return;
     };
+    pill::make_panel(&pill);
     let _ = pill.set_ignore_cursor_events(true);
     if let Ok(Some(monitor)) = pill.primary_monitor() {
         let scale = monitor.scale_factor();
@@ -689,6 +705,8 @@ pub fn run() {
             clear_history,
             forget_dictation,
             copy_text,
+            cancel_dictation,
+            pill_area,
             fix_word,
             undo_learned,
             stop_download,
