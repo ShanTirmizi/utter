@@ -144,6 +144,9 @@ pub struct Pipeline {
     /// Set when a key press ended a hands-free recording; its own release
     /// must then do nothing.
     swallow_release: AtomicBool,
+    /// Set when the user dropped the dictation being worked on: whatever
+    /// comes of it is thrown away, not typed.
+    discarded: AtomicBool,
     /// The most recent dictation, whether or not history is being kept.
     last: Mutex<Option<Dictation>>,
     /// Past dictations, oldest first; mirrors the history file.
@@ -199,6 +202,7 @@ impl Pipeline {
             latched: AtomicBool::new(false),
             awaiting_second_tap: AtomicBool::new(false),
             swallow_release: AtomicBool::new(false),
+            discarded: AtomicBool::new(false),
             last: Mutex::new(None),
             history: Mutex::new(Vec::new()),
             simulated_selection: Mutex::new(None),
@@ -365,8 +369,12 @@ fn emit(app: &AppHandle, phase: &'static str, message: Option<String>, dictation
 
 /// Say which step of processing has begun, so the pill can name it.
 fn emit_stage(app: &AppHandle, stage: &'static str) {
-    crate::tray::set_phase(app, "processing");
     let pipeline = app.state::<Pipeline>();
+    // Dropped already: the pill has gone and stays gone.
+    if pipeline.discarded.load(Ordering::SeqCst) {
+        return;
+    }
+    crate::tray::set_phase(app, "processing");
     let mode = *pipeline.mode.lock().unwrap();
     let target = pipeline.target.lock().unwrap().clone();
     let _ = app.emit(
@@ -762,6 +770,41 @@ pub fn cancel(app: &AppHandle) {
     emit(app, "idle", Some(String::new()), None);
 }
 
+/// The note on a dictation that had nowhere to go. The pill reads it as its
+/// cue to offer a Copy button.
+pub const NOWHERE: &str = "Nowhere to type it.";
+
+/// Why a dictation came to nothing when the user dropped it.
+const DISCARDED: &str = "Dropped.";
+
+/// The user pressed the pill's X. A recording stops and is thrown away,
+/// hands-free or not. A dictation already being worked on carries on out of
+/// sight, since transcribing cannot be stopped halfway, but nothing comes of
+/// it: it is neither typed nor kept.
+pub fn discard(app: &AppHandle) {
+    let pipeline = app.state::<Pipeline>();
+    {
+        let mut phase = pipeline.phase.lock().unwrap();
+        match *phase {
+            Phase::Idle => return,
+            Phase::Recording => {
+                pipeline.recorder.stop();
+                pipeline.latched.store(false, Ordering::SeqCst);
+                pipeline.awaiting_second_tap.store(false, Ordering::SeqCst);
+                *phase = Phase::Idle;
+            }
+            Phase::Processing => pipeline.discarded.store(true, Ordering::SeqCst),
+        }
+    }
+    crate::fnkey::log("dictation dropped from the pill");
+    emit(app, "idle", Some(String::new()), None);
+}
+
+/// Stop here if the user has dropped this dictation.
+fn check_discarded(app: &AppHandle) -> Result<(), String> {
+    if app.state::<Pipeline>().discarded.load(Ordering::SeqCst) { Err(DISCARDED.into()) } else { Ok(()) }
+}
+
 /// The part of a recording transcribed before it ended.
 #[derive(Default)]
 struct Early {
@@ -961,6 +1004,11 @@ fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
         );
         // Report the outcome before accepting a new press, so that press's
         // "recording" event can never be overtaken by this "done".
+        // Dropped after it was too late to stop: nothing is kept.
+        let outcome = match outcome {
+            Ok(Some(_)) if pipeline.discarded.load(Ordering::SeqCst) => Err(DISCARDED.to_string()),
+            outcome => outcome,
+        };
         match outcome {
             Ok(Some(mut dictation)) => {
                 // Held while the settings are read again and the recording
@@ -996,9 +1044,13 @@ fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
                 emit(&app, "idle", note, None)
             }
             Err(e) if e == NO_SPEECH => emit(&app, "idle", Some(e), None),
+            // The pill went when it was dropped; this only settles the menu bar.
+            Err(e) if e == DISCARDED => emit(&app, "idle", Some(String::new()), None),
             Err(e) => emit(&app, "error", Some(e), None),
         }
-        *pipeline.phase.lock().unwrap() = Phase::Idle;
+        let mut phase = pipeline.phase.lock().unwrap();
+        pipeline.discarded.store(false, Ordering::SeqCst);
+        *phase = Phase::Idle;
     });
 }
 
@@ -1096,6 +1148,7 @@ async fn process(
     if raw.is_empty() {
         return Err(NO_SPEECH.into());
     }
+    check_discarded(app)?;
 
     if let Some(lookup) = page_lookup {
         let page = lookup.await.unwrap_or_default();
@@ -1527,6 +1580,14 @@ async fn deliver(
             false,
             Some(format!("Copied to the clipboard ({reason}). Press ⌘V to paste.")),
         ));
+    }
+    check_discarded(app)?;
+    // Nothing that takes text has focus: a paste would vanish. The pill
+    // offers to copy it instead, and the user's clipboard is left alone.
+    if delivery == Delivery::Paste
+        && tauri::async_runtime::spawn_blocking(selection::nowhere_to_type).await.unwrap_or(false)
+    {
+        return Ok((false, Some(NOWHERE.into())));
     }
 
     // A trailing space lets the next dictation follow on without running the

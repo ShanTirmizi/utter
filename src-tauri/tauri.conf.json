@@ -39,7 +39,7 @@
         "skipTaskbar": true,
         "visibleOnAllWorkspaces": true,
         "focus": false,
-        "acceptFirstMouse": false
+        "acceptFirstMouse": true
       }
     ],
     "security": {

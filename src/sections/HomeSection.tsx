@@ -253,7 +253,12 @@ export function Strip({ app, readyText }: { app: AppState; readyText?: string })
     word = live.message ?? "Something went wrong.";
     right = "";
   } else if (recent && live.phase === "done" && dictation && fresh) {
-    if (!dictation.inserted) {
+    if (!dictation.inserted && dictation.note === "Nowhere to type it.") {
+      tone = "pe";
+      icon = <IconWarnFill hole="var(--bg)" />;
+      word = "Not typed";
+      right = "Nowhere to type it";
+    } else if (!dictation.inserted) {
       tone = "pe";
       icon = <IconWarnFill hole="var(--bg)" />;
       word = "Copied";

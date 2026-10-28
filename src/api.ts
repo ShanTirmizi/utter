@@ -226,6 +226,11 @@ export type Learned = {
 export const undoLearned = (learned: Learned) => invoke<Settings>("undo_learned", { learned });
 /** Put text on the clipboard. */
 export const copyText = (text: string) => invoke<void>("copy_text", { text });
+/** Drop the dictation under way: stop listening, or throw away what is being worked on. */
+export const cancelDictation = () => invoke<void>("cancel_dictation");
+/** Where the pill is while it has a button, so its window takes the mouse there; null once it has none. */
+export const setPillArea = (area: { x: number; y: number; width: number; height: number } | null) =>
+  invoke<void>("pill_area", { area });
 
 export type ModelStatus = {
   name: string;

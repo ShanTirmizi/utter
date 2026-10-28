@@ -473,6 +473,7 @@ function pinPill(state: string) {
     note: () => (pipeline({ phase: "processing" }, "tidy"), pipeline({ phase: "idle" }, "tidy")),
     note2: () => pipeline({ phase: "done", dictation: dictation("Cleanup skipped: Anthropic rejected the API key (401).", true) }, "tidy"),
     paste: () => pipeline({ phase: "done", dictation: dictation("Copied to the clipboard (Accessibility is off). Press ⌘V to paste.", false) }, "tidy"),
+    copy: () => pipeline({ phase: "done", dictation: dictation("Nowhere to type it.", false) }, "tidy"),
     blocked: () => pipeline({ phase: "error", message: "Microphone access is off. Allow Utter in System Settings." }, "tidy"),
     learned: () => send("learned", { word: "Claude", heard: "cloud", newWord: true }),
   };
@@ -590,6 +591,16 @@ export function installMock() {
           past = past.filter((d) => d.finishedAt !== payload?.finishedAt);
           return;
         case "copy_text":
+          return;
+        case "pill_area":
+          return;
+        case "cancel_dictation":
+          // Like the backend: whatever was under way comes to nothing.
+          if (recording) {
+            recording = null;
+            clearInterval(voice);
+          }
+          pipeline({ phase: "idle", message: "" }, "tidy");
           return;
         case "undo_learned": {
           const learned = payload?.learned as { word: string; heard: string; newWord: boolean };
