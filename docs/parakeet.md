@@ -1,7 +1,8 @@
 # Parakeet as a second speech engine
 
-In the 0.6.0 code, but not yet bundled in releases (the Swift helper isn't
-built by the release script), so release users don't see it. It adds NVIDIA's Parakeet TDT 0.6B v3 next to
+In the code since 0.6.0, and bundled in releases from 0.6.4: `scripts/release.sh`
+builds the Swift helper and `tauri.release.conf.json` puts it in the app. It
+adds NVIDIA's Parakeet TDT 0.6B v3 next to
 whisper.cpp. The model runs on the Neural Engine through
 [FluidAudio](https://github.com/FluidInference/FluidAudio) 0.17.7, and the
 user's dictionary and on-screen names feed FluidAudio's CTC vocabulary boosting.
@@ -187,12 +188,12 @@ What the numbers say:
 2. **A preparing state.** When loading Parakeet takes more than about 2 s,
    show "Preparing Parakeet (first use, about a minute)" in settings and the
    pill, instead of a long "Transcribing".
-3. **Bundle and sign.** Build the helper in `release.sh` (`swift build -c release
-   --package-path src-tauri/parakeet`, then strip it). Copy it to
-   `src-tauri/binaries/utter-parakeet-aarch64-apple-darwin` and add
-   `"externalBin": ["binaries/utter-parakeet"]` to `tauri.conf.json`. This was
-   left out of the prototype because tauri-build fails every `cargo build`
-   (tests included) when the file is missing.
+3. **Bundle and sign.** Done in 0.6.4. `release.sh` builds the helper, strips
+   it and copies it to `src-tauri/binaries/utter-parakeet-aarch64-apple-darwin`,
+   then builds with `--config src-tauri/tauri.release.conf.json`, which adds
+   `"externalBin": ["binaries/utter-parakeet"]`. That config is kept apart
+   from `tauri.conf.json` because tauri-build fails every `cargo build` (tests
+   and CI included) when the file is missing.
 
 Worth trying next:
 

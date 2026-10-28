@@ -3,6 +3,8 @@ node_modules
 dist
 dist-ssr
 src-tauri/target
+# The Parakeet helper, copied here by scripts/release.sh
+src-tauri/binaries
 src-tauri/gen/schemas
 
 # Speech models are downloaded at runtime, never committed
