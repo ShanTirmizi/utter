@@ -88,7 +88,8 @@ name, base URL and format; `cleanup.rs` has one small module per format.
   discarded.
 - **Failure falls back to the raw transcript.** No key, no network, a timeout,
   a refusal or a truncated reply all end the same way: the raw text is inserted
-  and a short note says why.
+  and a short note says why. A tidy the checks refuse is asked for once more
+  first, since the same model often does better on a second try.
 
 ### Adapting to the app
 

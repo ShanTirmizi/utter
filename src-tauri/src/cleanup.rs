@@ -630,6 +630,22 @@ pub(crate) fn uses_spaces(text: &str) -> bool {
     })
 }
 
+/// Spoken short forms and what a tidy writes for them. The written words are
+/// the speaker's too: "gonna" is not lost, or new, as "going to".
+const SPOKEN_FORMS: &[(&str, &[&str])] = &[
+    ("gonna", &["going", "to"]),
+    ("wanna", &["want", "to"]),
+    ("gotta", &["got", "to"]),
+    ("kinda", &["kind", "of"]),
+    ("sorta", &["sort", "of"]),
+    ("cause", &["because"]),
+    ("cuz", &["because"]),
+    ("coz", &["because"]),
+    ("dunno", &["dont", "know"]),
+    ("lemme", &["let", "me"]),
+    ("gimme", &["give", "me"]),
+];
+
 /// Is `reply` a tidied version of `transcript`, rather than something else
 /// the model decided to say?
 ///
@@ -647,7 +663,10 @@ fn is_faithful(reply: &str, transcript: &str, terms: &[String]) -> bool {
     // Words from the user's dictionary are theirs too: correcting a misheard
     // name to its dictionary spelling is exactly what was asked for.
     let from_dictionary: std::collections::HashSet<String> = terms.iter().flat_map(|t| words(t)).collect();
-    let known: std::collections::HashSet<&str> = said.iter().map(String::as_str).collect();
+    let mut known: std::collections::HashSet<&str> = said.iter().map(String::as_str).collect();
+    let written_out: Vec<&str> =
+        SPOKEN_FORMS.iter().filter(|(form, _)| known.contains(form)).flat_map(|(_, full)| full.iter().copied()).collect();
+    known.extend(written_out);
     // Another form of a word that was said is still the speaker's word:
     // tidying puts "it work" right as "it works", "labels data" as "label
     // data". The two share all but their last letter or so.
@@ -760,9 +779,11 @@ const LIGHT_WORDS: &[&str] = &[
     "apostrophe", "open", "close", "bracket", "brackets", "paren", "parens", "parenthesis", "brace",
     "hash", "hashtag", "ampersand", "plus", "minus", "equals", "star", "asterisk", "symbol", "sign",
     "dollar", "dollars", "cent", "cents", "pound", "pounds", "euro", "euros", "pence",
-    // Emphasis a tidy may lose without losing the point.
+    // Emphasis a tidy may lose without losing the point, sworn or not, and
+    // the short forms of words that are here already.
     "obviously", "totally", "definitely", "seriously", "truly", "super", "clearly", "simply", "exactly",
-    "absolutely", "completely", "genuinely",
+    "absolutely", "completely", "genuinely", "fucking", "fuckin", "bloody", "damn", "bro", "dude",
+    "kinda", "sorta",
 ];
 
 /// Words with which a speaker takes back what they just said: "Paris on
@@ -801,7 +822,9 @@ fn drops_content(
     };
     let kept_stems: std::collections::HashSet<String> = written.iter().map(|w| stem(w)).collect();
     let kept = |word: &str| {
-        kept_stems.contains(&stem(word)) || written.iter().any(|w| w.len() > word.len() && w.contains(word))
+        kept_stems.contains(&stem(word))
+            || written.iter().any(|w| w.len() > word.len() && w.contains(word))
+            || SPOKEN_FORMS.iter().any(|(form, full)| *form == word && full.iter().all(|f| written.iter().any(|w| w == f)))
     };
     // Not English, or hardly: the word lists here know only English, so
     // anything but swearing is left to the other checks.
@@ -1205,6 +1228,12 @@ fn accept(text: &str, transcript: &str, task: &Task) -> Result<String, String> {
 const NOT_A_VERSION: &str = "The model's reply was not a version of what you said. \
                              A larger model usually fixes this.";
 
+/// Added to the message when a tidy was refused and the model is asked again.
+const TRY_AGAIN: &str = "\
+An earlier reply to this was refused because it left out or reworded what was said. \
+This time keep every clause, aside and question, in the speaker's own words and \
+order, swearing included. Take out only fillers, repeats and abandoned false starts.";
+
 /// Final checks shared by every provider. `terms` is the user's dictionary.
 fn accept_with(text: &str, transcript: &str, task: &Task, terms: &[Word]) -> Result<String, String> {
     // Some models echo the wrapper tags back around their answer.
@@ -1313,11 +1342,27 @@ pub async fn run_with(
     if endpoint.local {
         timeout += LOCAL_EXTRA;
     }
-    let reply = match endpoint.protocol {
-        Protocol::Anthropic => anthropic::ask(&user, &system, endpoint, timeout).await,
-        Protocol::OpenAi => openai::ask(&user, &system, endpoint, timeout).await,
-    }?;
-    accept_with(&reply, transcript, task, terms)
+    let reply = ask(&user, &system, endpoint, timeout).await?;
+    let accepted = accept_with(&reply, transcript, task, terms);
+    match (accepted, task) {
+        // The same model on the same words often does better the next time,
+        // and a second of waiting beats losing the tidy of a long dictation.
+        (Err(refused), Task::Tidy) => {
+            let again = format!("{user}\n\n{TRY_AGAIN}");
+            match ask(&again, &system, endpoint, timeout).await {
+                Ok(reply) => accept_with(&reply, transcript, task, terms),
+                Err(_) => Err(refused),
+            }
+        }
+        (accepted, _) => accepted,
+    }
+}
+
+async fn ask(user: &str, system: &str, endpoint: &Endpoint, timeout: Duration) -> Result<String, String> {
+    match endpoint.protocol {
+        Protocol::Anthropic => anthropic::ask(user, system, endpoint, timeout).await,
+        Protocol::OpenAi => openai::ask(user, system, endpoint, timeout).await,
+    }
 }
 
 /// Ask a local Ollama server to load the model into memory, without
@@ -2136,6 +2181,60 @@ on Monday. Thanks. Talk soon.";
     }
 
     #[test]
+    fn spoken_short_forms_written_out_are_the_speakers_words() {
+        // A short dictation has room for one new word, and "gonna" is two.
+        assert!(tidy_ok("The gap between them isn't going to be that much. Which one should I pick?", "The gap between them isn't gonna be that much. Which one should I pick?").is_ok());
+        // 'cause is written "because", and is not then missing.
+        let said = "We should add a pause button 'cause there are moments when I need to stop the recording.";
+        let tidy = "We should add a pause button because there are moments when I need to stop the recording.";
+        assert!(tidy_ok(tidy, said).is_ok());
+    }
+
+    #[test]
+    fn a_swear_used_for_emphasis_may_go_with_the_fillers() {
+        let said = "So what I want right now is to book tickets for the concert, fucking send you the dates \
+            of when we can go and shit. And then you can tell me which seats are good.";
+        let tidy = "So what I want right now is to book tickets for the concert, send you the dates of when we \
+            can go. And then you can tell me which seats are good.";
+        assert!(tidy_ok(tidy, said).is_ok());
+        // A swear that is the point of the sentence still counts.
+        let said = "The pricing page looks fine. The signup form is shit. Please send the numbers tomorrow.";
+        let tidy = "The pricing page looks fine. Please send the numbers tomorrow.";
+        assert!(tidy_ok(tidy, said).is_err());
+    }
+
+    /// What a chat model replies with `text`.
+    fn chat_reply(text: &str) -> String {
+        json!({ "choices": [{ "message": { "content": text }, "finish_reason": "stop" }] }).to_string()
+    }
+
+    const LONG_SAID: &str = "Can we add a pause button to the recorder? Also the settings page loads slowly on older \
+        laptops. And the export menu hides the spreadsheet option behind a submenu.";
+    const LOSSY: &str = "Can we add a pause button?";
+
+    #[test]
+    fn a_refused_tidy_is_asked_for_once_more() {
+        let (lossy, good) = (chat_reply(LOSSY), chat_reply(LONG_SAID));
+        let (base_url, server) = serve_in_turn("200 OK", &[&lossy, &good]);
+        let endpoint = endpoint(Protocol::OpenAi, base_url, Some("k"));
+        let app = AppContext::unknown();
+        let tidied = tauri::async_runtime::block_on(run(LONG_SAID, &app, &endpoint, &Task::Tidy, &[]));
+        assert_eq!(tidied.unwrap(), LONG_SAID);
+        let requests = server.join().unwrap();
+        assert!(!requests[0].contains("earlier reply") && requests[1].contains("earlier reply"));
+    }
+
+    #[test]
+    fn a_tidy_refused_twice_goes_in_as_said() {
+        let lossy = chat_reply(LOSSY);
+        let (base_url, server) = serve_in_turn("200 OK", &[&lossy, &lossy]);
+        let endpoint = endpoint(Protocol::OpenAi, base_url, Some("k"));
+        let app = AppContext::unknown();
+        assert!(tauri::async_runtime::block_on(run(LONG_SAID, &app, &endpoint, &Task::Tidy, &[])).is_err());
+        assert_eq!(server.join().unwrap().len(), 2);
+    }
+
+    #[test]
     fn a_long_dictation_tidied_with_its_swearing_trimmed_is_kept() {
         // Real minute-long dictations whose tidies were thrown away: one for
         // "shit like that" going with the fillers, one for having more than
@@ -2327,14 +2426,20 @@ on Monday. Thanks. Talk soon.";
     /// A one-shot local HTTP server: answers the first request with `body`
     /// and hands back the raw request it received.
     fn serve_once(status: &str, body: &str) -> (String, std::thread::JoinHandle<String>) {
+        let (base_url, handle) = serve_in_turn(status, &[body]);
+        (base_url, std::thread::spawn(move || handle.join().unwrap().remove(0)))
+    }
+
+    /// `serve_once` for several requests, each answered with the next body.
+    fn serve_in_turn(status: &str, bodies: &[&str]) -> (String, std::thread::JoinHandle<Vec<String>>) {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let base_url = format!("http://{}", listener.local_addr().unwrap());
-        let response = format!(
+        let responses: Vec<String> = bodies.iter().map(|body| format!(
             "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
             body.len()
-        );
-        let handle = std::thread::spawn(move || {
+        )).collect();
+        let handle = std::thread::spawn(move || responses.iter().map(|response| {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = Vec::new();
             let mut chunk = [0u8; 4096];
@@ -2359,7 +2464,7 @@ on Monday. Thanks. Talk soon.";
             }
             stream.write_all(response.as_bytes()).unwrap();
             String::from_utf8_lossy(&request).to_string()
-        });
+        }).collect());
         (base_url, handle)
     }
 
@@ -2723,6 +2828,68 @@ mod replay {
             }
         }
         eprintln!("{refused} of {checked} past tidies refused");
+    }
+
+    /// Ask the saved provider to tidy past dictations again, several times
+    /// each, and print every reply the checks refuse with the reason: the app
+    /// keeps only the raw text when it refuses one, so this is how to see what
+    /// the model really wrote. The dictations it refused at the time are
+    /// asked about, or with `UTTER_REPLAY_ALL`, every tidied one.
+    ///
+    ///   UTTER_REPLAY_DIR="$HOME/Library/Application Support/dev.utter.app" UTTER_REPLAY_RUNS=5 \
+    ///   cargo test refused_replies -- --ignored --nocapture
+    #[test]
+    #[ignore = "asks the cleanup provider; a development aid"]
+    fn refused_replies() {
+        let Ok(dir) = std::env::var("UTTER_REPLAY_DIR") else { return };
+        let read = |name: &str| -> Value { serde_json::from_str(&std::fs::read_to_string(format!("{dir}/{name}")).unwrap()).unwrap() };
+        let entries = read("history.json");
+        let settings: crate::settings::Settings = serde_json::from_value(read("settings.json")).unwrap();
+        let endpoint = crate::providers::resolve(&settings).unwrap();
+        let runs: usize = std::env::var("UTTER_REPLAY_RUNS").ok().and_then(|r| r.parse().ok()).unwrap_or(3);
+        let all = std::env::var("UTTER_REPLAY_ALL").is_ok();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let (mut asked, mut refused, mut refused_again) = (0, 0, 0);
+        for entry in entries.as_array().unwrap() {
+            let raw = entry["raw"].as_str().unwrap_or_default();
+            let note = entry["note"].as_str().unwrap_or_default();
+            let was_refused = note.contains("left out") || note.contains("not a version");
+            if entry["mode"] != "tidy" || !(was_refused || (all && entry["cleaned"] == true)) {
+                continue;
+            }
+            let app = AppContext {
+                name: entry["app"]["name"].as_str().unwrap_or("Unknown").to_string(),
+                bundle_id: String::new(),
+                category: category(entry["app"]["category"].as_str().unwrap_or("other")),
+            };
+            let mut terms = settings.dictionary.clone();
+            crate::tech::add_to(&mut terms);
+            let raw = crate::tech::fix_spoken(raw);
+            let system = format!("{}{}", system_prompt_with(&app, &Task::Tidy, &Context::default()), terms_note(&terms, &raw));
+            let user = user_message(&raw, &Task::Tidy, &Context::default());
+            // A replay asks far faster than anyone dictates, so a rate limit
+            // is waited out.
+            let ask_now = |user: &str| loop {
+                let reply = runtime.block_on(ask(user, &system, &endpoint, TIDY_TIMEOUT));
+                if !matches!(&reply, Err(e) if e.contains("Rate limited")) {
+                    break reply;
+                }
+                std::thread::sleep(Duration::from_secs(15));
+            };
+            for _ in 0..runs {
+                asked += 1;
+                let reply = ask_now(&user).unwrap_or_else(|e| format!("ERROR {e}"));
+                let Err(e) = accept_with(&reply, &raw, &Task::Tidy, &terms) else { continue };
+                refused += 1;
+                eprintln!("=== REFUSED: {e}\nRAW:   {raw}\nREPLY: {reply}\n");
+                let reply = ask_now(&format!("{user}\n\n{TRY_AGAIN}")).unwrap_or_else(|e| format!("ERROR {e}"));
+                if let Err(e) = accept_with(&reply, &raw, &Task::Tidy, &terms) {
+                    refused_again += 1;
+                    eprintln!("=== REFUSED AGAIN: {e}\nREPLY: {reply}\n");
+                }
+            }
+        }
+        eprintln!("{refused} of {asked} first replies refused from {}, {refused_again} still refused when asked again", endpoint.model);
     }
 
     /// How much longer tidying a whole long dictation takes than tidying
