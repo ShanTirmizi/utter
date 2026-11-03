@@ -170,7 +170,9 @@ fn main() -> Result<(), String> {
 
     for model in &models {
         let file = Setup::model_file(&options.dir, model);
-        let name = file.file_stem().unwrap_or_default().to_string_lossy().trim_start_matches("ggml-").to_string();
+        // A Parakeet folder's name is the model's own; a file loses ".bin".
+        let name = if file.is_dir() { file.file_name() } else { file.file_stem() };
+        let name = name.unwrap_or_default().to_string_lossy().trim_start_matches("ggml-").to_string();
         let language = setup.language(model);
         let loading = Instant::now();
         transcriber.ensure_loaded(&name, &file).map_err(|e| format!("{model}: {e}"))?;

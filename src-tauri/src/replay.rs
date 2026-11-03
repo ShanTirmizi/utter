@@ -187,7 +187,14 @@ impl Setup {
     /// catalog that the app downloaded into `folder`.
     pub fn model_file(folder: &Path, name: &str) -> PathBuf {
         let given = PathBuf::from(name);
-        if given.is_file() { given } else { folder.join("models").join(format!("ggml-{name}.bin")) }
+        if given.exists() {
+            return given;
+        }
+        // A Parakeet model is a folder named after it; a Whisper one, a file.
+        match crate::models::find(name).map(|m| m.engine) {
+            Some(crate::models::Engine::Parakeet) => folder.join("models").join(name),
+            _ => folder.join("models").join(format!("ggml-{name}.bin")),
+        }
     }
 
     /// The language to tell the speech model, as the app would.
