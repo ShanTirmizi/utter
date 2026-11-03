@@ -55,6 +55,7 @@ export default function GeneralSection() {
         </div>
         <OpenAtLogin />
         <MicPicker />
+        <MuteWhileDictating />
       </div>
 
       {!blocked && <Permissions />}
@@ -106,6 +107,24 @@ function OpenAtLogin() {
         checked={state === "on" || state === "needsApproval"}
         disabled={state === null || state === "unavailable"}
         onChange={change}
+      />
+    </div>
+  );
+}
+
+/** Mute the Mac's sound while recording, so what is playing stays out of the dictation. */
+function MuteWhileDictating() {
+  const { settings, update } = useApp();
+  return (
+    <div className="qsw">
+      <div className="tx">
+        <b>Mute sound while dictating</b>
+        <span>Music or a video playing out loud stays out of what you say. The sound comes back when you let go.</span>
+      </div>
+      <Switch
+        label="Mute sound while dictating"
+        checked={settings.muteWhileDictating}
+        onChange={(muteWhileDictating) => update({ muteWhileDictating }).catch(() => undefined)}
       />
     </div>
   );

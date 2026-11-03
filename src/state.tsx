@@ -186,16 +186,19 @@ export function useAppState(): AppState | null {
     refreshModels();
 
     const stopPipeline = listen<PipelineUpdate>("pipeline", ({ payload }) => {
-      setLive((before) => ({
-        phase: payload.phase,
-        mode: payload.mode,
-        handsFree: !!payload.handsFree,
-        stage: payload.stage ?? null,
-        app: payload.app ?? null,
-        message: payload.message,
-        // Moving from transcribing to tidying is still the same wait.
-        since: before.phase === payload.phase ? before.since : performance.now(),
-      }));
+      // An earlier dictation finished while a newer one is under way: it changes History, not what is live.
+      if (!payload.background) {
+        setLive((before) => ({
+          phase: payload.phase,
+          mode: payload.mode,
+          handsFree: !!payload.handsFree,
+          stage: payload.stage ?? null,
+          app: payload.app ?? null,
+          message: payload.message,
+          // Moving from transcribing to tidying is still the same wait.
+          since: before.phase === payload.phase ? before.since : performance.now(),
+        }));
+      }
       if (payload.dictation) {
         setDictation(payload.dictation);
         setFresh(true);

@@ -53,6 +53,20 @@ export type Settings = {
   /** The microphone to record from, by Core Audio UID; "" for the system default. */
   microphone: string;
   onboarded: boolean;
+  /** Mute the Mac's sound while recording, and put it back afterwards. */
+  muteWhileDictating: boolean;
+  /** Fixed changes to everything written into one app. */
+  appRules: AppRule[];
+};
+
+/** What Utter always does to text written into one app. */
+export type AppRule = {
+  /** The app or site as named under a dictation ("Slack", "Gmail"). */
+  app: string;
+  /** Start each sentence with a small letter. */
+  lowerCase: boolean;
+  /** Leave off the full stop at the very end. */
+  noFullStop: boolean;
 };
 
 /** A removed word, restorable for 30 days. */
@@ -194,6 +208,8 @@ export type PipelineUpdate = {
   app: AppContext | null;
   message: string | null;
   dictation: Dictation | null;
+  /** An earlier dictation that finished while a newer one was under way: for History, not the pill. */
+  background?: boolean;
 };
 
 // While recording, the "audio-level" event carries the microphone level about

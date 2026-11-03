@@ -56,6 +56,8 @@ Everything it does:
   these, Utter inserts the raw transcription.
 - **Fits the app you are in.** A chat message, an email and a code comment each
   get a different writing style.
+- **Rules by app.** Leave off the full stop, or start sentences with a small
+  letter, in the apps where you type that way, with or without cleanup.
 - **Tidy or rewrite.** One hotkey keeps your wording and cleans it up. A second
   one rewrites what you said so it reads better, in a style you choose.
 - **Edit by voice.** Select some text, hold the rewrite hotkey and say what to
@@ -64,6 +66,12 @@ Everything it does:
   hands-free. Or pick any key combination you like.
 - **Hands-free.** Double-tap the hotkey instead of holding it, talk for up to
   five minutes, and tap once more to finish.
+- **Keep talking.** Start the next dictation while the last one is still being
+  tidied. Each goes in after the one before, in the order you said them.
+- **Quiet while you talk.** Optionally mute the Mac's sound while recording, so
+  music or a video playing out loud stays out of the dictation.
+- **Spoken formatting.** Say "new line" or "new paragraph", with a model or
+  without one.
 - **Your words.** A personal dictionary for the names and jargon that speech
   recognition gets wrong.
 - **History.** Your recent dictations, kept on your Mac only, to search and

@@ -403,6 +403,14 @@ pub mod system {
             size: *mut u32,
             data: *mut c_void,
         ) -> i32;
+        fn AudioObjectSetPropertyData(
+            object: u32,
+            address: *const Address,
+            qualifier_size: u32,
+            qualifier: *const c_void,
+            size: u32,
+            data: *const c_void,
+        ) -> i32;
     }
 
     const fn code(tag: &[u8; 4]) -> u32 {
@@ -415,9 +423,16 @@ pub mod system {
     const TRANSLATE_UID: u32 = code(b"uidd");
     const TRANSPORT: u32 = code(b"tran");
     const RUNNING_SOMEWHERE: u32 = code(b"gone");
+    const DEFAULT_OUTPUT: u32 = code(b"dOut");
+    const MUTE: u32 = code(b"mute");
+    const OUTPUT: u32 = code(b"outp");
 
     fn read(object: u32, selector: u32) -> Option<u32> {
-        let address = Address { selector, scope: GLOBAL, element: 0 };
+        read_in(object, selector, GLOBAL)
+    }
+
+    pub(super) fn read_in(object: u32, selector: u32, scope: u32) -> Option<u32> {
+        let address = Address { selector, scope, element: 0 };
         let mut value: u32 = 0;
         let mut size = std::mem::size_of::<u32>() as u32;
         let status = unsafe {
@@ -467,6 +482,39 @@ pub mod system {
     /// True while any app is capturing from, or playing to, this device.
     pub fn in_use(device: u32) -> bool {
         read(device, RUNNING_SOMEWHERE).is_some_and(|running| running != 0)
+    }
+
+    fn set_mute(device: u32, muted: bool) -> bool {
+        let address = Address { selector: MUTE, scope: OUTPUT, element: 0 };
+        let value: u32 = muted.into();
+        let status = unsafe {
+            AudioObjectSetPropertyData(
+                device,
+                &address,
+                0,
+                std::ptr::null(),
+                std::mem::size_of::<u32>() as u32,
+                (&value as *const u32).cast(),
+            )
+        };
+        status == 0
+    }
+
+    /// Mute the speakers or headphones the Mac is playing through. Returns
+    /// the device, to unmute it afterwards; `None` if it was muted already
+    /// (that is the user's, and stays) or cannot be muted at all, as some
+    /// screens and audio interfaces cannot.
+    pub fn mute_output() -> Option<u32> {
+        let device = read(SYSTEM, DEFAULT_OUTPUT).filter(|&d| d != 0)?;
+        if read_in(device, MUTE, OUTPUT)? != 0 {
+            return None;
+        }
+        set_mute(device, true).then_some(device)
+    }
+
+    /// Undo `mute_output` on `device`.
+    pub fn unmute_output(device: u32) {
+        set_mute(device, false);
     }
 }
 
@@ -610,6 +658,25 @@ pub fn has_speech(samples: &[f32]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Run with `cargo test -- --ignored`. Mutes this Mac's speakers for a
+    /// moment, then gives them back.
+    #[test]
+    #[ignore]
+    fn the_speakers_mute_and_come_back() {
+        let Some(device) = system::mute_output() else {
+            panic!("the speakers were muted already, or cannot be muted");
+        };
+        assert_eq!(system::read_in(device, code_for_test(b"mute"), code_for_test(b"outp")), Some(1));
+        // Muted already: left to the user, and not unmuted for them later.
+        assert_eq!(system::mute_output(), None);
+        system::unmute_output(device);
+        assert_eq!(system::read_in(device, code_for_test(b"mute"), code_for_test(b"outp")), Some(0));
+    }
+
+    fn code_for_test(tag: &[u8; 4]) -> u32 {
+        u32::from_be_bytes(*tag)
+    }
 
     #[test]
     fn downsampling_48k_to_16k_keeps_duration() {
