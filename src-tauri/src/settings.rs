@@ -81,6 +81,12 @@ pub struct Settings {
     pub microphone: String,
     /// Set once the first-run permissions screen has been completed.
     pub onboarded: bool,
+    /// Mute the Mac's sound while recording, so music or a video playing
+    /// out loud stays out of the dictation, and put it back afterwards.
+    pub mute_while_dictating: bool,
+    /// Fixed changes made to everything written into a particular app, with
+    /// or without cleanup.
+    pub app_rules: Vec<AppRule>,
 }
 
 impl Default for Settings {
@@ -119,7 +125,30 @@ impl Default for Settings {
             appearance: "system".into(),
             microphone: String::new(),
             onboarded: false,
+            mute_while_dictating: false,
+            app_rules: Vec::new(),
         }
+    }
+}
+
+/// What Utter always does to text written into one app.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AppRule {
+    /// The app or site as Utter names it under a dictation ("Slack",
+    /// "Gmail"), matched without regard to case.
+    pub app: String,
+    /// Start each sentence with a small letter, as people often type in chat.
+    pub lower_case: bool,
+    /// Leave off the full stop at the very end.
+    pub no_full_stop: bool,
+}
+
+impl Settings {
+    /// The rule for the app named `app`, if the user made one.
+    pub fn rule_for(&self, app: &str) -> Option<&AppRule> {
+        let app = app.trim().to_lowercase();
+        self.app_rules.iter().find(|rule| rule.app.trim().to_lowercase() == app)
     }
 }
 

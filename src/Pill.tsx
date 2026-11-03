@@ -160,6 +160,8 @@ export default function Pill() {
     let began = 0;
 
     const stop = listen<PipelineUpdate>("pipeline", ({ payload }) => {
+      // An earlier dictation typed while a newer one is under way: the pill keeps showing the newer one.
+      if (payload.background) return;
       // A new press interrupts whatever was showing.
       switch (payload.phase) {
         case "recording":

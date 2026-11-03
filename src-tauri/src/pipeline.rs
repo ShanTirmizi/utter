@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -112,6 +112,24 @@ pub struct Update {
     pub app: Option<AppContext>,
     pub message: Option<String>,
     pub dictation: Option<Dictation>,
+    /// The outcome of an earlier dictation that finished while a newer one
+    /// was recorded or worked on: for History, not for the pill.
+    pub background: bool,
+}
+
+/// One finished recording on its way to being typed. Everything it needs
+/// from the moment it ended is kept here, so that a new recording can start
+/// while it is still being worked on.
+struct Job {
+    /// Its recording's number.
+    id: u64,
+    mode: Mode,
+    /// The app in focus at key-down; in a browser, the site once it is known.
+    target: AppContext,
+    /// What was transcribed, and tidied, while the user was still talking.
+    early: Early,
+    /// What was read from the screen while it was recorded.
+    screen: Screen,
 }
 
 pub struct Pipeline {
@@ -144,9 +162,22 @@ pub struct Pipeline {
     /// Set when a key press ended a hands-free recording; its own release
     /// must then do nothing.
     swallow_release: AtomicBool,
-    /// Set when the user dropped the dictation being worked on: whatever
-    /// comes of it is thrown away, not typed.
-    discarded: AtomicBool,
+    /// The user dropped every dictation being worked on up to this
+    /// recording number: whatever comes of them is thrown away, not typed.
+    dropped_up_to: AtomicU64,
+    /// Dictations recorded and not yet finished with.
+    jobs: AtomicUsize,
+    /// The recording number of the newest of them. Only that one may show
+    /// on the pill.
+    newest_job: AtomicU64,
+    /// Held while one dictation is worked on, so that dictations queued
+    /// behind it are typed after it, in the order they were said.
+    work: tokio::sync::Mutex<()>,
+    /// When text was last pasted, so a queued dictation that is ready at
+    /// once does not change the clipboard before the app has read it.
+    pasted_at: Mutex<Option<Instant>>,
+    /// The speakers muted for the recording under way, to unmute after it.
+    muted: Mutex<Option<u32>>,
     /// The most recent dictation, whether or not history is being kept.
     last: Mutex<Option<Dictation>>,
     /// Past dictations, oldest first; mirrors the history file.
@@ -202,7 +233,12 @@ impl Pipeline {
             latched: AtomicBool::new(false),
             awaiting_second_tap: AtomicBool::new(false),
             swallow_release: AtomicBool::new(false),
-            discarded: AtomicBool::new(false),
+            dropped_up_to: AtomicU64::new(0),
+            jobs: AtomicUsize::new(0),
+            newest_job: AtomicU64::new(0),
+            work: tokio::sync::Mutex::new(()),
+            pasted_at: Mutex::new(None),
+            muted: Mutex::new(None),
             last: Mutex::new(None),
             history: Mutex::new(Vec::new()),
             simulated_selection: Mutex::new(None),
@@ -222,6 +258,61 @@ impl Pipeline {
     /// Get the microphone ready ahead of the first dictation.
     pub fn prepare_microphone(&self) {
         self.recorder.prepare();
+    }
+
+    /// Stop recording, give back the speakers if they were muted for it, and
+    /// return what was recorded.
+    fn stop_recording(&self) -> Vec<f32> {
+        let samples = self.recorder.stop();
+        self.unmute();
+        samples
+    }
+
+    /// Unmute the speakers, if they were muted for a recording.
+    fn unmute(&self) {
+        if let Some(device) = self.muted.lock().unwrap().take() {
+            audio::system::unmute_output(device);
+        }
+    }
+
+    /// What the pipeline is doing once a recording has ended: still working
+    /// if an earlier dictation is, otherwise nothing.
+    fn after_recording(&self) -> Phase {
+        if self.jobs.load(Ordering::SeqCst) > 0 { Phase::Processing } else { Phase::Idle }
+    }
+
+    /// Turn the recording that just ended into a job. Called with `phase`
+    /// held, at the moment it ends, before a new recording can begin.
+    fn take_job(&self) -> Job {
+        let id = self.recording_id.load(Ordering::SeqCst);
+        self.jobs.fetch_add(1, Ordering::SeqCst);
+        self.newest_job.store(id, Ordering::SeqCst);
+        Job {
+            id,
+            mode: *self.mode.lock().unwrap(),
+            target: self.target.lock().unwrap().clone(),
+            early: Early::default(),
+            screen: Screen::default(),
+        }
+    }
+}
+
+/// May this job show on the pill? Only the newest, and only while nothing
+/// is being recorded.
+fn in_front(app: &AppHandle, job: &Job) -> bool {
+    let pipeline = app.state::<Pipeline>();
+    *pipeline.phase.lock().unwrap() != Phase::Recording && pipeline.newest_job.load(Ordering::SeqCst) == job.id
+}
+
+/// Has the user dropped this job?
+fn dropped(app: &AppHandle, job: &Job) -> bool {
+    job.id <= app.state::<Pipeline>().dropped_up_to.load(Ordering::SeqCst)
+}
+
+/// Free the speakers before the app exits, should it quit mid-recording.
+pub fn unmute(app: &AppHandle) {
+    if let Some(pipeline) = app.try_state::<Pipeline>() {
+        pipeline.unmute();
     }
 }
 
@@ -363,30 +454,45 @@ fn emit(app: &AppHandle, phase: &'static str, message: Option<String>, dictation
     let hands_free = pipeline.latched.load(Ordering::SeqCst);
     let _ = app.emit(
         "pipeline",
-        Update { phase, mode, hands_free, stage: None, app: None, message, dictation },
+        Update { phase, mode, hands_free, stage: None, app: None, message, dictation, background: false },
     );
 }
 
+/// Report how a job ended. A job that is no longer the newest, or that
+/// finished while the user is recording again, does not take over the pill
+/// or the menu bar: only History hears of it, and only when it typed
+/// something.
+fn emit_job(app: &AppHandle, job: &Job, phase: &'static str, message: Option<String>, dictation: Option<Dictation>) {
+    if in_front(app, job) {
+        crate::tray::set_phase(app, phase);
+    } else if dictation.is_none() {
+        return;
+    }
+    let background = !in_front(app, job);
+    let update = Update { phase, mode: job.mode, hands_free: false, stage: None, app: None, message, dictation, background };
+    let _ = app.emit("pipeline", update);
+}
+
 /// Say which step of processing has begun, so the pill can name it.
-fn emit_stage(app: &AppHandle, stage: &'static str) {
-    let pipeline = app.state::<Pipeline>();
-    // Dropped already: the pill has gone and stays gone.
-    if pipeline.discarded.load(Ordering::SeqCst) {
+fn emit_stage(app: &AppHandle, job: &Job, stage: &'static str) {
+    // Dropped already: the pill has gone and stays gone. And a job queued
+    // behind a newer one, or worked on while the user records again, says
+    // nothing.
+    if dropped(app, job) || !in_front(app, job) {
         return;
     }
     crate::tray::set_phase(app, "processing");
-    let mode = *pipeline.mode.lock().unwrap();
-    let target = pipeline.target.lock().unwrap().clone();
     let _ = app.emit(
         "pipeline",
         Update {
             phase: "processing",
-            mode,
+            mode: job.mode,
             hands_free: false,
             stage: Some(stage),
-            app: Some(target),
+            app: Some(job.target.clone()),
             message: None,
             dictation: None,
+            background: false,
         },
     );
 }
@@ -439,19 +545,19 @@ fn report_level(app: &AppHandle, id: u64) {
 /// now, with nobody asking, could put it somewhere it does not belong.
 fn stop_hands_free(app: &AppHandle, id: u64, quiet_tail: Duration) {
     let pipeline = app.state::<Pipeline>();
-    let mut samples = {
+    let (job, mut samples) = {
         let mut phase = pipeline.phase.lock().unwrap();
         let same_recording = pipeline.recording_id.load(Ordering::SeqCst) == id;
         if *phase != Phase::Recording || !same_recording || !pipeline.latched.swap(false, Ordering::SeqCst) {
             return;
         }
         *phase = Phase::Processing;
-        pipeline.recorder.stop()
+        (pipeline.take_job(), pipeline.stop_recording())
     };
     let tail = (quiet_tail.as_secs_f32() * TARGET_RATE as f32) as usize;
     samples.truncate(samples.len().saturating_sub(tail));
-    emit_stage(app, "transcribing");
-    finish(app.clone(), samples, Delivery::StoppedItself);
+    emit_stage(app, &job, "transcribing");
+    finish(app.clone(), job, samples, Delivery::StoppedItself);
 }
 
 /// Load the selected speech model in the background so the first dictation
@@ -527,22 +633,18 @@ pub fn on_press(app: &AppHandle, mode: Mode) {
             // is the key repeating while held, and only the first press counts.
             if pipeline.latched.swap(false, Ordering::SeqCst) {
                 *phase = Phase::Processing;
-                let samples = pipeline.recorder.stop();
+                let job = pipeline.take_job();
+                let samples = pipeline.stop_recording();
                 drop(phase);
                 pipeline.swallow_release.store(true, Ordering::SeqCst);
-                emit_stage(app, "transcribing");
-                finish(app.clone(), samples, Delivery::Paste);
+                emit_stage(app, &job, "transcribing");
+                finish(app.clone(), job, samples, Delivery::Paste);
             }
             return;
         }
-        // The last dictation is still being transcribed or tidied. A press
-        // now is ignored, so it can neither interrupt that nor start a
-        // second one; the pill keeps showing the work under way.
-        Phase::Processing => {
-            drop(phase);
-            crate::fnkey::log("hotkey pressed while still working: ignored");
-            return;
-        }
+        // An earlier dictation is still being transcribed or tidied. A new
+        // one starts anyway; it waits its turn and is typed after that one.
+        Phase::Processing => crate::fnkey::log("hotkey pressed while still working: queued after it"),
     }
     *pipeline.mode.lock().unwrap() = mode;
     if !models::is_downloaded(app, &settings::load(app).model) {
@@ -562,6 +664,9 @@ pub fn on_press(app: &AppHandle, mode: Mode) {
     match pipeline.recorder.start() {
         Ok(()) => {
             *phase = Phase::Recording;
+            if settings::load(app).mute_while_dictating {
+                *pipeline.muted.lock().unwrap() = audio::system::mute_output();
+            }
             emit(app, "recording", None, None);
             if mode == Mode::Rewrite && permissions::accessibility() {
                 // So that an app built on web technology can tell us what is
@@ -660,9 +765,9 @@ fn abandon_if_never_released(app: &AppHandle, id: u64) {
             if *phase != Phase::Recording || !same_recording {
                 return;
             }
-            pipeline.recorder.stop();
+            pipeline.stop_recording();
             pipeline.latched.store(false, Ordering::SeqCst);
-            *phase = Phase::Idle;
+            *phase = pipeline.after_recording();
         }
         let minutes = audio::MAX_SECONDS / 60;
         emit(
@@ -700,7 +805,7 @@ pub fn on_release(app: &AppHandle, mode: Mode) {
     if pipeline.swallow_release.swap(false, Ordering::SeqCst) {
         return;
     }
-    let samples = {
+    let (job, samples) = {
         let mut phase = pipeline.phase.lock().unwrap();
         // Only the hotkey that started the recording can end it.
         if *phase != Phase::Recording || *pipeline.mode.lock().unwrap() != mode {
@@ -725,10 +830,10 @@ pub fn on_release(app: &AppHandle, mode: Mode) {
             return;
         }
         *phase = Phase::Processing;
-        pipeline.recorder.stop()
+        (pipeline.take_job(), pipeline.stop_recording())
     };
-    emit_stage(app, "transcribing");
-    finish(app.clone(), samples, Delivery::Paste);
+    emit_stage(app, &job, "transcribing");
+    finish(app.clone(), job, samples, Delivery::Paste);
 }
 
 /// After a single quick tap, give the second tap of a double tap a moment to
@@ -745,8 +850,8 @@ fn let_go_unless_tapped_again(app: &AppHandle, id: u64) {
             if *phase != Phase::Recording || !same_recording || !pipeline.awaiting_second_tap.swap(false, Ordering::SeqCst) {
                 return;
             }
-            pipeline.recorder.stop();
-            *phase = Phase::Idle;
+            pipeline.stop_recording();
+            *phase = pipeline.after_recording();
         }
         emit(&app, "idle", Some("Hold to talk, or double-tap for hands-free.".into()), None);
     });
@@ -763,8 +868,8 @@ pub fn cancel(app: &AppHandle) {
             return;
         }
         pipeline.awaiting_second_tap.store(false, Ordering::SeqCst);
-        pipeline.recorder.stop();
-        *phase = Phase::Idle;
+        pipeline.stop_recording();
+        *phase = pipeline.after_recording();
     }
     // An empty message tells the pill to go without a note.
     emit(app, "idle", Some(String::new()), None);
@@ -778,9 +883,10 @@ pub const NOWHERE: &str = "Nowhere to type it.";
 const DISCARDED: &str = "Dropped.";
 
 /// The user pressed the pill's X. A recording stops and is thrown away,
-/// hands-free or not. A dictation already being worked on carries on out of
-/// sight, since transcribing cannot be stopped halfway, but nothing comes of
-/// it: it is neither typed nor kept.
+/// hands-free or not; earlier dictations still being worked on are not what
+/// the pill showed, and carry on. Otherwise every dictation being worked on
+/// carries on out of sight, since transcribing cannot be stopped halfway,
+/// but nothing comes of it: it is neither typed nor kept.
 pub fn discard(app: &AppHandle) {
     let pipeline = app.state::<Pipeline>();
     {
@@ -788,12 +894,15 @@ pub fn discard(app: &AppHandle) {
         match *phase {
             Phase::Idle => return,
             Phase::Recording => {
-                pipeline.recorder.stop();
+                pipeline.stop_recording();
                 pipeline.latched.store(false, Ordering::SeqCst);
                 pipeline.awaiting_second_tap.store(false, Ordering::SeqCst);
-                *phase = Phase::Idle;
+                *phase = pipeline.after_recording();
             }
-            Phase::Processing => pipeline.discarded.store(true, Ordering::SeqCst),
+            Phase::Processing => {
+                let newest = pipeline.newest_job.load(Ordering::SeqCst);
+                pipeline.dropped_up_to.fetch_max(newest, Ordering::SeqCst);
+            }
         }
     }
     crate::fnkey::log("dictation dropped from the pill");
@@ -801,8 +910,8 @@ pub fn discard(app: &AppHandle) {
 }
 
 /// Stop here if the user has dropped this dictation.
-fn check_discarded(app: &AppHandle) -> Result<(), String> {
-    if app.state::<Pipeline>().discarded.load(Ordering::SeqCst) { Err(DISCARDED.into()) } else { Ok(()) }
+fn check_discarded(app: &AppHandle, job: &Job) -> Result<(), String> {
+    if dropped(app, job) { Err(DISCARDED.into()) } else { Ok(()) }
 }
 
 /// The part of a recording transcribed before it ended.
@@ -984,15 +1093,29 @@ enum Delivery {
 }
 
 /// Process a finished recording in the background and report the outcome.
-fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
+fn finish(app: AppHandle, mut job: Job, samples: Vec<f32>, delivery: Delivery) {
     tauri::async_runtime::spawn(async move {
+        let pipeline = app.state::<Pipeline>();
+        // What was transcribed while the user talked, and what was on screen,
+        // are taken now, before the next recording can replace them. A piece
+        // still being transcribed is waited for.
+        {
+            let _busy = pipeline.early_busy.lock().await;
+            let mut early = pipeline.early.lock().unwrap();
+            let replayed = cfg!(debug_assertions) && std::env::var_os("UTTER_SIMULATE_LIVE").is_some();
+            if early.id == job.id && (delivery != Delivery::ClipboardOnly || replayed) {
+                job.early = std::mem::take(&mut *early);
+            }
+        }
+        job.screen = screen_for(&app, job.id);
+        // One at a time, in the order they were said.
+        let turn = pipeline.work.lock().await;
         // A recording is kept only with a history entry to belong to, and a
         // simulated dictation is a test, not something the user said.
         let saved = settings::load(&app);
         let keep_audio = saved.keep_audio && saved.keep_history && delivery != Delivery::ClipboardOnly;
         let audio = keep_audio.then(|| samples.clone());
-        let outcome = process(&app, samples, delivery).await;
-        let pipeline = app.state::<Pipeline>();
+        let outcome = process(&app, &mut job, samples, delivery).await;
         #[cfg(debug_assertions)]
         eprintln!(
             "[pipeline] {}",
@@ -1002,11 +1125,9 @@ fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
                 Err(e) => format!("error {e}"),
             }
         );
-        // Report the outcome before accepting a new press, so that press's
-        // "recording" event can never be overtaken by this "done".
         // Dropped after it was too late to stop: nothing is kept.
         let outcome = match outcome {
-            Ok(Some(_)) if pipeline.discarded.load(Ordering::SeqCst) => Err(DISCARDED.to_string()),
+            Ok(Some(_)) if dropped(&app, &job) => Err(DISCARDED.to_string()),
             outcome => outcome,
         };
         match outcome {
@@ -1035,22 +1156,28 @@ fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
                     }
                 }
                 drop(entries);
-                emit(&app, "done", None, Some(dictation));
+                emit_job(&app, &job, "done", None, Some(dictation));
             }
             // "Hold the keys while you speak" is the wrong advice for
             // someone who tapped, so hands-free gets the short version.
             Ok(None) => {
                 let note = settings::load(&app).hands_free.then(|| "Nothing heard.".to_string());
-                emit(&app, "idle", note, None)
+                emit_job(&app, &job, "idle", note, None)
             }
-            Err(e) if e == NO_SPEECH => emit(&app, "idle", Some(e), None),
+            Err(e) if e == NO_SPEECH => emit_job(&app, &job, "idle", Some(e), None),
             // The pill went when it was dropped; this only settles the menu bar.
-            Err(e) if e == DISCARDED => emit(&app, "idle", Some(String::new()), None),
-            Err(e) => emit(&app, "error", Some(e), None),
+            Err(e) if e == DISCARDED => emit_job(&app, &job, "idle", Some(String::new()), None),
+            Err(e) => emit_job(&app, &job, "error", Some(e), None),
         }
+        // Reported before the phase moves on, so a press that follows has
+        // its "recording" event after this one, never overtaken by it.
         let mut phase = pipeline.phase.lock().unwrap();
-        pipeline.discarded.store(false, Ordering::SeqCst);
-        *phase = Phase::Idle;
+        let left = pipeline.jobs.fetch_sub(1, Ordering::SeqCst) - 1;
+        if *phase == Phase::Processing && left == 0 {
+            *phase = Phase::Idle;
+        }
+        drop(phase);
+        drop(turn);
     });
 }
 
@@ -1058,6 +1185,7 @@ fn finish(app: AppHandle, samples: Vec<f32>, delivery: Delivery) {
 /// was nothing worth doing (an accidental tap).
 async fn process(
     app: &AppHandle,
+    job: &mut Job,
     samples: Vec<f32>,
     delivery: Delivery,
 ) -> Result<Option<Dictation>, String> {
@@ -1075,12 +1203,7 @@ async fn process(
     // Speech already transcribed while the user talked was speech: running
     // the voice model over the whole recording again would only add a wait
     // (about a second for five minutes).
-    let heard_already = {
-        let pipeline = app.state::<Pipeline>();
-        let id = pipeline.recording_id.load(Ordering::SeqCst);
-        let early = pipeline.early.lock().unwrap();
-        early.id == id && early.texts.iter().any(|t| !t.trim().is_empty())
-    };
+    let heard_already = job.early.texts.iter().any(|t| !t.trim().is_empty());
     let (judge, audio, loader) = (transcriber.clone(), samples.clone(), app.clone());
     // Loading the voice model waits for its lock, which an early piece being
     // transcribed may hold; never on an async worker.
@@ -1098,8 +1221,7 @@ async fn process(
     let path = models::path(app, &name)?;
     // Names on screen help with this dictation only: they join the user's
     // words here, in memory, and are never saved with them.
-    let recording = app.state::<Pipeline>().recording_id.load(Ordering::SeqCst);
-    let on_screen = screen_for(app, recording);
+    let on_screen = job.screen.clone();
     let screen = on_screen.terms.clone();
     let terms = speech_terms(&settings, &screen);
     settings.dictionary.extend(crate::screen::as_words(&screen));
@@ -1107,7 +1229,7 @@ async fn process(
 
     // In a browser, which site is open decides the writing style: Gmail is
     // email, claude.ai is a prompt. Ask now, while the speech is transcribed.
-    let pressed_in = app.state::<Pipeline>().target.lock().unwrap().clone();
+    let pressed_in = job.target.clone();
     let page_lookup = (delivery != Delivery::ClipboardOnly
         && context::is_browser(&pressed_in.bundle_id)
         && permissions::accessibility())
@@ -1115,17 +1237,8 @@ async fn process(
 
     let started = Instant::now();
     // Whatever was transcribed while the user was still talking is used as
-    // it is; only the rest is transcribed now. Wait for a piece in progress.
-    let early = {
-        let pipeline = app.state::<Pipeline>();
-        let _busy = pipeline.early_busy.lock().await;
-        let id = pipeline.recording_id.load(Ordering::SeqCst);
-        let mut early = pipeline.early.lock().unwrap();
-        let replayed = cfg!(debug_assertions) && std::env::var_os("UTTER_SIMULATE_LIVE").is_some();
-        let mine = early.id == id && (delivery != Delivery::ClipboardOnly || replayed);
-        let taken = std::mem::take(&mut *early);
-        if mine { taken } else { Early::default() }
-    };
+    // it is; only the rest is transcribed now.
+    let early = std::mem::take(&mut job.early);
     let rest_from = early.done.min(samples.len());
     let early_texts = early.texts.clone();
     let early_cleaned = early.cleaned;
@@ -1148,7 +1261,7 @@ async fn process(
     if raw.is_empty() {
         return Err(NO_SPEECH.into());
     }
-    check_discarded(app)?;
+    check_discarded(app, job)?;
 
     if let Some(lookup) = page_lookup {
         let page = lookup.await.unwrap_or_default();
@@ -1157,15 +1270,13 @@ async fn process(
         // one the dictation is for, not a window the user has moved to.
         let in_front = on_main(app, context::frontmost).map(|now| now.bundle_id).unwrap_or_default();
         if let Some((site, category)) = found.filter(|_| in_front == pressed_in.bundle_id) {
-            let pipeline = app.state::<Pipeline>();
-            let mut target = pipeline.target.lock().unwrap();
-            target.name = site.to_string();
-            target.category = category;
+            job.target.name = site.to_string();
+            job.target.category = category;
         }
     }
 
-    let target = app.state::<Pipeline>().target.lock().unwrap().clone();
-    let mode = *app.state::<Pipeline>().mode.lock().unwrap();
+    let target = job.target.clone();
+    let mode = job.mode;
     let finished_at = || {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1177,7 +1288,7 @@ async fn process(
     if mode == Mode::Rewrite {
         if let Some((selected, found)) = selected_text(app, &target, delivery).await {
             let began = Instant::now();
-            let edited = edit_selection(app, &raw, &selected, &target, &settings).await?;
+            let edited = edit_selection(app, job, &raw, &selected, &settings).await?;
             let edited = keep_edges(&selected, &edited);
             let cleanup_ms = Some(began.elapsed().as_millis() as u64);
             // The model took a while. Paste only if the selection is still
@@ -1188,7 +1299,7 @@ async fn process(
                 delivery
             };
             // The result replaces the selection exactly; no space is added.
-            let (inserted, note) = deliver(app, &edited, delivery, false, false).await?;
+            let (inserted, note) = deliver(app, job, &edited, delivery, false, false).await?;
             return Ok(Some(Dictation {
                 text: edited,
                 mode,
@@ -1229,7 +1340,7 @@ async fn process(
         let mut rest = Tidied { text: String::new(), cleaned: false, note: None, ms: None };
         if !rest_raw.trim().is_empty() {
             let around = context_for(&on_screen, &parts);
-            rest = improve(app, &rest_raw, &target, &settings, mode, &around).await;
+            rest = improve(app, job, &rest_raw, &settings, &around).await;
             parts.push(rest.text);
         }
         Tidied {
@@ -1239,12 +1350,17 @@ async fn process(
             ms: Some(rest.ms.unwrap_or(0)),
         }
     } else {
-        improve(app, &raw, &target, &settings, mode, &context_for(&on_screen, &[])).await
+        improve(app, job, &raw, &settings, &context_for(&on_screen, &[])).await
     };
     // However it was produced, a long dictation never goes in as one block,
     // except where line breaks have meaning of their own: code and terminals.
     if target.category != context::Category::Code {
         tidied.text = cleanup::paragraphs(&tidied.text);
+    }
+    // The user's own fixed changes for this app, whether or not a model
+    // was asked.
+    if let Some(rule) = settings.rule_for(&target.name) {
+        tidied.text = cleanup::apply_rule(&tidied.text, rule, &settings.dictionary);
     }
     // Carry on from the text before the cursor: no capital in the middle of
     // a sentence, and a space if the cursor is right after a word.
@@ -1256,7 +1372,7 @@ async fn process(
         follow_on(&on_screen.around.before, &tidied.text)
     };
     tidied.text = text;
-    let (inserted, delivery_note) = deliver(app, &tidied.text, delivery, true, space_before).await?;
+    let (inserted, delivery_note) = deliver(app, job, &tidied.text, delivery, true, space_before).await?;
     if delivery != Delivery::ClipboardOnly && !screen.is_empty() {
         suggest_from_screen(app, &screen, &raw, &tidied.text, &target.name);
     }
@@ -1264,7 +1380,7 @@ async fn process(
     let finished_at = finished_at();
     // Watch for the user correcting a word of it, to learn from and to count.
     if inserted && delivery == Delivery::Paste {
-        let id = app.state::<Pipeline>().recording_id.load(Ordering::SeqCst);
+        let id = job.id;
         let (watcher, noter) = (app.clone(), app.clone());
         crate::learn::watch(
             app.clone(),
@@ -1406,9 +1522,9 @@ fn keep_edges(selected: &str, edited: &str) -> String {
 /// really worked.
 async fn edit_selection(
     app: &AppHandle,
+    job: &Job,
     instruction: &str,
     selected: &str,
-    target: &AppContext,
     settings: &Settings,
 ) -> Result<String, String> {
     const UNCHANGED: &str = "Your selected text was not changed.";
@@ -1434,9 +1550,9 @@ async fn edit_selection(
         ));
     }
 
-    emit_stage(app, "editing");
+    emit_stage(app, job, "editing");
     let task = Task::Edit { selection: selected.to_string() };
-    cleanup::run(instruction, target, &endpoint, &task, &settings.dictionary)
+    cleanup::run(instruction, &job.target, &endpoint, &task, &settings.dictionary)
         .await
         .map_err(|e| format!("{e} {UNCHANGED}"))
 }
@@ -1453,19 +1569,22 @@ struct Tidied {
 /// problem.
 async fn improve(
     app: &AppHandle,
+    job: &Job,
     raw: &str,
-    target: &AppContext,
     settings: &Settings,
-    mode: Mode,
     around: &cleanup::Context,
 ) -> Tidied {
+    let (target, mode) = (&job.target, job.mode);
     // Spoken tech names with only one meaning ("type script") are written
     // right first, cleanup or not; never in code, where commands are typed
     // exactly as said.
     let fixed = if target.category == context::Category::Code { raw.to_string() } else { crate::tech::fix_spoken(raw) };
     let raw = fixed.as_str();
+    // Text that goes in without a model still gets its spoken "new line"
+    // and "new paragraph"; never in code, where a line break can run a
+    // command.
     let untouched = |note: Option<String>, ms: Option<u64>| Tidied {
-        text: raw.to_string(),
+        text: if target.category == context::Category::Code { raw.to_string() } else { cleanup::spoken_commands(raw) },
         cleaned: false,
         note,
         ms,
@@ -1513,7 +1632,7 @@ async fn improve(
 
     // Only now is a model really about to be asked, so only now say so. With
     // no key set up, the pill must not claim to be tidying.
-    emit_stage(app, if mode == Mode::Rewrite { "rewriting" } else { "tidying" });
+    emit_stage(app, job, if mode == Mode::Rewrite { "rewriting" } else { "tidying" });
     let started = Instant::now();
     let result = cleanup::run_with(raw, target, &endpoint, &task, &settings.dictionary, around).await;
     let ms = Some(started.elapsed().as_millis() as u64);
@@ -1555,6 +1674,7 @@ fn on_main<T: Send + 'static>(
 /// user to paste, so nothing dictated is ever lost.
 async fn deliver(
     app: &AppHandle,
+    job: &Job,
     text: &str,
     delivery: Delivery,
     space_after: bool,
@@ -1581,7 +1701,7 @@ async fn deliver(
             Some(format!("Copied to the clipboard ({reason}). Press ⌘V to paste.")),
         ));
     }
-    check_discarded(app)?;
+    check_discarded(app, job)?;
     // Nothing that takes text has focus: a paste would vanish. The pill
     // offers to copy it instead, and the user's clipboard is left alone.
     if delivery == Delivery::Paste
@@ -1601,10 +1721,19 @@ async fn deliver(
     if space_before {
         spaced.insert(0, ' ');
     }
+    // A dictation queued behind another can be ready the moment that one
+    // was pasted. The app must read the clipboard for that paste before it
+    // changes, or it would paste this text twice.
+    let since = app.state::<Pipeline>().pasted_at.lock().unwrap().map(|at| at.elapsed());
+    if let Some(wait) = since.and_then(|since| PASTE_GAP.checked_sub(since)) {
+        tokio::time::sleep(wait).await;
+    }
     let token = on_main(app, move || insert::stage(&spaced))?;
     // Give the system a moment to publish the new clipboard before pasting.
     tokio::time::sleep(Duration::from_millis(60)).await;
-    if let Err(e) = on_main(app, insert::press_paste)? {
+    let pressed = on_main(app, insert::press_paste)?;
+    *app.state::<Pipeline>().pasted_at.lock().unwrap() = Some(Instant::now());
+    if let Err(e) = pressed {
         // The keys could not be pressed. Leave the text on the clipboard as
         // ordinary text so the user can paste it themselves.
         let plain = text.to_string();
@@ -1625,6 +1754,9 @@ async fn deliver(
     });
     Ok((true, None))
 }
+
+/// The least time between one paste and the next.
+const PASTE_GAP: Duration = Duration::from_millis(400);
 
 /// Fit a dictation to the text before the cursor. A space goes first when
 /// the cursor sits right after a word or a full stop; and when that text
@@ -1684,14 +1816,15 @@ pub fn copy_last(app: &AppHandle) {
 /// hotkey. The result is left on the clipboard and no key is pressed, so a
 /// test run can never type into whatever app happens to be in front.
 ///
-/// Returns false if a dictation is already in progress.
+/// Returns false if a dictation is being recorded. One still being worked on
+/// is queued behind, like a real one.
 #[cfg(debug_assertions)]
 pub fn simulate(app: &AppHandle, samples: Vec<f32>, mode: Mode, selected: Option<String>) -> bool {
     let pipeline = app.state::<Pipeline>();
     *pipeline.simulated_selection.lock().unwrap() = selected;
     {
         let mut phase = pipeline.phase.lock().unwrap();
-        if *phase != Phase::Idle {
+        if *phase == Phase::Recording {
             return false;
         }
         *phase = Phase::Processing;
@@ -1716,17 +1849,21 @@ pub fn simulate(app: &AppHandle, samples: Vec<f32>, mode: Mode, selected: Option
     if std::env::var_os("UTTER_SIMULATE_LIVE").is_some() {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let id = app.state::<Pipeline>().recording_id.fetch_add(1, Ordering::SeqCst) + 1;
+            let pipeline = app.state::<Pipeline>();
+            let id = pipeline.recording_id.fetch_add(1, Ordering::SeqCst) + 1;
             let for_replay = samples.clone();
             let replayer = app.clone();
             let _ = tauri::async_runtime::spawn_blocking(move || replay_early(&replayer, id, &for_replay)).await;
-            emit_stage(&app, "transcribing");
-            finish(app.clone(), samples, Delivery::ClipboardOnly);
+            let job = pipeline.take_job();
+            emit_stage(&app, &job, "transcribing");
+            finish(app.clone(), job, samples, Delivery::ClipboardOnly);
         });
         return true;
     }
-    emit_stage(app, "transcribing");
-    finish(app.clone(), samples, Delivery::ClipboardOnly);
+    pipeline.recording_id.fetch_add(1, Ordering::SeqCst);
+    let job = pipeline.take_job();
+    emit_stage(app, &job, "transcribing");
+    finish(app.clone(), job, samples, Delivery::ClipboardOnly);
     true
 }
 

@@ -98,6 +98,8 @@ let settings: Settings = {
   appearance: "system",
   microphone: "",
   onboarded: !query.has("welcome"),
+  muteWhileDictating: false,
+  appRules: [],
 };
 let login: "off" | "on" | "needsApproval" | "unavailable" = query.has("nologin") ? "unavailable" : "off";
 const mics = [

@@ -471,6 +471,9 @@ fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
 ///
 ///   ffmpeg -i clip.wav -ar 16000 -ac 1 -f f32le clip.f32
 ///   UTTER_SIMULATE=clip.f32,clip.f32@rewrite pnpm tauri dev
+///
+/// With `UTTER_SIMULATE_QUEUE=1` they are all given at once, each queued
+/// behind the one before, as if dictated in quick succession.
 /// Development aid, absent from release builds: ask each window to describe
 /// what it is showing right now (its visible text, and the box that text
 /// occupies) and print the answers as `[probe]` lines. This lets a test run
@@ -579,6 +582,11 @@ fn simulate_from_env(app: &AppHandle) {
                 eprintln!("[simulate] {entry}: busy, skipped");
                 continue;
             }
+            if std::env::var_os("UTTER_SIMULATE_QUEUE").is_some() {
+                eprintln!("[simulate] {entry} queued");
+                std::thread::sleep(Duration::from_millis(200));
+                continue;
+            }
             let mut polls = 0;
             while pipeline::busy(&app) {
                 std::thread::sleep(Duration::from_millis(50));
@@ -596,6 +604,9 @@ fn simulate_from_env(app: &AppHandle) {
             probe(&app, "7.5s after finishing");
             // The outcome itself is printed by the pipeline as it finishes.
             eprintln!("[simulate] {entry} took {:.1}s", started.elapsed().as_secs_f32());
+        }
+        while pipeline::busy(&app) {
+            std::thread::sleep(Duration::from_millis(50));
         }
         eprintln!("[simulate] finished");
     });
@@ -732,8 +743,10 @@ pub fn run() {
             RunEvent::Reopen { .. } => show_main_window(app),
             // Give the user's own globe-key setting back on the way out, and
             // free the speech model so whisper.cpp does not abort at exit.
+            // Speakers muted for a recording under way are unmuted.
             RunEvent::Exit => {
                 globe::release(app);
+                pipeline::unmute(app);
                 pipeline::unload_model(app);
             }
             _ => {}

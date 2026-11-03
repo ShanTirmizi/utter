@@ -1422,17 +1422,130 @@ pub fn already_clean(transcript: &str) -> bool {
 }
 
 /// Can a tidy dictation into an app of `category` skip the model and go in
-/// as the speech model wrote it? Never the accurate way: a dictation that
-/// looks clean can still hold a misheard word or a sentence broken at a
-/// pause ("Let's make the changes. Endeavourst"), and only the model puts
-/// those right. The quick way skips it when the text is `already_clean` and
-/// has none of the user's words possibly misheard in it. Code editors always
-/// go to the model, which spells identifiers and commands exactly.
+/// as the speech model wrote it? Either way, when there is nothing a model
+/// could do (`nothing_to_tidy`). Otherwise never the accurate way: a
+/// dictation that looks clean can still hold a misheard word or a sentence
+/// broken at a pause ("Let's make the changes. Endeavourst"), and only the
+/// model puts those right. The quick way skips it when the text is
+/// `already_clean` and has none of the user's words possibly misheard in it.
+/// Code editors always go to the model, which spells identifiers and
+/// commands exactly.
 pub fn goes_as_is(transcript: &str, category: Category, terms: &[Word], way: crate::settings::Way) -> bool {
-    way == crate::settings::Way::Quick
-        && category != Category::Code
-        && already_clean(transcript)
-        && suspects(transcript, terms).is_empty()
+    nothing_to_tidy(transcript)
+        || (way == crate::settings::Way::Quick
+            && category != Category::Code
+            && already_clean(transcript)
+            && suspects(transcript, terms).is_empty())
+}
+
+/// Short replies that are written the same in every app, and hold no word a
+/// model could find misheard.
+const REPLIES: &[&str] = &[
+    "yes", "yeah", "yep", "no", "nope", "ok", "okay", "sure", "thanks", "thank you", "thanks a lot",
+    "cheers", "cool", "great", "nice", "perfect", "done", "got it", "sounds good", "will do",
+    "no problem", "of course", "makes sense",
+];
+
+/// True when a model has nothing to do to this transcript, so asking one
+/// would only add a wait: a short reply such as "Sounds good." already
+/// written as a sentence, or nothing but a number, time or amount ("3:30.",
+/// "£1,200.").
+pub fn nothing_to_tidy(transcript: &str) -> bool {
+    let text = transcript.trim();
+    let numbers_only = text.chars().any(|c| c.is_ascii_digit())
+        && text.chars().all(|c| c.is_ascii_digit() || c.is_whitespace() || ".,:;%$£€¥+-/()#".contains(c));
+    if numbers_only {
+        return true;
+    }
+    let starts_well = text.chars().next().is_some_and(char::is_uppercase);
+    let bare = text.trim_end_matches(['.', '!', '?']);
+    let ended = bare.len() < text.len() && !bare.ends_with(['.', '!', '?']);
+    starts_well && ended && REPLIES.contains(&bare.to_lowercase().as_str())
+}
+
+/// Spoken formatting commands, written out, for text that goes in without a
+/// model to carry them out. Only a command said on its own counts, between
+/// a sentence mark (or the start) and a punctuation mark (or the end), as a
+/// speech model writes "Thanks. New paragraph. Cheers.": "a new line of
+/// products" is left alone.
+pub fn spoken_commands(text: &str) -> String {
+    const COMMANDS: [(&str, &str); 3] = [("new paragraph", "\n\n"), ("new line", "\n"), ("next line", "\n")];
+    const MARKS: [char; 6] = ['.', ',', '!', '?', ';', ':'];
+    let mut out = text.to_string();
+    for (said, written) in COMMANDS {
+        let mut from = 0;
+        // Lower-casing ASCII keeps every byte where it was.
+        while let Some(found) = out.to_ascii_lowercase()[from..].find(said) {
+            let at = from + found;
+            let before = out[..at].trim_end_matches([' ', '\t']);
+            let after = &out[at + said.len()..];
+            let alone_before = before.is_empty() || before.ends_with(MARKS) || before.ends_with('\n');
+            let alone_after = after.is_empty() || after.starts_with(MARKS) || after.starts_with('\n');
+            if !alone_before || !alone_after {
+                from = at + said.len();
+                continue;
+            }
+            let rest = after.trim_start_matches(MARKS).trim_start_matches([' ', '\t']);
+            // What follows a break starts a sentence.
+            let mut chars = rest.chars();
+            let rest = match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+                None => String::new(),
+            };
+            let joined = format!("{before}{written}");
+            from = joined.len();
+            out = format!("{joined}{rest}");
+        }
+    }
+    out
+}
+
+/// Make the fixed changes a user's rule asks for in one app. `terms` are the
+/// user's words, whose capitals always stay.
+pub fn apply_rule(text: &str, rule: &crate::settings::AppRule, terms: &[Word]) -> String {
+    let mut out = text.to_string();
+    if rule.lower_case {
+        out = lower_case_starts(&out, terms);
+    }
+    if rule.no_full_stop && out.trim_end().ends_with('.') && !out.trim_end().ends_with("..") {
+        let end = out.trim_end().len();
+        out = format!("{}{}", &out[..end - 1], &out[end..]);
+    }
+    out
+}
+
+/// Start each sentence with a small letter, except where its first word is
+/// "I", an acronym or one of the user's words.
+fn lower_case_starts(text: &str, terms: &[Word]) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut at_start = true;
+    let mut rest = text;
+    while let Some(c) = rest.chars().next() {
+        if at_start && c.is_alphabetic() {
+            let word: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '\'').collect();
+            let bare = word.split('\'').next().unwrap_or_default();
+            let mut tail = bare.chars().skip(1);
+            let ordinary = c.is_uppercase() && tail.all(char::is_lowercase);
+            let theirs = terms.iter().any(|t| t.word.split_whitespace().next() == Some(bare));
+            if ordinary && bare != "I" && !theirs {
+                out.extend(c.to_lowercase());
+                out.push_str(&word[c.len_utf8()..]);
+            } else {
+                out.push_str(&word);
+            }
+            rest = &rest[word.len()..];
+            at_start = false;
+            continue;
+        }
+        if ".!?\n".contains(c) {
+            at_start = true;
+        } else if !c.is_whitespace() && !"\"'(\u{201c}\u{2018}-".contains(c) {
+            at_start = false;
+        }
+        out.push(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    out
 }
 
 /// Ask the provider which models the key can use, for the model picker.
@@ -1721,6 +1834,48 @@ mod tests {
 
     fn plain_words(list: &[&str]) -> Vec<Word> {
         list.iter().map(|w| Word::new(w, crate::words::Source::Added)).collect()
+    }
+
+    #[test]
+    fn spoken_commands_said_on_their_own_become_line_breaks() {
+        assert_eq!(spoken_commands("Thanks. New paragraph. Cheers."), "Thanks.\n\nCheers.");
+        assert_eq!(spoken_commands("Dear Sam, new line, thanks for this."), "Dear Sam,\nThanks for this.");
+        assert_eq!(spoken_commands("New line. Item one. New line. Item two."), "\nItem one.\nItem two.");
+        assert_eq!(spoken_commands("See you then. New paragraph."), "See you then.\n\n");
+        // Part of a sentence, not a command.
+        assert_eq!(spoken_commands("We need a new line of products."), "We need a new line of products.");
+        assert_eq!(spoken_commands("New line of products is out."), "New line of products is out.");
+        assert_eq!(spoken_commands("Renew line items. New lines."), "Renew line items. New lines.");
+        assert_eq!(spoken_commands("Nothing to do here."), "Nothing to do here.");
+    }
+
+    #[test]
+    fn replies_and_numbers_need_no_model() {
+        for text in ["Sounds good.", "Thanks!", "Yes.", "Got it.", "3:30.", "£1,200.", "07700 900123", "42"] {
+            assert!(nothing_to_tidy(text), "{text}");
+        }
+        // Not written as a sentence yet, longer than a reply, or with words.
+        for text in ["sounds good", "Thanks", "Sounds good to me.", "Yes, but later.", "3 pm.", "Room 42.", "", "..."] {
+            assert!(!nothing_to_tidy(text), "{text}");
+        }
+        // Skips the model even the accurate way, and in code.
+        assert!(goes_as_is("Sounds good.", Category::Chat, &[], crate::settings::Way::Accurate));
+        assert!(goes_as_is("42", Category::Code, &[], crate::settings::Way::Accurate));
+        assert!(!goes_as_is("Let's ship it today.", Category::Chat, &[], crate::settings::Way::Accurate));
+    }
+
+    #[test]
+    fn an_app_rule_drops_the_full_stop_and_capitals() {
+        let rule = |lower_case, no_full_stop| crate::settings::AppRule { app: "Slack".into(), lower_case, no_full_stop };
+        assert_eq!(apply_rule("Sounds good.", &rule(false, true), &[]), "Sounds good");
+        assert_eq!(apply_rule("Really?", &rule(false, true), &[]), "Really?");
+        assert_eq!(apply_rule("Wait...", &rule(false, true), &[]), "Wait...");
+        assert_eq!(apply_rule("Sounds good. See you at 3.", &rule(true, false), &[]), "sounds good. see you at 3.");
+        assert_eq!(apply_rule("Can we move it?\nThe call, I mean.", &rule(true, true), &[]), "can we move it?\nthe call, I mean");
+        // "I", acronyms and the user's own words keep their capitals.
+        let terms = plain_words(&["Priya"]);
+        assert_eq!(apply_rule("I think so. AWS is down. Priya knows.", &rule(true, true), &terms), "I think so. AWS is down. Priya knows");
+        assert_eq!(apply_rule("I'll do it. \"Fine,\" she said.", &rule(true, false), &[]), "I'll do it. \"fine,\" she said.");
     }
 
     #[test]

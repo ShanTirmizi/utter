@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { rewriteStyles, testRewrite, type RewriteStyle } from "../api";
+import { rewriteStyles, testRewrite, type AppRule, type RewriteStyle } from "../api";
 import { hotkeyLabel } from "../hotkey";
 import { cleanupGap } from "../readiness";
 import { shortName, useApp } from "../state";
-import { Notice, Segmented, Switch, type Tone } from "../ui";
+import { IconX, Notice, Segmented, Switch, type Tone } from "../ui";
 
 type Result = { tone: Tone; title: string; body: string } | null;
 
@@ -88,6 +88,8 @@ export default function CleanupSection() {
         </p>
       </div>
 
+      <AppRulesCard />
+
       {rewriteOn ? (
         <RewriteStyleCard />
       ) : (
@@ -112,6 +114,62 @@ export default function CleanupSection() {
         </p>
       )}
     </>
+  );
+}
+
+/** Fixed changes Utter makes to everything written into one app, with or without cleanup. */
+function AppRulesCard() {
+  const { settings, update, history } = useApp();
+  const rules = settings.appRules;
+  const save = (appRules: AppRule[]) => update({ appRules }).catch(() => undefined);
+  const change = (app: string, patch: Partial<AppRule>) => save(rules.map((r) => (r.app === app ? { ...r, ...patch } : r)));
+  const taken = new Set(rules.map((r) => r.app.toLowerCase()));
+  // The apps dictated into lately, newest first, that have no rule yet.
+  const recent = [...new Set(history.map((d) => d.app.name))]
+    .filter((name) => name && name !== "Unknown app" && !taken.has(name.toLowerCase()))
+    .slice(0, 8);
+
+  return (
+    <div className="qcard">
+      <div className="qlab">Rules by app</div>
+      {rules.length > 0 && (
+        <div className="qlist" aria-label="Rules by app">
+          {rules.map((rule) => (
+            <div className="qli w" key={rule.app}>
+              <span className="wd">{rule.app}</span>
+              <span className="sp" />
+              <label className="qnote" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                Small letters
+                <Switch label={`Small letters in ${rule.app}`} checked={rule.lowerCase} onChange={(lowerCase) => change(rule.app, { lowerCase })} />
+              </label>
+              <label className="qnote" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12 }}>
+                No full stop
+                <Switch label={`No full stop in ${rule.app}`} checked={rule.noFullStop} onChange={(noFullStop) => change(rule.app, { noFullStop })} />
+              </label>
+              <button className="qx" aria-label={`Remove the rule for ${rule.app}`} title="Remove" onClick={() => save(rules.filter((r) => r !== rule))}>
+                <IconX />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="qp">
+        {rules.length === 0
+          ? "Leave off the full stop, or start sentences with a small letter, in the apps where you type that way. These apply with cleanup off too."
+          : "Small letters keeps the capitals on “I”, acronyms and your words."}
+      </p>
+      {recent.length > 0 ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+          {recent.map((name) => (
+            <button key={name} className="qbtn sm ghost" onClick={() => save([...rules, { app: name, lowerCase: false, noFullStop: true }])}>
+              + {name}
+            </button>
+          ))}
+        </div>
+      ) : (
+        rules.length === 0 && <p className="qp" style={{ fontSize: 12.5 }}>Dictate into an app once and it shows up here to add.</p>
+      )}
+    </div>
   );
 }
 
