@@ -105,7 +105,7 @@ fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Settings, Str
     // Switching the globe-key option takes effect now, not at the next
     // launch. (A hotkey change already did this while registering.)
     if settings.quiet_globe != previous.quiet_globe && !hotkeys_changed {
-        globe::sync(&app, settings.hotkey.trim() == fnkey::FN && settings.quiet_globe);
+        globe::sync(&app, fnkey::is_variant(settings.hotkey.trim()) && settings.quiet_globe);
     }
     Ok(settings)
 }

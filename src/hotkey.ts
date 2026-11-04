@@ -1,9 +1,21 @@
 // Hotkeys are stored as "Modifier+Modifier+Code", e.g. "Control+Alt+Space",
 // using the browser's physical key codes (KeyD, Digit1, F5, Space). The
-// dictation hotkey may instead be "Fn": the fn (globe) key on its own.
+// dictation hotkey may instead be "Fn" (the fn/globe key on its own) or
+// "Fn+Control", "Fn+Alt" or "Fn+Super" (fn held together with one other
+// modifier): none of these can be captured by typing, since the fn key
+// sends no event to the app, so all four are offered as dedicated choices
+// instead of recorded.
 
-/** The stored value for the fn (globe) key. */
+/** The stored value for the fn (globe) key on its own. */
 export const FN = "Fn";
+/** The stored value for the fn key held together with Control. */
+export const FN_CONTROL = "Fn+Control";
+/** The stored value for the fn key held together with Option. */
+export const FN_ALT = "Fn+Alt";
+/** The stored value for the fn key held together with Command. */
+export const FN_COMMAND = "Fn+Super";
+/** Every fn-key variant, in the order offered in settings. */
+export const FN_VARIANTS = [FN, FN_CONTROL, FN_ALT, FN_COMMAND];
 
 const MODIFIER_SYMBOLS: Record<string, string> = {
   Control: "⌃",

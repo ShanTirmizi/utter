@@ -407,6 +407,9 @@ function paste(text: string) {
 function matches(e: KeyboardEvent, hotkey: string): boolean {
   if (!hotkey) return false;
   if (hotkey === "Fn") return e.key === "Fn" || matches(e, "Control+Alt+Space");
+  if (hotkey === "Fn+Control") return (e.key === "Fn" && e.ctrlKey) || matches(e, "Control+Alt+Space");
+  if (hotkey === "Fn+Alt") return (e.key === "Fn" && e.altKey) || matches(e, "Control+Alt+Space");
+  if (hotkey === "Fn+Super") return (e.key === "Fn" && e.metaKey) || matches(e, "Control+Alt+Space");
   const parts = hotkey.split("+");
   const code = parts[parts.length - 1];
   const wants = (m: string) => parts.includes(m);

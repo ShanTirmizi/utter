@@ -41,19 +41,19 @@ fn reserved(hotkey: &str) -> Option<String> {
 }
 
 /// The two shortcuts described by the settings, checked for clashes. The
-/// dictation shortcut is `None` when it is the fn key, and the rewrite one
-/// when that feature is switched off.
+/// dictation shortcut is `None` when it is a fn-key variant, and the rewrite
+/// one when that feature is switched off.
 pub fn plan(settings: &Settings) -> Result<(Option<Shortcut>, Option<Shortcut>), String> {
     for hotkey in [&settings.hotkey, &settings.rewrite_hotkey] {
         if let Some(why) = reserved(hotkey) {
             return Err(why);
         }
     }
-    if settings.rewrite_hotkey.trim() == fnkey::FN {
+    if fnkey::is_variant(settings.rewrite_hotkey.trim()) {
         return Err("The fn key can be the dictation hotkey, not the rewrite one.".into());
     }
     let dictate = match settings.hotkey.trim() {
-        fnkey::FN => None,
+        text if fnkey::is_variant(text) => None,
         text => Some(parse(text)?),
     };
     let rewrite = match settings.rewrite_hotkey.trim() {
@@ -122,7 +122,7 @@ pub fn register(app: &AppHandle, settings: &Settings) -> Result<(), String> {
             fnkey::disable();
             bind(app, dictate, Mode::Tidy)?;
         }
-        None => fnkey::enable(app),
+        None => fnkey::enable(app, settings.hotkey.trim()),
     }
     crate::globe::sync(app, dictate.is_none() && settings.quiet_globe);
     if let Some(rewrite) = rewrite {
@@ -165,6 +165,16 @@ mod tests {
         assert!(dictate.is_none() && rewrite.is_some());
         assert!(plan(&settings("Control+Alt+Space", "Fn")).is_err());
         assert!(plan(&settings("Fn", "")).is_ok());
+    }
+
+    #[test]
+    fn fn_plus_a_companion_is_a_dictation_only_variant_of_fn() {
+        for fn_variant in ["Fn+Control", "Fn+Alt", "Fn+Super"] {
+            let (dictate, rewrite) = plan(&settings(fn_variant, "Control+Alt+KeyR")).unwrap();
+            assert!(dictate.is_none() && rewrite.is_some(), "{fn_variant}");
+            assert!(plan(&settings("Control+Alt+Space", fn_variant)).is_err(), "{fn_variant}");
+            assert!(plan(&settings(fn_variant, "")).is_ok(), "{fn_variant}");
+        }
     }
 
     #[test]

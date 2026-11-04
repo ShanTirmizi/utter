@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { fnKeyConflict, openPrivacySettings, type Mode } from "../api";
-import { FN, fromKeyEvent, heldIds, hotkeyLabel } from "../hotkey";
+import { FN_ALT, FN_CONTROL, FN_COMMAND, FN_VARIANTS, fromKeyEvent, heldIds, hotkeyLabel } from "../hotkey";
 import { useApp } from "../state";
 import { IconInfoLine, IconOut, Keycaps, Notice, Switch } from "../ui";
 
-/** The dictation hotkey new users start on, as in `settings.rs`. */
-const DEFAULT_HOTKEY = FN;
-
 type Outcome = { kind: "saved" } | { kind: "bad"; attempt: string; message: string } | null;
+
+/** What holding fn, plus its companion if any, does. */
+function fnVariantTitle(hotkey: string): string {
+  const companion = { [FN_CONTROL]: "and control ", [FN_ALT]: "and option ", [FN_COMMAND]: "and command " }[hotkey] ?? "";
+  return `Hold fn ${companion}to dictate, double-tap it for hands-free. Also switches macOS's own 🌐 key action off while Utter is running.`;
+}
 
 /** The keys held right now, by hotkey id ("Control", "Alt", "Space", "KeyR"). */
 function useHeldKeys(): Set<string> {
@@ -146,7 +149,7 @@ function MainHotkey({ held }: { held: Set<string> }) {
   const { settings, live } = app;
   const { capturing, outcome, setOutcome, record } = useRecorder("tidy");
   const hotkey = settings.hotkey;
-  const fn = hotkey === FN;
+  const fn = FN_VARIANTS.includes(hotkey);
   const broken = !!app.hotkeyProblem && !capturing;
 
   // Keys light up while held. The system keeps the last key of a registered
@@ -158,14 +161,17 @@ function MainHotkey({ held }: { held: Set<string> }) {
   const label = capturing ? "Recording" : outcome?.kind === "bad" ? "Not saved" : "Dictate";
   const right = capturing ? "esc cancels" : outcome || broken ? "" : "Press it now to test it";
 
-  const useFn = () => {
+  // No fn variant can be recorded by typing: the fn key sends no event to
+  // the app, which is exactly why it needs the event tap in `fnkey` instead.
+  // All of them are offered as dedicated choices here.
+  const useFn = (next: string) => {
     setOutcome(null);
     // Choosing fn means wanting fn to dictate and do nothing else, so macOS's
     // own globe action is held off too. It comes back on quit.
     app
-      .update({ hotkey: FN, quietGlobe: true })
+      .update({ hotkey: next, quietGlobe: true })
       .then(() => setOutcome({ kind: "saved" }))
-      .catch((err) => setOutcome({ kind: "bad", attempt: FN, message: String(err) }));
+      .catch((err) => setOutcome({ kind: "bad", attempt: next, message: String(err) }));
   };
 
   return (
@@ -248,11 +254,11 @@ function MainHotkey({ held }: { held: Set<string> }) {
                   Record new hotkey
                 </button>
               )}
-              {hotkey !== DEFAULT_HOTKEY && (
-                <button className="qbtn" title="Hold fn to dictate, double-tap it for hands-free. Also switches macOS's own 🌐 key action off while Utter is running." onClick={useFn}>
-                  Reset to {hotkeyLabel(DEFAULT_HOTKEY)}
+              {FN_VARIANTS.filter((v) => v !== hotkey).map((v) => (
+                <button key={v} className="qbtn" title={fnVariantTitle(v)} onClick={() => useFn(v)}>
+                  Use {hotkeyLabel(v)}
                 </button>
-              )}
+              ))}
             </>
           )}
         </div>
