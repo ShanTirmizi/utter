@@ -19,6 +19,8 @@
 //!                  provider/model, such as groq/llama-3.1-8b-instant. Repeat
 //!                  to compare. Default: none, and saved if it is set up.
 //!                  The key comes from UTTER_API_KEY or the app's Keychain entry
+//!   --boost B      vocabulary boost: off, light, normal or strong. Default:
+//!                  the app's (normal unless changed)
 //!   --each         print every recording's result, not just the totals
 //!   --all          also tidy the recordings with nothing to score against,
 //!                  for the timing and failure columns (WER still comes only
@@ -44,12 +46,13 @@ struct Options {
     labels: Option<PathBuf>,
     models: Vec<String>,
     cleanups: Vec<String>,
+    boost: Option<replay::Boost>,
     each: bool,
     all: bool,
 }
 
 fn options() -> Result<Options, String> {
-    let mut options = Options { dir: replay::data_dir(), labels: None, models: Vec::new(), cleanups: Vec::new(), each: false, all: false };
+    let mut options = Options { dir: replay::data_dir(), labels: None, models: Vec::new(), cleanups: Vec::new(), boost: None, each: false, all: false };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
@@ -58,9 +61,17 @@ fn options() -> Result<Options, String> {
             "--labels" => options.labels = Some(PathBuf::from(value()?)),
             "--model" => options.models.push(value()?),
             "--cleanup" => options.cleanups.push(value()?),
+            "--boost" => {
+                let given = value()?;
+                let boost = serde_json::from_value(serde_json::Value::String(given.clone())).map_err(|e| e.to_string())?;
+                if !["off", "light", "normal", "strong"].contains(&given.to_lowercase().as_str()) {
+                    return Err(format!("--boost is off, light, normal or strong, not {given}"));
+                }
+                options.boost = Some(boost);
+            }
             "--each" => options.each = true,
             "--all" => options.all = true,
-            "-h" | "--help" => return Err("usage: replay [--dir DIR] [--labels FILE] [--model M]... [--cleanup C]... [--each]".into()),
+            "-h" | "--help" => return Err("usage: replay [--dir DIR] [--labels FILE] [--model M]... [--cleanup C]... [--boost B] [--each]".into()),
             other => return Err(format!("unknown option {other}; try --help")),
         }
     }
@@ -102,7 +113,10 @@ fn p90(values: &[u64]) -> f64 {
 fn main() -> Result<(), String> {
     whisper_rs::install_logging_hooks();
     let options = options()?;
-    let setup = Setup::load(&options.dir);
+    let mut setup = Setup::load(&options.dir);
+    if let Some(boost) = options.boost {
+        setup.set_boost(boost);
+    }
 
     let labels_file = options.labels.clone().or_else(|| {
         [options.dir.join("recordings/labels.tsv"), options.dir.join("labels.tsv")].into_iter().find(|f| f.is_file())

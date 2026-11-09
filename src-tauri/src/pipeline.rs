@@ -736,14 +736,10 @@ fn screen_for(app: &AppHandle, id: u64) -> Screen {
 }
 
 /// The user's words plus the names on screen, for the speech model: the
-/// screen's few most frequent, after the user's own.
+/// screen's few most frequent, after the user's own, then a few tech names,
+/// as far as the vocabulary boost allows (see `words::speech_hints`).
 fn speech_terms(settings: &Settings, screen: &[String]) -> Vec<String> {
-    let mut terms = crate::words::spellings(&settings.dictionary);
-    terms.extend(screen.iter().take(12).cloned());
-    // Then the tech names Utter knows, as far as the prompt has room.
-    let known: std::collections::HashSet<String> = terms.iter().map(|t| t.to_lowercase()).collect();
-    terms.extend(crate::tech::hints().into_iter().filter(|h| !known.contains(&h.to_lowercase())));
-    terms
+    crate::words::speech_hints(&settings.dictionary, screen, settings.vocabulary_boost)
 }
 
 /// macOS very occasionally fails to report a key coming back up. Without a
@@ -939,6 +935,7 @@ async fn tidy_piece(
     target: &AppContext,
     endpoint: &crate::providers::Endpoint,
     terms: &[Word],
+    boost: crate::words::Boost,
     around: &cleanup::Context,
 ) -> Option<String> {
     if text.trim().is_empty() {
@@ -947,10 +944,10 @@ async fn tidy_piece(
     let fixed = if target.category == context::Category::Code { text.to_string() } else { crate::tech::fix_spoken(text) };
     let text = fixed.as_str();
     // Only the quick way tidies pieces while the user talks.
-    if cleanup::goes_as_is(text, target.category, terms, Way::Quick) {
+    if cleanup::goes_as_is(text, target.category, terms, boost, Way::Quick) {
         return Some(text.to_string());
     }
-    cleanup::run_with(text, target, endpoint, &Task::Tidy, terms, around).await.ok()
+    cleanup::run_with(text, target, endpoint, &Task::Tidy, terms, boost, around).await.ok()
 }
 
 /// The text around a dictation, for the cleanup model: what is on screen
@@ -1060,7 +1057,7 @@ fn transcribe_while_speaking(app: &AppHandle, id: u64) {
                     terms.extend(crate::screen::as_words(&screen.terms));
                     crate::tech::add_to(&mut terms);
                     let around = context_for(&screen, &tidied_so_far);
-                    Some(tidy_piece(&text, &target, endpoint, &terms, &around).await)
+                    Some(tidy_piece(&text, &target, endpoint, &terms, settings.vocabulary_boost, &around).await)
                 }
                 None => None,
             };
@@ -1598,7 +1595,7 @@ async fn improve(
         // still go to the model, which spells identifiers and commands
         // exactly, and so does anything that may have one of the user's
         // words misheard in it.
-        Mode::Tidy if cleanup::goes_as_is(raw, target.category, &settings.dictionary, settings.way) => {
+        Mode::Tidy if cleanup::goes_as_is(raw, target.category, &settings.dictionary, settings.vocabulary_boost, settings.way) => {
             return untouched(None, None);
         }
         Mode::Tidy => (Task::Tidy, "Cleanup"),
@@ -1634,7 +1631,8 @@ async fn improve(
     // no key set up, the pill must not claim to be tidying.
     emit_stage(app, job, if mode == Mode::Rewrite { "rewriting" } else { "tidying" });
     let started = Instant::now();
-    let result = cleanup::run_with(raw, target, &endpoint, &task, &settings.dictionary, around).await;
+    let result =
+        cleanup::run_with(raw, target, &endpoint, &task, &settings.dictionary, settings.vocabulary_boost, around).await;
     let ms = Some(started.elapsed().as_millis() as u64);
     if endpoint.local {
         // Keep the model loaded for the next dictation (see `warm_up`).
@@ -1887,7 +1885,7 @@ fn replay_early(app: &AppHandle, id: u64, samples: &[f32]) {
                 &path,
                 piece,
                 &models::language(&settings.model, &settings.language),
-                &crate::words::spellings(&settings.dictionary),
+                &speech_terms(&settings, &[]),
                 &early.texts.join(" "),
             ) {
                 eprintln!("[pipeline] early piece {:.1} s: {text}", cut as f32 / TARGET_RATE as f32);
@@ -1897,7 +1895,14 @@ fn replay_early(app: &AppHandle, id: u64, samples: &[f32]) {
                         let target = pipeline.target.lock().unwrap().clone();
                         let so_far: Vec<String> = early.cleaned.iter().flatten().cloned().collect();
                         let around = context_for(&Screen::default(), &so_far);
-                        let cleaned = tauri::async_runtime::block_on(tidy_piece(&text, &target, &endpoint, &settings.dictionary, &around));
+                        let cleaned = tauri::async_runtime::block_on(tidy_piece(
+                            &text,
+                            &target,
+                            &endpoint,
+                            &settings.dictionary,
+                            settings.vocabulary_boost,
+                            &around,
+                        ));
                         early.cleaned.push(cleaned);
                     }
                 }

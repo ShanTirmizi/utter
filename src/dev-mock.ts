@@ -71,6 +71,7 @@ let settings: Settings = {
       ]
     : [],
   forgotten: [],
+  vocabularyBoost: "normal",
   learnWords: true,
   screenWords: true,
   screenContext: false,

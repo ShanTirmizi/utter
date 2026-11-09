@@ -433,12 +433,135 @@ fn spoken_parts(identifier: &str) -> Vec<String> {
     parts
 }
 
+/// How hard Utter leans on the user's words and the tech names it knows, in
+/// the speech model's prompt and in what cleanup is told.
+///
+/// - Off: no hints and no notes; the words are only kept spelled right
+///   where they were heard right.
+/// - Light: a few of the user's own words as hints; only the mishearings
+///   each word was taught ("cloud" for Claude) are pointed out to cleanup.
+/// - Normal (the default): the user's words, the names on screen and a
+///   short list of distinctive tech names as hints; words that sound like
+///   one of the user's words are pointed out too, never everyday words.
+/// - Strong: more hints, and sound-alikes are looked for more loosely.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Boost {
+    Off,
+    Light,
+    #[default]
+    Normal,
+    Strong,
+}
+
+// An unknown value (a newer version's, or a typo by hand) reads as the
+// default rather than failing the whole settings file.
+impl<'de> Deserialize<'de> for Boost {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(match value.as_str().map(str::to_lowercase).as_deref() {
+            Some("off") => Boost::Off,
+            Some("light") => Boost::Light,
+            Some("strong") => Boost::Strong,
+            _ => Boost::Normal,
+        })
+    }
+}
+
+/// Most of the user's words given to the speech model at Light.
+const LIGHT_HINTS: usize = 8;
+
+/// The words the speech model is shown for one dictation: the user's own,
+/// then the names on screen, then the tech names Utter knows, each once,
+/// as far as `boost` allows. `own` may hold built-in and on-screen words
+/// too; only the user's own are taken from it.
+pub fn speech_hints(own: &[Word], screen: &[String], boost: Boost) -> Vec<String> {
+    let own: Vec<&Word> = own.iter().filter(|w| !w.on_screen && w.source != Source::Builtin).collect();
+    let mut hints: Vec<String> = Vec::new();
+    let add = |hints: &mut Vec<String>, term: &str| {
+        if !term.trim().is_empty() && !hints.iter().any(|h| h.to_lowercase() == term.to_lowercase()) {
+            hints.push(term.to_string());
+        }
+    };
+    match boost {
+        Boost::Off => {}
+        Boost::Light => {
+            // Words known to be misheard first: they are why the list exists.
+            let mut own = own;
+            own.sort_by_key(|w| w.heard_as.is_empty());
+            for word in own.iter().take(LIGHT_HINTS) {
+                add(&mut hints, &word.word);
+            }
+        }
+        Boost::Normal | Boost::Strong => {
+            let screen_most = if boost == Boost::Strong { 20 } else { 12 };
+            for term in own.iter().map(|w| w.word.as_str()).chain(screen.iter().take(screen_most).map(String::as_str)) {
+                add(&mut hints, term);
+            }
+            for term in crate::tech::hints(boost) {
+                add(&mut hints, &term);
+            }
+        }
+    }
+    hints
+}
+
+/// Everyday English words, never taken for one of the user's words by sound
+/// alone (see `common_words.txt`).
+fn common_words() -> &'static std::collections::HashSet<&'static str> {
+    static WORDS: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
+    WORDS.get_or_init(|| {
+        include_str!("common_words.txt")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect()
+    })
+}
+
+/// Is `word` (any case) an everyday English word, or the plural of one?
+pub fn is_common(word: &str) -> bool {
+    let word = word.to_lowercase();
+    let words = common_words();
+    words.contains(word.as_str()) || word.strip_suffix('s').is_some_and(|one| words.contains(one))
+}
+
+/// Shortest a heard word may be to be taken for one of the user's words by
+/// sound alone, and how many consonants it needs. Shorter words, and words
+/// of vowels, sound like too many things: "pre a" may be Priya, "a" is not.
+const MIN_HEARD_LETTERS: usize = 4;
+const MIN_HEARD_LETTERS_STRONG: usize = 3;
+const MIN_HEARD_CONSONANTS: usize = 2;
+
+/// May `heard`, a word or words run together from a transcript, be taken
+/// for one of the user's words by its sound? Never an everyday word, except
+/// at Strong, and never a word too short or too soft to tell apart.
+fn may_sound_like_a_word(heard: &str, pieces: &[&str], boost: Boost) -> bool {
+    let letters: Vec<char> = heard.chars().filter(|c| c.is_alphabetic()).map(|c| c.to_ascii_lowercase()).collect();
+    let consonants = letters.iter().filter(|c| c.is_ascii_alphabetic() && !"aeiouy".contains(**c)).count();
+    let shortest = if boost == Boost::Strong { MIN_HEARD_LETTERS_STRONG } else { MIN_HEARD_LETTERS };
+    if consonants < MIN_HEARD_CONSONANTS || letters.len() < shortest {
+        return false;
+    }
+    boost == Boost::Strong || !pieces.iter().all(|p| is_common(p))
+}
+
 /// Where in `text` the speech model may have misheard one of `words`: a
 /// mishearing the user taught it, or something that sounds like the word
 /// without being it. Only a hint: the cleanup model decides from the
-/// sentence whether the user's word was meant.
+/// sentence whether the user's word was meant. As at the default boost.
 pub fn suspects(text: &str, words: &[Word]) -> Vec<Suspect> {
+    suspects_at(text, words, Boost::Normal)
+}
+
+/// `suspects`, as far as `boost` allows: nothing at Off, only taught
+/// mishearings (and identifiers said as their words) at Light, sound-alikes
+/// that are not everyday words at Normal, and looser ones at Strong.
+pub fn suspects_at(text: &str, words: &[Word], boost: Boost) -> Vec<Suspect> {
     const MOST: usize = 10;
+    if boost == Boost::Off {
+        return Vec::new();
+    }
     let said = plain_words(text);
     let mut found: Vec<Suspect> = Vec::new();
     let mut note = |heard: String, word: &str, spoken: bool| {
@@ -475,21 +598,31 @@ pub fn suspects(text: &str, words: &[Word]) -> Vec<Suspect> {
         // cleanup as possible names, the model swapped them in all over
         // ordinary dictations. A built-in name is suspected only from the
         // ways it is really misheard, listed with it ("my sequel").
-        if entry.source == Source::Builtin {
+        //
+        // Nor at Light, which goes by taught mishearings alone. And a heard
+        // word must be distinctive enough (see `may_sound_like_a_word`):
+        // "make" is never Maike, however alike they sound.
+        if entry.source == Source::Builtin || boost < Boost::Normal {
             continue;
         }
         for part in own.iter().filter(|p| p.chars().count() >= 4 && p.chars().all(|c| c.is_alphabetic())) {
             let length = part.chars().count();
             for (i, one) in said.iter().enumerate() {
                 if sounds_alike(one, part) {
-                    note(one.clone(), &entry.word, false);
+                    if may_sound_like_a_word(one, &[one], boost) {
+                        note(one.clone(), &entry.word, false);
+                    }
                     continue;
                 }
                 // Two pieces about as long as the word itself, together.
                 if let Some(next) = said.get(i + 1) {
                     let joined = format!("{one}{next}");
                     let close = joined.chars().count().abs_diff(length) <= 1;
-                    if close && !sounds_alike(next, part) && sounds_alike(&joined, part) {
+                    if close
+                        && !sounds_alike(next, part)
+                        && sounds_alike(&joined, part)
+                        && may_sound_like_a_word(&joined, &[one, next], boost)
+                    {
                         note(format!("{one} {next}"), &entry.word, false);
                     }
                 }
@@ -621,6 +754,86 @@ mod tests {
         let mut own = plain(&["Mysqlo"]);
         own[0].source = Source::Added;
         assert_eq!(suspects("Ask mysqlow.", &own).len(), 1);
+    }
+
+    #[test]
+    fn everyday_words_are_never_taken_for_a_word_by_sound() {
+        // "make" sounds just like Maike, and "pre a" like Priya. Only the
+        // second is a likely mishearing: "make" is said all day.
+        assert!(sounds_alike("make", "Maike"));
+        let mut words = plain(&["Maike", "Priya"]);
+        let heard = |text: &str, words: &[Word], boost: Boost| -> Vec<String> {
+            suspects_at(text, words, boost).into_iter().map(|s| format!("{} -> {}", s.heard, s.word)).collect()
+        };
+        assert!(heard("I need to make sure it works.", &words, Boost::Normal).is_empty());
+        assert_eq!(heard("Tell pre a it works.", &words, Boost::Normal), ["pre a -> Priya"]);
+        // A word the user taught is still found, everyday or not.
+        words[0].heard_as = vec!["make".into()];
+        assert_eq!(heard("I need to make sure it works.", &words, Boost::Normal), ["make -> Maike"]);
+        // The list holds everyday words and their plurals, not names.
+        assert!(is_common("make") && is_common("Things") && is_common("people") && is_common("myself"));
+        assert!(!is_common("priya") && !is_common("claude") && !is_common("kubernetes") && !is_common("cloud"));
+        assert!(common_words().len() > 500 && common_words().len() < 1_500);
+    }
+
+    #[test]
+    fn a_sound_alike_needs_two_consonants_and_some_length() {
+        assert!(may_sound_like_a_word("ragunathan", &["ragunathan"], Boost::Normal));
+        assert!(may_sound_like_a_word("prea", &["pre", "a"], Boost::Normal));
+        // Too few consonants, or too short, to tell apart from other words.
+        assert!(!may_sound_like_a_word("aya", &["aya"], Boost::Strong));
+        assert!(!may_sound_like_a_word("eye", &["eye"], Boost::Strong));
+        assert!(!may_sound_like_a_word("bra", &["bra"], Boost::Normal));
+        assert!(may_sound_like_a_word("bra", &["bra"], Boost::Strong));
+        // Two everyday words run together are not a name either; one that
+        // is not everyday may be.
+        assert!(!may_sound_like_a_word("todaynow", &["today", "now"], Boost::Normal));
+        assert!(may_sound_like_a_word("todaynow", &["today", "now"], Boost::Strong));
+    }
+
+    #[test]
+    fn the_boost_decides_how_far_suspects_are_looked_for() {
+        let mut words = plain(&["Maike", "Priya", "fetchUserProfile"]);
+        words[1].heard_as = vec!["pria".into()];
+        let heard = |text: &str, boost: Boost| -> Vec<String> { suspects_at(text, &words, boost).into_iter().map(|s| s.heard).collect() };
+        let text = "Make sure pre a and pria call fetch user profile.";
+        assert!(heard(text, Boost::Off).is_empty());
+        // Light: taught mishearings, and identifiers said as their words.
+        assert_eq!(heard(text, Boost::Light), ["pria", "fetch user profile"]);
+        // Normal adds distinctive sound-alikes; Strong everyday ones too.
+        assert_eq!(heard(text, Boost::Normal), ["pria", "pre a", "fetch user profile"]);
+        assert_eq!(heard(text, Boost::Strong), ["make", "pria", "pre a", "fetch user profile"]);
+        // Built-in names go by their listed mishearings at every boost.
+        let builtin = crate::tech::words();
+        assert!(suspects_at("I did it myself.", &builtin, Boost::Strong).is_empty());
+        assert_eq!(suspects_at("off my sequel", &builtin, Boost::Light).len(), 1);
+        assert!(suspects_at("off my sequel", &builtin, Boost::Off).is_empty());
+    }
+
+    #[test]
+    fn hints_for_the_speech_model_follow_the_boost() {
+        let mut own = plain(&["Priya", "Kubernetes", "Maike", "Zed", "Ola", "Aoife", "Niamh", "Siobhan", "Tadhg", "Caoimhe"]);
+        own[9].heard_as = vec!["keeva".into()];
+        let mut builtin = own.clone();
+        crate::tech::add_to(&mut builtin);
+        let screen = vec!["Raghunathan".to_string(), "priya".to_string()];
+        assert!(speech_hints(&own, &screen, Boost::Off).is_empty());
+        // Light: a few of the user's own, the ones known to be misheard first.
+        let light = speech_hints(&own, &screen, Boost::Light);
+        assert_eq!(light.len(), LIGHT_HINTS);
+        assert_eq!(light[0], "Caoimhe");
+        assert!(!light.contains(&"Raghunathan".to_string()));
+        // Normal: all their own, the names on screen, a few tech names, each
+        // once; built-in words in the list are not taken as the user's.
+        let normal = speech_hints(&builtin, &screen, Boost::Normal);
+        assert_eq!(&normal[..10], &own.iter().map(|w| w.word.clone()).collect::<Vec<_>>()[..]);
+        assert_eq!(normal[10], "Raghunathan");
+        assert_eq!(normal.iter().filter(|h| h.eq_ignore_ascii_case("kubernetes") || h.eq_ignore_ascii_case("priya")).count(), 2);
+        assert!(normal.len() <= 10 + 1 + crate::tech::hints(Boost::Normal).len());
+        assert!(!normal.iter().any(|h| h == "Claude" || h == "MySQL"));
+        assert!(speech_hints(&builtin, &screen, Boost::Strong).len() > normal.len());
+        // The default prompt stays short.
+        assert!(crate::transcribe::glossary(&speech_hints(&[], &[], Boost::Normal)).len() < 100);
     }
 
     #[test]

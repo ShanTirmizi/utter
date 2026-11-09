@@ -22,6 +22,7 @@ use crate::{
     settings::Settings,
     words,
 };
+pub use crate::words::Boost;
 use std::{
     collections::HashMap,
     fs,
@@ -207,15 +208,24 @@ impl Setup {
     /// The user's words, as hints for the speech model. Names read from the
     /// screen helped at the time too, but were never saved.
     pub fn hints(&self) -> Vec<String> {
-        // As the app gives them, less the names on screen: the user's words,
-        // then the tech names Utter knows.
-        let mut hints = words::spellings(&self.settings.dictionary);
+        // As the app gives them at the saved vocabulary boost, less the
+        // names on screen: the user's words, then the tech names Utter knows.
+        let hints = words::speech_hints(&self.settings.dictionary, &[], self.settings.vocabulary_boost);
         if without_tech() {
-            return hints;
+            let builtin = crate::tech::hints(words::Boost::Strong);
+            return hints.into_iter().filter(|h| !builtin.contains(h)).collect();
         }
-        let known: std::collections::HashSet<String> = hints.iter().map(|h| h.to_lowercase()).collect();
-        hints.extend(crate::tech::hints().into_iter().filter(|h| !known.contains(&h.to_lowercase())));
         hints
+    }
+
+    /// The vocabulary boost chosen in the app.
+    pub fn boost(&self) -> words::Boost {
+        self.settings.vocabulary_boost
+    }
+
+    /// Replay at another vocabulary boost, whatever the saved settings say.
+    pub fn set_boost(&mut self, boost: words::Boost) {
+        self.settings.vocabulary_boost = boost;
     }
 
     /// Choose the accurate or the quick way, whatever the saved settings say.
@@ -295,12 +305,13 @@ impl Cleaner {
             crate::tech::add_to(&mut terms);
         }
         let terms = &terms;
+        let boost = setup.settings.vocabulary_boost;
         let fixed = if category == Category::Code || without_tech() { raw.to_string() } else { crate::tech::fix_spoken(raw) };
         let raw = fixed.as_str();
         let as_heard = |model_ms, failed| Tidied { text: raw.to_string(), model_ms, failed };
         let mut tidied = match &self.endpoint {
             None => as_heard(None, false),
-            Some(_) if cleanup::goes_as_is(raw, category, terms, setup.settings.way) => as_heard(None, false),
+            Some(_) if cleanup::goes_as_is(raw, category, terms, boost, setup.settings.way) => as_heard(None, false),
             Some(endpoint) => {
             let target = AppContext { category, ..AppContext::unknown() };
             // A replay asks far faster than anyone dictates, so a provider's
@@ -310,7 +321,15 @@ impl Cleaner {
             let (result, ms) = loop {
                 let started = Instant::now();
                 let result =
-                    tauri::async_runtime::block_on(cleanup::run(raw, &target, endpoint, &Task::Tidy, terms));
+                    tauri::async_runtime::block_on(cleanup::run_with(
+                        raw,
+                        &target,
+                        endpoint,
+                        &Task::Tidy,
+                        terms,
+                        boost,
+                        &cleanup::Context::default(),
+                    ));
                 let ms = Some(started.elapsed().as_millis() as u64);
                 match (&result, waits.next()) {
                     (Err(e), Some(wait)) if e.to_string().contains("Rate limited") => {
@@ -424,6 +443,24 @@ mod tests {
         assert_eq!(setup.language("base.en"), "en");
         assert_eq!(setup.language("/models/ggml-small.en.bin"), "en");
         assert_eq!(setup.language("large-v3-turbo"), "fr");
+    }
+
+    #[test]
+    fn replay_hints_follow_the_saved_vocabulary_boost() {
+        use crate::words::{Boost, Source, Word};
+        let settings = Settings { dictionary: vec![Word::new("Priya", Source::Added)], ..Settings::default() };
+        let mut setup = Setup { settings };
+        // Saved files without the setting replay at Normal.
+        assert_eq!(setup.boost(), Boost::Normal);
+        let normal = setup.hints();
+        assert_eq!(normal[0], "Priya");
+        assert!(normal.iter().any(|h| h == "Kubernetes") && normal.len() <= 9, "{normal:?}");
+        setup.set_boost(Boost::Light);
+        assert_eq!(setup.hints(), ["Priya"]);
+        setup.set_boost(Boost::Off);
+        assert!(setup.hints().is_empty());
+        setup.set_boost(Boost::Strong);
+        assert!(setup.hints().len() > normal.len());
     }
 
     #[test]

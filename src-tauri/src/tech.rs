@@ -4,8 +4,9 @@
 //! every one of them to Your words. So these come built in, used the way the
 //! user's own words are, for that one dictation:
 //!
-//! - the most distinctive go to the speech model as hints, after the user's
-//!   own words and the names on screen;
+//! - a short list of the most distinctive go to the speech model as hints,
+//!   after the user's own words and the names on screen (more at a Strong
+//!   vocabulary boost, none at Light or Off);
 //! - any that sounds like part of the dictation is named to the cleanup
 //!   model, with how it is spelled;
 //! - a few spoken forms that can only mean one thing are written right
@@ -165,9 +166,18 @@ const NOT_HINTS: &[&str] = &[
     "fine-tuning", "evals", "iPhone",
 ];
 
-/// How many of these go to the speech model as hints, at most. Its prompt
-/// is short, and the user's own words and the names on screen come first.
-const MOST_HINTS: usize = 40;
+/// The few names given to the speech model as hints at the default boost:
+/// uncommon, distinctive, and mangled into everyday words without a hint
+/// ("cooper netties", "Versailles", "entropic"). A long list in the prompt
+/// costs more than it gives: the model starts writing the names on noise
+/// and silence, and its prompt has room for the user's own words first.
+/// Names that sound like nothing else need no hint, and spoken forms with
+/// one meaning ("type script") are put right afterwards anyway.
+const HINTS: &[&str] = &["Anthropic", "Kubernetes", "kubectl", "Vercel", "Supabase", "Netlify", "Nginx", "Terraform"];
+
+/// How many names go to the speech model as hints at a Strong boost, at
+/// most: the short list, then others not too much like everyday words.
+const MOST_HINTS_STRONG: usize = 24;
 
 /// Is `heard` already one of these names, however it is cased or spaced?
 /// "Postgres" is a name in its own right, not a mishearing of PostgreSQL.
@@ -198,15 +208,21 @@ pub fn add_to(words: &mut Vec<Word>) {
     words.extend(self::words().into_iter().filter(|w| !known.contains(&w.word.to_lowercase())));
 }
 
-/// The most distinctive names, as hints for the speech model.
-pub fn hints() -> Vec<String> {
-    NAMES
-        .iter()
-        .map(|(name, _)| *name)
-        .filter(|name| !NOT_HINTS.contains(name))
-        .take(MOST_HINTS)
-        .map(str::to_string)
-        .collect()
+/// The names to give the speech model as hints at `boost`: none at Off or
+/// Light, the short list at Normal, more at Strong.
+pub fn hints(boost: crate::words::Boost) -> Vec<String> {
+    use crate::words::Boost;
+    match boost {
+        Boost::Off | Boost::Light => Vec::new(),
+        Boost::Normal => HINTS.iter().map(|h| h.to_string()).collect(),
+        Boost::Strong => HINTS
+            .iter()
+            .copied()
+            .chain(NAMES.iter().map(|(name, _)| *name).filter(|name| !NOT_HINTS.contains(name) && !HINTS.contains(name)))
+            .take(MOST_HINTS_STRONG)
+            .map(str::to_string)
+            .collect(),
+    }
 }
 
 /// Spoken forms that can only mean one name, written as that name: "type
@@ -357,12 +373,37 @@ mod tests {
 
     #[test]
     fn everyday_names_are_never_hints_for_the_speech_model() {
-        let hints = hints();
-        assert!(hints.len() <= MOST_HINTS);
-        assert!(hints.iter().any(|h| h == "Kubernetes"));
-        for everyday in ["Claude", "Go", "Rust", "Slack", "Notion"] {
-            assert!(!hints.iter().any(|h| h == everyday), "{everyday}");
+        use crate::words::Boost;
+        for boost in [Boost::Normal, Boost::Strong] {
+            let hints = hints(boost);
+            assert!(hints.len() <= MOST_HINTS_STRONG);
+            assert!(hints.iter().any(|h| h == "Kubernetes"));
+            for everyday in ["Claude", "Go", "Rust", "Slack", "Notion", "MySQL"] {
+                assert!(!hints.iter().any(|h| h == everyday), "{everyday}");
+            }
         }
+    }
+
+    #[test]
+    fn only_a_short_list_of_distinctive_names_is_hinted_by_default() {
+        use crate::words::Boost;
+        let normal = hints(Boost::Normal);
+        // Was forty names; now a handful, short enough to leave the prompt
+        // to the user's own words.
+        assert!(normal.len() <= 8, "{normal:?}");
+        assert!(normal.join(", ").len() < 100);
+        // Each is one of the names, with the ways it is misheard, so cleanup
+        // still knows them all.
+        for hint in &normal {
+            assert!(NAMES.iter().any(|(name, _)| name == hint) && !NOT_HINTS.contains(&hint.as_str()), "{hint}");
+        }
+        // Strong gives more, starting with the same few; Light and Off none.
+        let strong = hints(Boost::Strong);
+        assert!(strong.len() > normal.len() && strong.starts_with(&normal));
+        assert!(hints(Boost::Light).is_empty() && hints(Boost::Off).is_empty());
+        // Built-in names still reach cleanup by the ways they are misheard.
+        let builtin = words();
+        assert!(builtin.iter().any(|w| w.word == "MySQL" && w.heard_as.contains(&"my sequel".to_string())));
     }
 
     #[test]

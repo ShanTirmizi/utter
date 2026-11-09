@@ -25,6 +25,8 @@ export type Settings = {
   dictionary: Word[];
   /** Removed words, lower case, and removed mishearings as "cloud→claude": never learned again. */
   forgotten: string[];
+  /** How hard the speech model and cleanup lean on your words. Default "normal". */
+  vocabularyBoost: VocabularyBoost;
   /** Learn a word when you correct it in what Utter just typed. */
   learnWords: boolean;
   /** Use names and terms in the window in front as hints while dictating. */
@@ -132,6 +134,13 @@ export const listCleanupModels = () => invoke<string[]>("list_cleanup_models");
 
 // Progress reports from the dictation pipeline, sent on the "pipeline" event.
 export type Way = "accurate" | "quick";
+
+/**
+ * Off: no hints, nothing pointed out to cleanup. Light: a few of your words,
+ * taught mishearings only. Normal: your words, names on screen and a few tech
+ * names, close sound-alikes too. Strong: more of both.
+ */
+export type VocabularyBoost = "off" | "light" | "normal" | "strong";
 
 export type Dictation = {
   /** Exactly what the speech model heard. */

@@ -483,13 +483,34 @@ a dictation, would here replace the user's paragraph with "make this shorter".
 
 ## Your words
 
-The dictionary is used twice. The speech model takes it as an initial prompt
-("Glossary: ..."), which biases it towards those spellings; the cleanup model
-is told the same list is how those words are written. The reply check allows
-the listed terms, since the model may correctly introduce a spelling that the
-transcript did not contain. The list is capped (200 entries, and a character
-budget for the speech prompt) because a long prompt slows transcription and a
-huge glossary starts to be heard where it was not said.
+The dictionary is used twice. The speech model takes it as an initial prompt,
+a bare comma list ("Priya, Kubernetes, Vercel."), which biases it towards those
+spellings; the cleanup model is told each term with the ways it may be
+transcribed ("Claude (may be transcribed as cloud, clawed)"). The list is
+capped (200 entries, and a 360-character budget for the speech prompt)
+because a long prompt slows transcription and a long list starts to be heard
+where it was not said. A piece of audio that comes back as nothing but the
+hints (one alone on a breath or click, or two or more, or mostly hints) is
+the prompt written back on silence or noise, and is dropped
+(`transcribe::is_prompt_echo`).
+
+Built-in tech names (`tech.rs`) join the prompt only as a short list of
+distinctive ones (Kubernetes, Vercel and a few more); the rest reach cleanup
+only when the transcript has one of their listed mishearings ("my sequel").
+
+**Vocabulary boost** (`words::Boost`, Off, Light, Normal by default, Strong)
+sets how hard all this leans: Off sends no hints and no notes; Light sends a
+few of the user's words and points out only taught mishearings; Normal adds
+names on screen, the short tech list and distinctive sound-alikes; Strong
+adds more names and looser sound-alikes. The replay harness reads the saved
+boost and takes `--boost`.
+
+The reply check allows a listed term only where it stands for something in
+the transcript. A tidy that writes a term (the user's, a name on screen or a
+tech name) the transcript has neither as said nor in any way it may be
+transcribed is refused, and the dictation goes in as heard: models asked to
+spell names also like to put them in where nobody said them ("cursory" became
+Cursor).
 
 Each word may also carry what the speech model wrote instead ("heard as"),
 lower case. Those come from the user, from fixing a word in a past dictation,
@@ -501,10 +522,13 @@ A mishearing is usually a real word ("cloud"), so it is never replaced
 blindly. Before cleanup, `words::suspects` looks for places where one of the
 user's words may have been misheard: a taught mishearing, or a word (or two
 short ones run together, "pre a" for Priya) that shares its Soundex key with
-one of the user's words and at least half its spelling. Any hit sends the
+one of the user's words and at least half its spelling. A sound-alike must
+have at least two consonants and four letters and must not be an everyday
+English word (`common_words.txt`, about a thousand): "make" is never Maike.
+Built-in tech names are never matched by sound at all. Any hit sends the
 dictation to the cleanup model even when it would otherwise skip it as already
-clean, and the prompt names each suspect ("cloud" may be Claude) and asks the
-model to decide from the sentence and the destination. On a 4B local model
+clean, and the prompt names each suspect as a way the term may be transcribed
+and asks the model to decide from the sentence and the destination. On a 4B local model
 this put eight test sentences right, including leaving "the cloud bill" alone
 (`cargo test live_words -- --ignored`, against Ollama).
 

@@ -40,6 +40,10 @@ pub struct Settings {
     /// Words the user removed, lower case, so they are never learned or
     /// suggested again.
     pub forgotten: Vec<String>,
+    /// How hard the speech model and cleanup lean on the user's words and
+    /// the tech names Utter knows: off, light, normal (the default) or
+    /// strong. See `words::Boost`.
+    pub vocabulary_boost: crate::words::Boost,
     /// Learn a word when the user corrects it in what Utter just pasted.
     pub learn_words: bool,
     /// Use names and terms in the window in front as hints while dictating.
@@ -106,6 +110,7 @@ impl Default for Settings {
             rewrite_model: String::new(),
             dictionary: Vec::new(),
             forgotten: Vec::new(),
+            vocabulary_boost: crate::words::Boost::Normal,
             learn_words: true,
             screen_words: true,
             screen_context: false,
@@ -211,6 +216,24 @@ mod tests {
         assert!(Settings::default().quiet_globe);
         let saved: Settings = serde_json::from_str(r#"{"hotkey":"Control+Alt+Space"}"#).unwrap();
         assert_eq!(saved.hotkey, "Control+Alt+Space");
+    }
+
+    #[test]
+    fn the_vocabulary_boost_is_saved_and_old_files_load_at_normal() {
+        use crate::words::Boost;
+        // Saved before the setting existed.
+        let old: Settings = serde_json::from_str(r#"{"hotkey":"Fn","dictionary":["Priya"]}"#).unwrap();
+        assert_eq!(old.vocabulary_boost, Boost::Normal);
+        assert_eq!(old.dictionary.len(), 1);
+        for (saved, boost) in [("off", Boost::Off), ("light", Boost::Light), ("normal", Boost::Normal), ("strong", Boost::Strong)] {
+            let parsed: Settings = serde_json::from_str(&format!(r#"{{"vocabularyBoost":"{saved}"}}"#)).unwrap();
+            assert_eq!(parsed.vocabulary_boost, boost);
+            let text = serde_json::to_string(&parsed).unwrap();
+            assert!(text.contains(&format!(r#""vocabularyBoost":"{saved}""#)), "{text}");
+        }
+        // A value this version does not know costs only this setting.
+        let odd: Settings = serde_json::from_str(r#"{"vocabularyBoost":"max","hotkey":"Alt+KeyD"}"#).unwrap();
+        assert_eq!((odd.vocabulary_boost, odd.hotkey.as_str()), (Boost::Normal, "Alt+KeyD"));
     }
 
     #[test]

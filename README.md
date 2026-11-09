@@ -323,6 +323,13 @@ misheard, spelled the way you want them. Utter gives the list to the speech
 model as a hint and to the cleanup model as the correct spellings. Up to 200
 entries; a handful of the ones you actually say works best.
 
+- **Vocabulary boost.** Off, Light, Normal (the default) or Strong: how hard
+  Utter listens out for your words and puts right what sounds like them. Off
+  sends no hints; Light only a few of your words and only the mishearings you
+  taught; Strong more names and looser sound-alikes. Cleanup never adds one of
+  your words, or a tech name, that you did not say: a tidy that does goes in
+  as you said it.
+
 - **Heard as.** Tell a word what Utter writes by mistake: Claude, heard as
   "cloud". Cleanup then puts that right when the sentence is about your word
   ("ask cloud to summarise this") and leaves it alone when it is not ("the

@@ -290,7 +290,7 @@ impl Engine for Whisper {
                 let text: String = kept.iter().map(|h| h.text.as_str()).collect();
                 let text = tidy(&text);
                 if !text.is_empty()
-                    && !is_prompt_echo(&text, terms)
+                    && !is_prompt_echo(&text, terms, speech.as_ref().map(|s| s.ms))
                     && !is_echo_of(&text, &prompt)
                     && !speech::is_invented(&text, speech.as_ref(), &kept)
                 {
@@ -484,10 +484,17 @@ fn heard(segment: &WhisperSegment, end_of_text: i32, no_speech: f32) -> Heard {
     }
 }
 
-/// Did the model repeat the glossary it was shown instead of hearing speech?
-/// It can, on a stretch of noise. A real dictation neither opens with the
-/// word "Glossary" nor is exactly a run of three or more listed words.
-fn is_prompt_echo(text: &str, terms: &[String]) -> bool {
+/// Did the model write back the words it was shown instead of hearing
+/// speech? On silence, a breath or noise it often does: the whole piece comes
+/// back as one of the hints ("Kubernetes.") or a run of them ("Kubernetes,
+/// Vercel, Supabase"), or mostly that. Such a piece is dropped.
+///
+/// Two or more hints with next to nothing else is never a dictation. A
+/// single hint alone may be one ("Priya?" in a chat), so it is kept when the
+/// voice model heard at least `ONE_TERM_SPEECH_MS` of speech in the piece;
+/// `speech_ms` is `None` without a voice model, and then it is not kept.
+/// A sentence with the words in it ("Ask Priya about Kubernetes") is speech.
+fn is_prompt_echo(text: &str, terms: &[String], speech_ms: Option<u32>) -> bool {
     if terms.is_empty() {
         return false;
     }
@@ -498,17 +505,52 @@ fn is_prompt_echo(text: &str, terms: &[String]) -> bool {
             .collect()
     };
     let heard = plain(text);
+    // The prompt once opened with the word; a dictation never does.
     if heard.first().is_some_and(|w| w == "glossary") {
         return true;
     }
-    let listed: Vec<String> = terms.iter().flat_map(|t| plain(t)).collect();
-    heard.len() >= 3 && listed.windows(heard.len()).any(|run| run == heard.as_slice())
+    let listed: Vec<Vec<String>> = terms.iter().map(|t| plain(t)).filter(|t| !t.is_empty()).collect();
+    // Walk the words, taking the longest hint that starts at each.
+    let (mut hints, mut hint_words, mut other_words) = (0usize, 0usize, 0usize);
+    let mut at = 0;
+    while at < heard.len() {
+        match listed.iter().filter(|t| heard[at..].starts_with(t)).map(Vec::len).max() {
+            Some(length) => {
+                hints += 1;
+                hint_words += length;
+                at += length;
+            }
+            None => {
+                // Joining words between hints say nothing either way.
+                if !ECHO_JOINERS.contains(&heard[at].as_str()) {
+                    other_words += 1;
+                }
+                at += 1;
+            }
+        }
+    }
+    match hints {
+        0 => false,
+        1 => other_words == 0 && speech_ms.is_none_or(|ms| ms < ONE_TERM_SPEECH_MS),
+        // Mostly hints: at most one word in four is anything else.
+        _ => other_words * 4 <= hint_words + other_words,
+    }
 }
 
-/// The user's dictionary as a line of text for the speech model. The model
-/// reads only a limited amount of such text, so the list is cut to fit.
+/// Words that join a list of hints when the model writes it back.
+const ECHO_JOINERS: &[&str] = &["and", "or", "glossary"];
+
+/// Speech heard in a piece that comes back as one hint alone, below which
+/// it is taken for the hint written back: a breath or a click is shorter
+/// than any name said out loud.
+const ONE_TERM_SPEECH_MS: u32 = 600;
+
+/// The words to listen for as a line of text for the speech model: a bare
+/// list, "Priya, Kubernetes, Vercel.", cut to fit. The model reads only so
+/// much of a prompt, and the end of what was already said comes after it;
+/// a long list also makes it likelier to write the words on silence.
 pub fn glossary(terms: &[String]) -> String {
-    const BUDGET: usize = 600;
+    const BUDGET: usize = 360;
     let mut line = String::new();
     for term in terms {
         if line.len() + term.len() + 2 > BUDGET {
@@ -519,7 +561,7 @@ pub fn glossary(terms: &[String]) -> String {
         }
         line.push_str(term);
     }
-    if line.is_empty() { line } else { format!("Glossary: {line}.") }
+    if line.is_empty() { line } else { format!("{line}.") }
 }
 
 /// Longest piece of audio given to the model in one go, safely inside its
@@ -703,19 +745,47 @@ mod tests {
     #[test]
     fn the_glossary_coming_back_is_not_a_dictation() {
         let terms: Vec<String> = ["Priya", "Kubernetes", "Q3 roadmap"].iter().map(|t| t.to_string()).collect();
-        assert!(is_prompt_echo("Glossary: Priya, Kubernetes.", &terms));
-        assert!(is_prompt_echo("Priya, Kubernetes, Q3 roadmap.", &terms));
-        // Saying one of the words, or a sentence with them in it, is fine.
-        assert!(!is_prompt_echo("Priya", &terms));
-        assert!(!is_prompt_echo("Ask Priya about Kubernetes.", &terms));
-        assert!(!is_prompt_echo("Glossary: anything", &[]));
+        let speech = Some(1_500);
+        assert!(is_prompt_echo("Glossary: Priya, Kubernetes.", &terms, speech));
+        assert!(is_prompt_echo("Priya, Kubernetes, Q3 roadmap.", &terms, speech));
+        // A sentence with them in it, or a word said clearly, is speech.
+        assert!(!is_prompt_echo("Ask Priya about Kubernetes.", &terms, speech));
+        assert!(!is_prompt_echo("Priya", &terms, speech));
+        assert!(!is_prompt_echo("Glossary: anything", &[], speech));
+    }
+
+    #[test]
+    fn hints_written_back_on_silence_or_noise_are_dropped() {
+        let terms: Vec<String> =
+            ["Priya", "MySQL", "Kubernetes", "Vercel", "Supabase", "Q3 roadmap"].iter().map(|t| t.to_string()).collect();
+        // One hint on its own, from a breath or a click: little or no
+        // speech heard, or no voice model to say.
+        for heard in ["MySQL.", "Kubernetes", "  vercel!  "] {
+            assert!(is_prompt_echo(heard, &terms, Some(250)), "{heard}");
+            assert!(is_prompt_echo(heard, &terms, None), "{heard}");
+        }
+        // Two or more, however much speech: nobody dictates the list.
+        assert!(is_prompt_echo("Kubernetes, Vercel", &terms, Some(2_000)));
+        assert!(is_prompt_echo("Kubernetes, Vercel and Supabase.", &terms, Some(2_000)));
+        assert!(is_prompt_echo("Priya, MySQL, Kubernetes, Vercel, Supabase, Q3 roadmap.", &terms, Some(4_000)));
+        // Mostly the list, with a stray word.
+        assert!(is_prompt_echo("Kubernetes, Vercel, Supabase, Priya, you.", &terms, Some(2_000)));
+        // Speech that mentions them is kept.
+        assert!(!is_prompt_echo("Deploy it to Vercel.", &terms, Some(250)));
+        assert!(!is_prompt_echo("Move Kubernetes to Vercel tomorrow.", &terms, Some(2_000)));
+        assert!(!is_prompt_echo("Ask Priya about the Q3 roadmap.", &terms, Some(2_000)));
+        assert!(!is_prompt_echo("Thanks, Priya.", &terms, Some(400)));
+        // One hint, said as clearly as a word is.
+        assert!(!is_prompt_echo("Kubernetes.", &terms, Some(900)));
+        // Nothing to write back without hints.
+        assert!(!is_prompt_echo("Kubernetes.", &[], None));
     }
 
     #[test]
     fn each_piece_is_shown_the_end_of_what_came_before() {
         assert_eq!(prompt("", ""), "");
-        assert_eq!(prompt("Glossary: Priya.", ""), "Glossary: Priya.");
-        assert_eq!(prompt("Glossary: Priya.", "  so what I want  you to do is "), "Glossary: Priya. so what I want you to do is");
+        assert_eq!(prompt("Priya.", ""), "Priya.");
+        assert_eq!(prompt("Priya.", "  so what I want  you to do is "), "Priya. so what I want you to do is");
         // Only the end of a long dictation, starting at a whole word.
         let long = format!("{}the last few words", "earlier words ".repeat(40));
         let shown = prompt("", &long);
@@ -727,7 +797,7 @@ mod tests {
 
     #[test]
     fn the_end_of_the_prompt_said_back_is_not_speech() {
-        let shown = "Glossary: Priya. and then we deploy it to staging on Friday";
+        let shown = "Priya. and then we deploy it to staging on Friday";
         assert!(is_echo_of("We deploy it to staging.", shown));
         // A few words that happen to repeat, or new speech, are kept.
         assert!(!is_echo_of("On Friday.", shown));
@@ -803,9 +873,10 @@ mod tests {
     #[test]
     fn the_glossary_lists_terms_and_stays_within_budget() {
         assert_eq!(glossary(&[]), "");
-        assert_eq!(glossary(&["Priya".into(), "Kubernetes".into()]), "Glossary: Priya, Kubernetes.");
+        // A bare list: nothing for the model to write back but the words.
+        assert_eq!(glossary(&["Priya".into(), "Kubernetes".into()]), "Priya, Kubernetes.");
         let many: Vec<String> = (0..300).map(|i| format!("longterm{i}")).collect();
-        assert!(glossary(&many).len() <= 620);
+        assert!(glossary(&many).len() <= 361);
     }
 
     #[test]

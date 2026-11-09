@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { undoLearned, type Learned, type Removed, type Suggestion, type Word } from "../api";
+import { undoLearned, type Learned, type Removed, type Suggestion, type VocabularyBoost, type Word } from "../api";
 import { useApp } from "../state";
-import { IconScreen, IconSearch, IconSparkle, IconX, Notice, Switch } from "../ui";
+import { IconScreen, IconSearch, IconSparkle, IconX, Notice, Segmented, Switch } from "../ui";
 
 /** The most words the backend keeps. */
 const LIMIT = 200;
@@ -21,6 +21,14 @@ function heardForm(text: string): string {
 function forgottenPair(heard: string, word: string): string {
   return `${heardForm(heard)}→${word.trim().replace(/\s+/g, " ").toLowerCase()}`;
 }
+
+/** What each vocabulary boost does, in a line. */
+const BOOST_NOTE: Record<VocabularyBoost, string> = {
+  off: "Off, so Utter doesn’t listen out for your words. They’re still spelled your way when heard right.",
+  light: "A few of your words are listened for, and only the mishearings you’ve taught are put right.",
+  normal: "Your words, names on screen and a few tech names are listened for, and close sound-alikes are put right.",
+  strong: "More names are listened for, and looser sound-alikes are put right. Now and then an everyday word may become a name.",
+};
 
 /** "Removed today", "Removed yesterday", "Removed 12 Oct". */
 function removedWhen(at: number): string {
@@ -273,6 +281,23 @@ export default function WordsSection() {
       )}
 
       <div className="qcard tight">
+        <div className="qsw">
+          <div className="tx">
+            <b>Vocabulary boost</b>
+            <span>{BOOST_NOTE[settings.vocabularyBoost] ?? BOOST_NOTE.normal}</span>
+          </div>
+          <Segmented
+            label="Vocabulary boost"
+            value={settings.vocabularyBoost ?? "normal"}
+            onChange={(vocabularyBoost) => run(update({ vocabularyBoost }))}
+            options={[
+              { id: "off", label: "Off" },
+              { id: "light", label: "Light" },
+              { id: "normal", label: "Normal" },
+              { id: "strong", label: "Strong" },
+            ]}
+          />
+        </div>
         <div className="qsw">
           <div className="tx">
             <b>Learn from my corrections</b>
