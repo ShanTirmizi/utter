@@ -467,6 +467,17 @@ pub fn suspects(text: &str, words: &[Word]) -> Vec<Suspect> {
         }
         // A word, or two run together ("pre a" for Priya), that sounds like
         // one of the word's own longer words.
+        //
+        // Not for the built-in tech names. They are a long list the user never
+        // chose, matched against every dictation, and many sound roughly like
+        // everyday words: "myself", "muscle" and "mussel" all sound like
+        // MySQL, "hiking" like Hugging Face, "mister" like Mistral. Offered to
+        // cleanup as possible names, the model swapped them in all over
+        // ordinary dictations. A built-in name is suspected only from the
+        // ways it is really misheard, listed with it ("my sequel").
+        if entry.source == Source::Builtin {
+            continue;
+        }
         for part in own.iter().filter(|p| p.chars().count() >= 4 && p.chars().all(|c| c.is_alphabetic())) {
             let length = part.chars().count();
             for (i, one) in said.iter().enumerate() {
@@ -577,6 +588,39 @@ mod tests {
         // Cut short or made plural by a letter or two.
         assert!(sounds_alike("raghunath", "Raghunathan"));
         assert!(sounds_alike("terraforms", "Terraform"));
+    }
+
+    #[test]
+    fn built_in_names_are_suspected_only_where_said_the_way_they_are_misheard() {
+        // Everyday words that merely sound a bit like a built-in name are
+        // not that name: "myself" is not MySQL, "hiking" not Hugging Face.
+        let builtin = crate::tech::words();
+        let named = |text: &str| -> Vec<String> {
+            suspects(text, &builtin).into_iter().map(|s| format!("{} -> {}", s.heard, s.word)).collect()
+        };
+        for text in [
+            "I did it myself.",
+            "My muscles ache.",
+            "Michael said he would do it himself.",
+            "I'll do that myself later.",
+            "I'll sort it out myself tomorrow. My muscles are sore.",
+            "We had mussels for dinner.",
+            "We went hiking at the weekend.",
+            "Ask mister Jones.",
+            "I was perplexed by it.",
+            "Just a cursory look.",
+            "Post the letter.",
+        ] {
+            assert!(named(text).is_empty(), "{text}: {:?}", named(text));
+        }
+        // How a name is really misheard still points to it.
+        assert_eq!(named("Move it off my sequel."), ["my sequel -> MySQL"]);
+        assert_eq!(named("the my sql database"), ["my sql -> MySQL"]);
+        assert_eq!(named("Deploy it with cooper netties."), ["cooper netties -> Kubernetes"]);
+        // The user's own words are still matched by sound.
+        let mut own = plain(&["Mysqlo"]);
+        own[0].source = Source::Added;
+        assert_eq!(suspects("Ask mysqlow.", &own).len(), 1);
     }
 
     #[test]

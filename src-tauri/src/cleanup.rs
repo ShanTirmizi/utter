@@ -2090,6 +2090,27 @@ on Monday. Thanks. Talk soon.";
     }
 
     #[test]
+    fn everyday_words_are_never_offered_as_tech_names() {
+        // Shan's dictionary, plus the built-in tech names, as a dictation has.
+        let mut terms = plain_words(&["claude", "restyling", "haiku"]);
+        crate::tech::add_to(&mut terms);
+        for said in [
+            "I'll sort it out myself tomorrow. My muscles are sore.",
+            "I did it myself.",
+            "Michael said he would do it himself.",
+            "Honestly I think I'll just handle that myself, it's quicker that way.",
+            "We went hiking and I was perplexed by the mister at the gate.",
+        ] {
+            let note = terms_note(&terms, said);
+            assert!(!note.contains("MySQL") && !note.contains("Well-known tech names"), "{said}\n{note}");
+            assert!(!suspects(said, &terms).iter().any(|s| s.word == "MySQL"), "{said}");
+        }
+        // Said the way it is misheard, the name is still offered.
+        let note = terms_note(&terms, "We moved the database off my sequel.");
+        assert!(note.contains("\"my sequel\" may be MySQL"), "{note}");
+    }
+
+    #[test]
     fn names_on_screen_are_mentioned_only_when_something_sounds_like_them() {
         let screen = crate::screen::as_words(&["Whisperflow".into(), "Raghunathan".into()]);
         let note = terms_note(&screen, "Just a question on the whisper part.");
