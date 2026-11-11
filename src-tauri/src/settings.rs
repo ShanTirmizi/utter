@@ -14,7 +14,9 @@ use tauri::{AppHandle, Manager};
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     /// What to hold while speaking: "Fn" for the fn (globe) key on its own,
-    /// the default, or a key combination such as "Control+Alt+Space".
+    /// the default; "Fn+Control", "Fn+Alt" or "Fn+Super" for fn held
+    /// together with one other modifier; or a key combination such as
+    /// "Control+Alt+Space".
     pub hotkey: String,
     /// Run the transcript through the cleanup model when one is set up.
     pub cleanup_enabled: bool,
