@@ -3,7 +3,10 @@
 
 use crate::words::Word;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -175,23 +178,120 @@ fn path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("settings.json"))
 }
 
-/// Missing or unreadable settings fall back to defaults rather than failing
-/// startup, so a corrupt file can never lock someone out of the app.
+/// The saved settings. A missing file is a first run: the defaults, and
+/// nothing is written. A damaged one never stops the app starting, and is
+/// never written over either: it is set aside, and the copy kept from the
+/// save before is used instead, or the defaults if that is no good too.
 pub fn load(app: &AppHandle) -> Settings {
-    path(app)
-        .ok()
-        .and_then(|p| fs::read_to_string(p).ok())
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+    match path(app) {
+        Ok(file) => load_from(&file),
+        Err(e) => {
+            eprintln!("[settings] could not find the settings folder: {e}");
+            Settings::default()
+        }
+    }
 }
 
 pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
-    let file = path(app)?;
+    save_to(&path(app)?, settings)
+}
+
+/// The copy of the last good settings, kept by every save.
+fn backup_path(file: &Path) -> PathBuf {
+    sibling(file, ".bak")
+}
+
+fn sibling(file: &Path, suffix: &str) -> PathBuf {
+    let mut name = file.file_name().unwrap_or_default().to_os_string();
+    name.push(suffix);
+    file.with_file_name(name)
+}
+
+fn read(file: &Path) -> Result<Settings, String> {
+    let text = fs::read_to_string(file).map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| e.to_string())
+}
+
+pub(crate) fn load_from(file: &Path) -> Settings {
+    let problem = match fs::read_to_string(file) {
+        Ok(text) => match serde_json::from_str(&text) {
+            Ok(settings) => return settings,
+            Err(e) => e.to_string(),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Settings::default(),
+        Err(e) => e.to_string(),
+    };
+    eprintln!("[settings] {} is damaged ({problem})", file.display());
+    set_aside(file);
+
+    let backup = backup_path(file);
+    match read(&backup) {
+        Ok(settings) => {
+            eprintln!("[settings] using the copy from the save before, {}", backup.display());
+            // Put it back, so the next start finds good settings too.
+            match serde_json::to_string_pretty(&settings) {
+                Ok(text) => {
+                    if let Err(e) = crate::atomic::write(file, text.as_bytes(), None) {
+                        eprintln!("[settings] could not restore {}: {e}", file.display());
+                    }
+                }
+                Err(e) => eprintln!("[settings] could not restore {}: {e}", file.display()),
+            }
+            settings
+        }
+        Err(e) => {
+            eprintln!("[settings] no usable copy at {} ({e}); starting from the defaults", backup.display());
+            Settings::default()
+        }
+    }
+}
+
+/// Move a damaged settings file out of the way, to
+/// `settings.json.corrupt-<unix time>`, so nothing ever writes over it and
+/// it can still be looked at or recovered by hand.
+fn set_aside(file: &Path) {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut target = sibling(file, &format!(".corrupt-{seconds}"));
+    let mut n = 1;
+    while target.exists() {
+        target = sibling(file, &format!(".corrupt-{seconds}-{n}"));
+        n += 1;
+    }
+    let moved = fs::rename(file, &target).or_else(|_| {
+        // Could not move it: keep a copy and then remove it, so a later
+        // save cannot be mistaken for writing over the user's settings.
+        fs::copy(file, &target).and_then(|_| fs::remove_file(file))
+    });
+    match moved {
+        Ok(()) => {
+            crate::atomic::sync_dir(file);
+            eprintln!("[settings] kept the damaged file as {}", target.display());
+        }
+        Err(e) => eprintln!("[settings] could not set {} aside: {e}", file.display()),
+    }
+}
+
+/// Write the settings, replacing what was there: the file is written whole
+/// to a temporary file and renamed into place, so a crash mid-save leaves the
+/// old settings or the new, never half of either. The settings being
+/// replaced, if they are good, are kept first as `settings.json.bak`.
+pub(crate) fn save_to(file: &Path, settings: &Settings) -> Result<(), String> {
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    fs::write(file, text).map_err(|e| e.to_string())
+    // Only a file that loads is worth keeping: a damaged one must not
+    // replace a good copy.
+    if let Ok(previous) = fs::read(file)
+        && serde_json::from_slice::<Settings>(&previous).is_ok()
+        && let Err(e) = crate::atomic::write(&backup_path(file), &previous, None)
+    {
+        eprintln!("[settings] could not keep a copy of the settings: {e}");
+    }
+    crate::atomic::write(file, text.as_bytes(), None)
 }
 
 #[cfg(test)]
@@ -234,6 +334,128 @@ mod tests {
         // A value this version does not know costs only this setting.
         let odd: Settings = serde_json::from_str(r#"{"vocabularyBoost":"max","hotkey":"Alt+KeyD"}"#).unwrap();
         assert_eq!((odd.vocabulary_boost, odd.hotkey.as_str()), (Boost::Normal, "Alt+KeyD"));
+    }
+
+    /// A fresh, empty folder for one test.
+    fn folder(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("utter-settings-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> =
+            fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
+    fn corrupt_copies(dir: &Path) -> Vec<PathBuf> {
+        fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("settings.json.corrupt-"))
+            .collect()
+    }
+
+    fn with_words(words: &[&str]) -> Settings {
+        let list = serde_json::to_string(words).unwrap();
+        serde_json::from_str(&format!(r#"{{"dictionary":{list}}}"#)).unwrap()
+    }
+
+    fn words_of(settings: &Settings) -> Vec<String> {
+        settings.dictionary.iter().map(|w| w.word.clone()).collect()
+    }
+
+    #[test]
+    fn a_missing_file_is_a_first_run_and_nothing_is_written() {
+        let dir = folder("missing");
+        let file = dir.join("settings.json");
+        assert_eq!(load_from(&file), Settings::default());
+        assert!(names(&dir).is_empty(), "{:?}", names(&dir));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn saving_keeps_the_last_good_settings_as_a_backup() {
+        let dir = folder("save");
+        let file = dir.join("settings.json");
+        save_to(&file, &with_words(&["Priya"])).unwrap();
+        assert_eq!(names(&dir), ["settings.json"], "the first save has nothing to back up");
+        save_to(&file, &with_words(&["Priya", "Kubernetes"])).unwrap();
+        assert_eq!(names(&dir), ["settings.json", "settings.json.bak"]);
+        assert_eq!(words_of(&load_from(&file)), ["Priya", "Kubernetes"]);
+        assert_eq!(words_of(&read(&backup_path(&file)).unwrap()), ["Priya"]);
+
+        // A damaged file is never made the backup.
+        fs::write(&file, "{\"dictionary\": [").unwrap();
+        save_to(&file, &with_words(&["Ada"])).unwrap();
+        assert_eq!(words_of(&read(&backup_path(&file)).unwrap()), ["Priya"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_interrupted_save_is_recovered_from_the_backup() {
+        let dir = folder("interrupted");
+        let file = dir.join("settings.json");
+        let mut rules = with_words(&["Priya", "Kubernetes"]);
+        rules.app_rules.push(AppRule { app: "Slack".into(), lower_case: true, no_full_stop: true });
+        save_to(&file, &with_words(&["Priya"])).unwrap();
+        save_to(&file, &rules).unwrap();
+        save_to(&file, &rules).unwrap();
+
+        // A crash halfway through writing: the file cut short, and the
+        // temporary file left behind.
+        let whole = fs::read_to_string(&file).unwrap();
+        let cut = &whole[..whole.len() / 2];
+        fs::write(&file, cut).unwrap();
+        fs::write(crate::atomic::partial_path(&file), &whole[..10]).unwrap();
+
+        let loaded = load_from(&file);
+        assert_eq!(loaded, rules, "the backup's word list and app rules come back");
+        // The damaged file is kept as it was, beside the restored one.
+        let corrupt = corrupt_copies(&dir);
+        assert_eq!(corrupt.len(), 1);
+        assert_eq!(fs::read_to_string(&corrupt[0]).unwrap(), cut);
+        assert_eq!(read(&file).unwrap(), rules, "settings.json is restored from the backup");
+
+        // Saving from here works as usual and clears the leftover.
+        save_to(&file, &loaded).unwrap();
+        assert!(!crate::atomic::partial_path(&file).exists());
+        assert_eq!(load_from(&file), rules);
+        assert_eq!(corrupt_copies(&dir).len(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_damaged_file_with_no_backup_is_kept_and_not_written_over() {
+        let dir = folder("corrupt");
+        let file = dir.join("settings.json");
+        fs::write(&file, "not json at all").unwrap();
+
+        assert_eq!(load_from(&file), Settings::default());
+        let corrupt = corrupt_copies(&dir);
+        assert_eq!(corrupt.len(), 1);
+        assert_eq!(fs::read_to_string(&corrupt[0]).unwrap(), "not json at all");
+        assert!(!file.exists(), "nothing is written until a real save");
+        // Loading again does not touch the copy set aside.
+        assert_eq!(load_from(&file), Settings::default());
+        assert_eq!(corrupt_copies(&dir), corrupt);
+
+        // A damaged backup is no better than none.
+        fs::write(&file, [0xff, 0xfe, 0x00]).unwrap();
+        fs::write(backup_path(&file), "{").unwrap();
+        assert_eq!(load_from(&file), Settings::default());
+        assert_eq!(corrupt_copies(&dir).len(), 2);
+        assert!(!file.exists());
+
+        // A real save writes the file, and the damaged copies stay.
+        save_to(&file, &with_words(&["Priya"])).unwrap();
+        assert_eq!(words_of(&load_from(&file)), ["Priya"]);
+        assert_eq!(corrupt_copies(&dir).len(), 2);
+        assert_eq!(fs::read_to_string(&corrupt[0]).unwrap(), "not json at all");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

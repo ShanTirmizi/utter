@@ -3,6 +3,7 @@
 //! its own module.
 
 pub mod accuracy;
+mod atomic;
 pub mod audio;
 mod cleanup;
 mod context;

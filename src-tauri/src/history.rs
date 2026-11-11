@@ -7,7 +7,6 @@
 use crate::pipeline::Dictation;
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
 };
 use tauri::{AppHandle, Manager};
@@ -35,18 +34,16 @@ pub(crate) fn load_from(file: &Path) -> Vec<Dictation> {
 }
 
 /// Write the history, replacing what was there. Written to a temporary file
-/// first, so a crash mid-write cannot leave a half-written history behind.
+/// first and flushed to disk, so a crash mid-write cannot leave a
+/// half-written history behind.
 pub fn save(app: &AppHandle, entries: &[Dictation]) -> Result<(), String> {
     save_to(&path(app)?, entries)
 }
 
 fn save_to(file: &Path, entries: &[Dictation]) -> Result<(), String> {
-    let partial = file.with_extension("json.part");
     let text = serde_json::to_string(entries).map_err(|e| e.to_string())?;
-    fs::write(&partial, text).map_err(|e| e.to_string())?;
     // Everything the user has dictated is in here: readable by them alone.
-    fs::set_permissions(&partial, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
-    fs::rename(&partial, file).map_err(|e| e.to_string())
+    crate::atomic::write(file, text.as_bytes(), Some(0o600))
 }
 
 /// Add one dictation, dropping the oldest beyond `LIMIT`.
@@ -61,6 +58,7 @@ pub fn push(entries: &mut Vec<Dictation>, dictation: Dictation) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     fn entry(n: u64) -> Dictation {
         Dictation {
