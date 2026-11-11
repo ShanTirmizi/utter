@@ -49,39 +49,59 @@ fn get_settings(app: AppHandle) -> Settings {
     settings::load(&app)
 }
 
+/// Save a change from the window. `change` holds only the settings the user
+/// changed; they are laid over the settings as saved now, so anything Utter
+/// changed meanwhile (a word it learned, say) is kept.
 #[tauri::command]
-fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Settings, String> {
-    let previous = settings::load(&app);
-    settings.dictionary = words::clean(&settings.dictionary);
-    settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
-    settings.suggested = screen::clean_suggestions(&settings.suggested, &settings.dictionary, &settings.forgotten);
-    settings.removed = words::clean_removed(&settings.removed, &settings.dictionary, words::now());
+fn save_settings(app: AppHandle, settings: serde_json::Map<String, serde_json::Value>) -> Result<Settings, String> {
+    let change = settings;
+    // The settings before, once the hotkeys were changed, so a failed save
+    // can put them back.
+    let mut hotkeys_were: Option<Settings> = None;
+    let result = settings::update(&app, |current| {
+        let previous = current.clone();
+        let mut merged = serde_json::to_value(&previous).map_err(|e| e.to_string())?;
+        if let Some(fields) = merged.as_object_mut() {
+            fields.extend(change);
+        }
+        let mut settings: Settings = serde_json::from_value(merged).map_err(|e| e.to_string())?;
+        settings.dictionary = words::clean(&settings.dictionary);
+        settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
+        settings.suggested = screen::clean_suggestions(&settings.suggested, &settings.dictionary, &settings.forgotten);
+        settings.removed = words::clean_removed(&settings.removed, &settings.dictionary, words::now());
 
-    // Check everything that can be checked before changing anything.
-    hotkey::plan(&settings)?;
-    if settings.provider == "custom" && !settings.base_url.trim().is_empty() {
-        providers::check_base_url(&settings.base_url)?;
-    }
+        // Check everything that can be checked before changing anything.
+        hotkey::plan(&settings)?;
+        if settings.provider == "custom" && !settings.base_url.trim().is_empty() {
+            providers::check_base_url(&settings.base_url)?;
+        }
 
-    let hotkeys_changed =
-        settings.hotkey != previous.hotkey || settings.rewrite_hotkey != previous.rewrite_hotkey;
-    if hotkeys_changed {
-        // If the system refuses a hotkey, keep the old ones working and
-        // leave the saved settings untouched.
-        if let Err(e) = hotkey::register(&app, &settings) {
-            hotkey::restore(&app, &previous);
+        let hotkeys_changed =
+            settings.hotkey != previous.hotkey || settings.rewrite_hotkey != previous.rewrite_hotkey;
+        if hotkeys_changed {
+            // If the system refuses a hotkey, keep the old ones working and
+            // leave the saved settings untouched.
+            if let Err(e) = hotkey::register(&app, &settings) {
+                hotkey::restore(&app, &previous);
+                return Err(e);
+            }
+            // Both registered: whatever was wrong before no longer is.
+            hotkey::clear_problem();
+            hotkeys_were = Some(previous.clone());
+        }
+        *current = settings.clone();
+        Ok((settings, previous, hotkeys_changed))
+    });
+    let (settings, previous, hotkeys_changed) = match result {
+        Ok(saved) => saved,
+        Err(e) => {
+            // The save itself failed: what is live must match what is on disk.
+            if let Some(previous) = &hotkeys_were {
+                hotkey::restore(&app, previous);
+            }
             return Err(e);
         }
-        // Both registered: whatever was wrong before no longer is.
-        hotkey::clear_problem();
-    }
-    if let Err(e) = settings::save(&app, &settings) {
-        // What is live must match what is on disk.
-        if hotkeys_changed {
-            hotkey::restore(&app, &previous);
-        }
-        return Err(e);
-    }
+    };
 
     // A key saved for one custom service must never be sent to another. If
     // the custom base URL now points at a different host, forget the key.
@@ -356,16 +376,16 @@ pub(crate) fn remember_word(
     heard: Option<&str>,
     source: words::Source,
 ) -> Result<(Settings, words::Remembered), String> {
-    let mut settings = settings::load(app);
-    let outcome = words::remember(&mut settings.dictionary, word, heard, source);
-    if outcome == words::Remembered::Full {
-        return Err(format!("Your words are full ({} of them). Remove one to add another.", words::MAX_WORDS));
-    }
-    settings.dictionary = words::clean(&settings.dictionary);
-    settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
-    settings.suggested = screen::clean_suggestions(&settings.suggested, &settings.dictionary, &settings.forgotten);
-    settings::save(app, &settings)?;
-    Ok((settings, outcome))
+    settings::update(app, |settings| {
+        let outcome = words::remember(&mut settings.dictionary, word, heard, source);
+        if outcome == words::Remembered::Full {
+            return Err(format!("Your words are full ({} of them). Remove one to add another.", words::MAX_WORDS));
+        }
+        settings.dictionary = words::clean(&settings.dictionary);
+        settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
+        settings.suggested = screen::clean_suggestions(&settings.suggested, &settings.dictionary, &settings.forgotten);
+        Ok((settings.clone(), outcome))
+    })
 }
 
 /// Fix a misheard word in a past dictation: `wrong` becomes `right` in what
@@ -388,19 +408,20 @@ fn fix_word(app: AppHandle, finished_at: u64, wrong: String, right: String, reme
 /// Take back a learned word, or the mishearing learned for a word already
 /// there, and never learn it again.
 pub(crate) fn unlearn(app: &AppHandle, learned: &learn::Learned) -> Result<Settings, String> {
-    let mut settings = settings::load(app);
-    let lower = learned.word.to_lowercase();
-    if learned.new_word {
-        settings.dictionary.retain(|w| w.word.to_lowercase() != lower);
-        settings.forgotten.push(lower);
-    } else {
-        for word in settings.dictionary.iter_mut().filter(|w| w.word.to_lowercase() == lower) {
-            word.heard_as.retain(|h| *h != learned.heard);
+    let settings = settings::update(app, |settings| {
+        let lower = learned.word.to_lowercase();
+        if learned.new_word {
+            settings.dictionary.retain(|w| w.word.to_lowercase() != lower);
+            settings.forgotten.push(lower);
+        } else {
+            for word in settings.dictionary.iter_mut().filter(|w| w.word.to_lowercase() == lower) {
+                word.heard_as.retain(|h| *h != learned.heard);
+            }
+            settings.forgotten.push(words::forgotten_pair(&learned.heard, &learned.word));
         }
-        settings.forgotten.push(words::forgotten_pair(&learned.heard, &learned.word));
-    }
-    settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
-    settings::save(app, &settings)?;
+        settings.forgotten = words::clean_forgotten(&settings.forgotten, &settings.dictionary);
+        Ok(settings.clone())
+    })?;
     if tray::learned(app).is_some_and(|l| l.word == learned.word && l.heard == learned.heard) {
         tray::set_learned(app, None);
     }

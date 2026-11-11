@@ -1415,13 +1415,17 @@ async fn process(
 /// Note which names from the screen the user said, and tell the window about
 /// any that are now worth suggesting for Your words.
 fn suggest_from_screen(app: &AppHandle, screen: &[String], raw: &str, written: &str, app_name: &str) {
-    let mut saved = settings::load(app);
-    let fresh = crate::screen::note_used(&mut saved.suggested, screen, raw, written, app_name);
-    saved.suggested = crate::screen::clean_suggestions(&saved.suggested, &saved.dictionary, &saved.forgotten);
-    if let Err(e) = settings::save(app, &saved) {
-        eprintln!("[utter] could not save a suggestion: {e}");
-        return;
-    }
+    let fresh = match settings::update(app, |saved| {
+        let fresh = crate::screen::note_used(&mut saved.suggested, screen, raw, written, app_name);
+        saved.suggested = crate::screen::clean_suggestions(&saved.suggested, &saved.dictionary, &saved.forgotten);
+        Ok(fresh)
+    }) {
+        Ok(fresh) => fresh,
+        Err(e) => {
+            eprintln!("[utter] could not save a suggestion: {e}");
+            return;
+        }
+    };
     if !fresh.is_empty() {
         let _ = app.emit("suggested", fresh);
     }

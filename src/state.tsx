@@ -317,7 +317,7 @@ export function useAppState(): AppState | null {
     const save = async () => {
       if (!latest.current) return;
       try {
-        const stored = await saveSettings({ ...latest.current, ...change });
+        const stored = await saveSettings(change);
         latest.current = stored;
         setSettings(stored);
       } finally {

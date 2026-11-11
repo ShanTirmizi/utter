@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard},
 };
 use tauri::{AppHandle, Manager};
 
@@ -178,11 +179,25 @@ fn path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("settings.json"))
 }
 
+/// The settings as saved, held in memory once read. Every change goes
+/// through `update`, under this lock, so two changes at once (a word learned
+/// while the window saves, say) can never undo each other.
+static CURRENT: Mutex<Option<Settings>> = Mutex::new(None);
+
+fn current() -> MutexGuard<'static, Option<Settings>> {
+    CURRENT.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// The saved settings. A missing file is a first run: the defaults, and
 /// nothing is written. A damaged one never stops the app starting, and is
 /// never written over either: it is set aside, and the copy kept from the
 /// save before is used instead, or the defaults if that is no good too.
 pub fn load(app: &AppHandle) -> Settings {
+    let mut held = current();
+    held.get_or_insert_with(|| read_saved(app)).clone()
+}
+
+fn read_saved(app: &AppHandle) -> Settings {
     match path(app) {
         Ok(file) => load_from(&file),
         Err(e) => {
@@ -192,8 +207,25 @@ pub fn load(app: &AppHandle) -> Settings {
     }
 }
 
-pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
-    save_to(&path(app)?, settings)
+/// Change the settings and save them, as one step no other change can come
+/// between. `change` works on a copy: if it returns an error, or the save
+/// fails, nothing is changed. `change` must not call `load` or `update`.
+pub fn update<R>(app: &AppHandle, change: impl FnOnce(&mut Settings) -> Result<R, String>) -> Result<R, String> {
+    let file = path(app)?;
+    update_in(&CURRENT, &file, change)
+}
+
+fn update_in<R>(
+    slot: &Mutex<Option<Settings>>,
+    file: &Path,
+    change: impl FnOnce(&mut Settings) -> Result<R, String>,
+) -> Result<R, String> {
+    let mut held = slot.lock().unwrap_or_else(|e| e.into_inner());
+    let mut settings = held.get_or_insert_with(|| load_from(file)).clone();
+    let outcome = change(&mut settings)?;
+    save_to(file, &settings)?;
+    *held = Some(settings);
+    Ok(outcome)
 }
 
 /// The copy of the last good settings, kept by every save.
@@ -455,6 +487,40 @@ mod tests {
         assert_eq!(words_of(&load_from(&file)), ["Priya"]);
         assert_eq!(corrupt_copies(&dir).len(), 2);
         assert_eq!(fs::read_to_string(&corrupt[0]).unwrap(), "not json at all");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn changes_made_at_once_are_all_kept() {
+        let dir = folder("update");
+        let file = dir.join("settings.json");
+        save_to(&file, &with_words(&["Priya"])).unwrap();
+        let slot = Mutex::new(None);
+        std::thread::scope(|scope| {
+            for n in 0..8 {
+                let (slot, file) = (&slot, &file);
+                scope.spawn(move || {
+                    update_in(slot, file, |s| {
+                        s.dictionary.extend(with_words(&[&format!("Word{n}")]).dictionary);
+                        Ok(())
+                    })
+                    .unwrap()
+                });
+            }
+        });
+        let saved = words_of(&load_from(&file));
+        assert_eq!(saved.len(), 9, "{saved:?}");
+        assert_eq!(slot.lock().unwrap().as_ref().map(words_of), Some(saved));
+
+        // A change that fails leaves both the file and memory as they were.
+        let before = fs::read_to_string(&file).unwrap();
+        let failed: Result<(), String> = update_in(&slot, &file, |s| {
+            s.dictionary.clear();
+            Err("no".into())
+        });
+        assert!(failed.is_err());
+        assert_eq!(fs::read_to_string(&file).unwrap(), before);
+        assert_eq!(slot.lock().unwrap().as_ref().unwrap().dictionary.len(), 9);
         fs::remove_dir_all(&dir).unwrap();
     }
 

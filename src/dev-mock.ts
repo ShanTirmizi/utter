@@ -497,7 +497,7 @@ export function installMock() {
         case "get_settings":
           return settings;
         case "save_settings": {
-          const next = payload?.settings as Settings;
+          const next = { ...settings, ...(payload?.settings as Partial<Settings>) };
           if (fail === "hotkey" && next.hotkey !== settings.hotkey) {
             throw "macOS would not register it. Another app may be using this combination.";
           }

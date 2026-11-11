@@ -112,7 +112,9 @@ export type Provider = {
 export const providers = () => invoke<Provider[]>("providers");
 
 export const getSettings = () => invoke<Settings>("get_settings");
-export const saveSettings = (settings: Settings) =>
+// Only the settings being changed are sent: the rest are kept as saved, so
+// a word Utter learned meanwhile is never undone by an older copy.
+export const saveSettings = (settings: Partial<Settings>) =>
   invoke<Settings>("save_settings", { settings });
 
 // A key goes one way only: into the Keychain. It is never read back. Each
